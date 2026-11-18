@@ -4,13 +4,12 @@ use super::*;
 fn reservation_engine(transport: TransportKind, capacity: usize, now: Instant) -> ProtocolEngine {
     let mut configured = policy(EnvelopeKind::Raw, transport);
     configured.capacity = std::num::NonZeroUsize::new(capacity).unwrap();
-    let mut engine = ProtocolEngine::new(configured, now).unwrap();
-    for target in TargetSlot::ALL {
-        engine
-            .register_target(target, TargetPolicy::test_default())
-            .unwrap();
-    }
-    engine
+    ProtocolEngine::new(
+        configured,
+        target_policies(&TargetSlot::ALL, TargetPolicy::test_default()),
+        now,
+    )
+    .unwrap()
 }
 
 fn submit(
@@ -25,7 +24,6 @@ fn submit(
         Input::Admit {
             ticket: AdmissionTicket(ticket),
             request: inquiry_with_shape(target, shape),
-            slot: AdmissionSlot::Ordinary,
         },
         now,
         turn,
@@ -105,7 +103,6 @@ fn queued_exact_declarations_reserve_c16_independently_on_all_seven_targets() {
             Input::Admit {
                 ticket: AdmissionTicket(ticket),
                 request: command(target),
-                slot: AdmissionSlot::Ordinary,
             },
             now,
             EngineTurn::InputOnly,
@@ -206,7 +203,6 @@ fn sending_waiting_backoff_ready_and_skew_holds_keep_the_same_reservation() {
             Input::Admit {
                 ticket: AdmissionTicket(length as u64),
                 request,
-                slot: AdmissionSlot::Ordinary,
             },
             now,
         );
@@ -397,7 +393,6 @@ fn a_retry_cannot_share_its_overlap_with_a_queued_successor_at_wide_capacity() {
         Input::Admit {
             ticket: AdmissionTicket(3),
             request: disjoint,
-            slot: AdmissionSlot::Ordinary,
         },
         now,
     );

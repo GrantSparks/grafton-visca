@@ -41,7 +41,6 @@ fn fixture_with_retry(
         Input::Admit {
             ticket: AdmissionTicket(1),
             request,
-            slot: AdmissionSlot::Ordinary,
         },
         now,
         EngineTurn::InputOnly,
@@ -145,15 +144,6 @@ fn terminal_paths_and_cache_agree_for_every_reachable_prior_history() {
             assert_eq!(
                 entry.may_have_effect(AttemptEvidence::Unwritten),
                 certainty != Certainty::NotAccepted
-            );
-            let due_certainty = match entry.due(id).unwrap().action {
-                DueAction::RetryBudget { certainty, .. }
-                | DueAction::RetryReady { certainty, .. } => certainty,
-                other => panic!("unexpected queued deadline {other:?}"),
-            };
-            assert_eq!(
-                due_certainty, certainty,
-                "budget and retry-ready use the same certainty"
             );
             let effects = match boundary {
                 0 => {

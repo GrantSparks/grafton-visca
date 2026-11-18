@@ -6,10 +6,7 @@
 //! it does not own scheduling, settlement, or observer deadlines.
 
 #[cfg(any(test, feature = "test-utils"))]
-use crate::{
-    transport::{SendSemantics, TransportConfig},
-    OperationalTuning,
-};
+use crate::{transport::SendSemantics, OperationalTuning};
 
 use std::num::NonZeroUsize;
 
@@ -21,15 +18,15 @@ use crate::{
     profiles::{ProfileEnvelope, ProfileSpec},
     protocol::{
         framer::{
-            BufferOverflow, FrameScan, FramedInput, Framer, OversizedRawFrame, RawFramer,
-            SonyFramer, SonyPositionLost,
+            FrameScan, FramedInput, Framer, OversizedRawFrame, RawFramer, SonyFramer,
+            SonyPositionLost,
         },
         response::{decode_basic_for_source, BasicKind},
     },
     raw::INLINE_BYTES,
     runtime::engine::{
-        CancellationPolicy, DecodedFrame, DecodedResponse, EnvelopeKind, ProtocolPolicy,
-        TargetPolicy, TransportKind,
+        CancellationPolicy, DecodedFrame, DecodedResponse, ProtocolPolicy, TargetPolicy,
+        TransportKind, WireProtocol,
     },
     target::{PerTarget, TargetSlot},
     transport::{
@@ -37,169 +34,141 @@ use crate::{
         envelope::{
             Envelope, FrameSequence, MalformedFrame, RawVisca, SonyEncapsulated, SonyResponse,
         },
-        TransportIdentity,
+        IoBounds, TransportIdentity,
     },
     Error,
 };
 
 use super::{FrameBatch, OwnerBuffers, OwnerPolicy};
 #[cfg(any(feature = "async", feature = "blocking"))]
-use super::{OwnerReceive, RawRetention, ReceiveFatal, RetainedInput, RetainedStreamInput};
+use super::{
+    NoProgressReason, OwnerReceive, RawRetention, ReceiveFatal, RetainedInput, RetainedStreamInput,
+};
 #[cfg(any(feature = "async", feature = "blocking"))]
 use crate::transport::{HasTransportConfig, ReceiveOutcome};
 
-pub(crate) enum OwnerResponse<'a> {
-    Visca {
-        payload: &'a [u8],
-        sequence: Option<FrameSequence>,
-    },
-    SonyControl {
-        code: u16,
-    },
-}
-
-/// Associate each sealed envelope with its only valid frame grammar.
+/// Associate each sealed envelope with its framing and routing proofs.
 pub(crate) trait AdapterEnvelope: Envelope {
     type Framer: Framer;
+    type Routing: Copy;
     fn stream_rejection(rejection: <Self::Framer as Framer>::Rejection) -> StreamRejection;
-    fn datagram_rejection(rejection: <Self::Framer as Framer>::Rejection) -> ReceiveDecodeFailure;
-    fn extract_owner<'a>(
+    fn datagram_rejection(rejection: <Self::Framer as Framer>::Rejection) -> MalformedFrame;
+    fn decode_frame<'a>(
         &self,
+        routing: Self::Routing,
         framed: <Self::Framer as Framer>::Frame<'a>,
-    ) -> Result<OwnerResponse<'a>, MalformedFrame>;
+    ) -> Result<DecodedFrame, MalformedFrame>;
 }
 
 impl AdapterEnvelope for RawVisca {
     type Framer = RawFramer;
+    type Routing = Routing;
+
     fn stream_rejection(_rejection: OversizedRawFrame) -> StreamRejection {
         StreamRejection::Discard
     }
-    fn datagram_rejection(rejection: OversizedRawFrame) -> ReceiveDecodeFailure {
-        ReceiveDecodeFailure::Fatal {
-            error: rejection.into(),
-            discarded: 0,
-        }
+
+    fn datagram_rejection(_rejection: OversizedRawFrame) -> MalformedFrame {
+        MalformedFrame::DatagramOversized
     }
-    fn extract_owner<'a>(
+
+    fn decode_frame<'a>(
         &self,
+        routing: Routing,
         framed: <Self::Framer as Framer>::Frame<'a>,
-    ) -> Result<OwnerResponse<'a>, MalformedFrame> {
-        Ok(OwnerResponse::Visca {
-            payload: framed,
-            sequence: None,
-        })
+    ) -> Result<DecodedFrame, MalformedFrame> {
+        decode_visca_frame(routing, framed, None)
     }
 }
 
 impl AdapterEnvelope for SonyEncapsulated {
     type Framer = SonyFramer;
+    type Routing = SonyRouting;
+
     fn stream_rejection(rejection: SonyPositionLost) -> StreamRejection {
         StreamRejection::PositionLost(rejection.into())
     }
-    fn datagram_rejection(rejection: SonyPositionLost) -> ReceiveDecodeFailure {
+
+    fn datagram_rejection(rejection: SonyPositionLost) -> MalformedFrame {
         match rejection {
-            SonyPositionLost::InvalidHeader => MalformedFrame::InvalidSonyHeader.into(),
-            SonyPositionLost::Oversized { max_size } => ReceiveDecodeFailure::Fatal {
-                error: Error::ResponseTooLarge { max_size },
-                discarded: 0,
-            },
+            SonyPositionLost::InvalidHeader => MalformedFrame::InvalidSonyHeader,
+            SonyPositionLost::Oversized { .. } => MalformedFrame::DatagramOversized,
         }
     }
-    fn extract_owner<'a>(
+
+    fn decode_frame<'a>(
         &self,
+        routing: SonyRouting,
         framed: <Self::Framer as Framer>::Frame<'a>,
-    ) -> Result<OwnerResponse<'a>, MalformedFrame> {
+    ) -> Result<DecodedFrame, MalformedFrame> {
         match self.extract_owner_response(framed)? {
-            SonyResponse::Visca { payload, sequence } => Ok(OwnerResponse::Visca {
-                payload,
-                sequence: Some(sequence),
+            SonyResponse::Visca { payload, sequence } => {
+                decode_visca_frame(routing.visca, payload, Some(sequence))
+            }
+            SonyResponse::Control { code } => Ok(DecodedFrame {
+                target: routing.target,
+                sequence: None,
+                response: DecodedResponse::SonyControl { code },
             }),
-            SonyResponse::Control { code } => Ok(OwnerResponse::SonyControl { code }),
         }
     }
 }
 
-impl From<ProfileEnvelope> for EnvelopeKind {
-    fn from(envelope: ProfileEnvelope) -> Self {
-        match envelope {
-            ProfileEnvelope::RawVisca => Self::Raw,
-            ProfileEnvelope::SonyEncapsulated => Self::Sony,
-        }
-    }
-}
-
-/// Immutable set of camera targets which may be attributed by one transport
-/// adapter.
-///
-/// A serial response carries its source camera in the high nibble of the
-/// first byte. IP VISCA responses do not carry a routable camera source, so an
-/// IP response is attributable only when this set contains exactly one
-/// target. Keeping the set in the adapter (rather than consulting request
-/// state while decoding) prevents an unsolicited response from inheriting a
-/// configured default target.
+/// The registered targets of a raw or custom serial bus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TargetRegistry {
-    registered: PerTarget<bool>,
-    count: u8,
-}
+pub(crate) struct TargetRegistry(PerTarget<bool>);
 
 impl TargetRegistry {
-    /// Projects an already validated fixed target table into routing membership.
+    /// Projects a fixed target table into routing membership.
     pub(crate) fn from_registry<T>(targets: &PerTarget<Option<T>>) -> Self {
-        let registered = PerTarget::from_fn(|target| targets[target].is_some());
-        let count = registered
-            .iter()
-            .fold(0_u8, |count, (_, present)| count + u8::from(*present));
-        Self { registered, count }
+        Self(PerTarget::from_fn(|target| targets[target].is_some()))
     }
 
     #[cfg(test)]
-    pub(crate) fn from_targets(targets: &[TargetSlot]) -> Result<Self, Error> {
-        let table = PerTarget::from_fn(|target| targets.contains(&target).then_some(()));
-        Ok(Self::from_registry(&table))
+    fn single(target: TargetSlot) -> Self {
+        Self(PerTarget::from_fn(|candidate| candidate == target))
     }
 
-    #[cfg(test)]
-    pub(crate) fn single(target: TargetSlot) -> Result<Self, Error> {
-        Self::from_targets(&[target])
-    }
-
-    pub(crate) fn contains(self, target: TargetSlot) -> bool {
-        self.registered[target]
-    }
-
-    pub(crate) fn sole_target(self) -> Option<TargetSlot> {
-        if self.count != 1 {
-            return None;
-        }
-        self.registered
-            .iter()
-            .find_map(|(target, registered)| registered.then_some(target))
+    fn contains(self, target: TargetSlot) -> bool {
+        self.0[target]
     }
 }
 
-/// Addressing facts retained by an adapter for strict response routing.
+/// IP replies belong to one target. Serial replies name their source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RoutingState {
-    addressing: AddressingMode,
-    targets: TargetRegistry,
+pub(crate) enum Routing {
+    Ip { target: TargetSlot },
+    Serial(TargetRegistry),
 }
 
-impl RoutingState {
-    pub(crate) const fn new(addressing: AddressingMode, targets: TargetRegistry) -> Self {
-        Self {
-            addressing,
-            targets,
+impl Routing {
+    const fn addressing(self) -> AddressingMode {
+        match self {
+            Self::Ip { .. } => AddressingMode::Ip,
+            Self::Serial(_) => AddressingMode::Serial,
         }
     }
+}
 
-    pub(crate) const fn addressing(self) -> AddressingMode {
-        self.addressing
-    }
+/// Sony control replies carry no VISCA source. Its payload routing still
+/// follows the transport's addressing for ordinary VISCA replies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SonyRouting {
+    target: TargetSlot,
+    visca: Routing,
+}
 
-    pub(crate) const fn targets(self) -> TargetRegistry {
-        self.targets
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EnvelopeRouting {
+    Raw(Routing),
+    Sony(SonyRouting),
+}
+
+/// The receive topology and I/O semantics established at session preflight.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ValidatedRouting {
+    envelope: EnvelopeRouting,
+    transport: TransportKind,
 }
 
 /// Lower one immutable owner policy for a bounded set of target/profile
@@ -212,7 +181,7 @@ impl RoutingState {
 #[cfg(test)]
 pub(crate) fn owner_policy_for_targets(
     profiles: &[(TargetSlot, &ProfileSpec)],
-    config: &TransportConfig,
+    config: &IoBounds,
     semantics: SendSemantics,
 ) -> Result<OwnerPolicy, Error> {
     owner_policy_for_targets_with_tuning(
@@ -237,7 +206,7 @@ pub(crate) fn owner_policy_for_targets(
 #[cfg(test)]
 pub(crate) fn owner_policy_for_targets_with_tuning(
     profiles: &[(TargetSlot, &ProfileSpec)],
-    config: &TransportConfig,
+    config: &IoBounds,
     identity: TransportIdentity<'_>,
     tuning: crate::session_config::ValidatedTuning,
     admission_capacity: NonZeroUsize,
@@ -248,29 +217,27 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
             .iter()
             .find_map(|(key, profile)| (*key == target).then_some(*profile))
     });
+    let routing = validate_profile_registry_topology(&profiles, identity)?;
     Ok(owner_policy_for_registry_with_tuning(
         &profiles,
-        &config.validated()?,
-        identity,
+        config,
+        routing.wire(),
+        routing.transport,
         tuning,
         admission_capacity,
         strict_unconfirmed_poison,
     ))
 }
 
-pub(crate) fn owner_policy_for_registry_with_tuning(
+pub(super) fn owner_policy_for_registry_with_tuning(
     profiles: &PerTarget<Option<&ProfileSpec>>,
-    config: &crate::transport::ValidatedTransportConfig,
-    identity: TransportIdentity<'_>,
+    config: &IoBounds,
+    wire: WireProtocol,
+    transport: TransportKind,
     tuning: crate::session_config::ValidatedTuning,
     admission_capacity: NonZeroUsize,
     strict_unconfirmed_poison: bool,
 ) -> OwnerPolicy {
-    let envelope = profiles
-        .iter()
-        .find_map(|(_, profile)| profile.map(ProfileSpec::envelope))
-        .unwrap_or(ProfileEnvelope::RawVisca)
-        .into();
     let baseline = super::TuningBaseline::from_registry(profiles);
     let (command_spacing, inquiry_spacing, command_sockets) = baseline.apply(tuning);
     let mut target_policies = PerTarget::default();
@@ -285,6 +252,7 @@ pub(crate) fn owner_policy_for_registry_with_tuning(
         raw_inquiry_release_hold = raw_inquiry_release_hold.max(timing.raw_inquiry_reply_skew());
         target_policies[target] = command_sockets[target].map(|command_sockets| TargetPolicy {
             command_sockets,
+            physical_command_sockets: profile.maximum_command_sockets(),
             cancellation: if profile.supports_command_cancel() {
                 CancellationPolicy::Supported
             } else {
@@ -294,12 +262,9 @@ pub(crate) fn owner_policy_for_registry_with_tuning(
         });
     }
 
-    let transport = identity.send_semantics().into();
-
     // Every inquiry holds an ordinary admission slot. That per-target bound
     // leaves room for a Ready candidate without a separate inquiry limit; raw
     // dispatch additionally excludes overlapping inquiry declarations.
-    let wire = crate::runtime::engine::WireProtocol::new(envelope, identity.addressing());
     let mut policy = OwnerPolicy::with_targets(
         ProtocolPolicy {
             capacity: admission_capacity,
@@ -317,8 +282,7 @@ pub(crate) fn owner_policy_for_registry_with_tuning(
             // one-second cancellation ambiguity window (#712).
             raw_inquiry_release_hold,
             raw_release_grace: config
-                .read_timeout
-                .get()
+                .read_timeout()
                 .min(std::time::Duration::from_millis(100)),
             // Off by default: a raw command that can no longer be confirmed
             // fails on its own and quarantines its correlation, rather than
@@ -330,14 +294,14 @@ pub(crate) fn owner_policy_for_registry_with_tuning(
         tuning,
         baseline,
     );
-    policy.limits.receive_bytes = config.recv_buffer_size;
+    policy.limits.receive_bytes = config.receive_capacity();
     // Lower the caller's advertised read/write timeouts onto the owner policy so
     // both owners enforce them (#675): the async owner around each read,
     // because the runtime-agnostic async transports hold no timer of their own,
     // and the blocking worker as the idle span its sliced reads accumulate
     // before reporting no data (#780).
-    policy.read_timeout = config.read_timeout;
-    policy.write_timeout = config.write_timeout;
+    policy.read_timeout = config.read_timeout_bound();
+    policy.write_timeout = config.write_timeout_bound();
     policy
 }
 
@@ -380,9 +344,34 @@ impl<T, F> TransportAdapter<T, F>
 where
     T: HasTransportConfig,
 {
-    /// Build an adapter for several immutable target/profile pairs on one
-    /// physical transport; see [`AdapterFraming::for_registry`]. No transport
-    /// operation occurs here.
+    /// Build an adapter from the routing proved before protocol I/O.
+    pub(crate) fn new_with_routing(
+        transport: T,
+        profiles: &PerTarget<Option<&ProfileSpec>>,
+        routing: ValidatedRouting,
+        tuning: crate::session_config::ValidatedTuning,
+        admission_capacity: NonZeroUsize,
+        strict_unconfirmed_poison: bool,
+    ) -> (Self, OwnerPolicy) {
+        let (framing, policy) = AdapterFraming::for_registry(
+            &transport,
+            profiles,
+            routing,
+            tuning,
+            admission_capacity,
+            strict_unconfirmed_poison,
+        );
+        (
+            Self {
+                transport,
+                framing,
+                facade: std::marker::PhantomData,
+            },
+            policy,
+        )
+    }
+
+    #[cfg(test)]
     pub(crate) fn new_with_targets(
         transport: T,
         profiles: &PerTarget<Option<&ProfileSpec>>,
@@ -390,21 +379,14 @@ where
         admission_capacity: NonZeroUsize,
         strict_unconfirmed_poison: bool,
     ) -> Result<(Self, OwnerPolicy), Error> {
-        let (framing, policy) = AdapterFraming::for_registry(
-            &transport,
+        let routing = validate_profile_registry_topology(profiles, transport.identity())?;
+        Ok(Self::new_with_routing(
+            transport,
             profiles,
+            routing,
             tuning,
             admission_capacity,
             strict_unconfirmed_poison,
-        )?;
-        Ok((
-            Self {
-                transport,
-                framing,
-
-                facade: std::marker::PhantomData,
-            },
-            policy,
         ))
     }
 
@@ -444,7 +426,7 @@ impl<T, F> TransportAdapter<T, F> {
     pub(super) fn buffered(&mut self, buffers: &mut OwnerBuffers) -> Option<OwnerReceive> {
         match self.framing.drain_buffered(buffers) {
             Ok(frames) => frames.map(OwnerReceive::Frames),
-            Err(error) => Some(error.owner_receive(self.framing.transport)),
+            Err(error) => Some(error.owner_receive()),
         }
     }
 
@@ -472,12 +454,19 @@ impl<T, F> TransportAdapter<T, F> {
         read: Result<ReceiveOutcome, Error>,
     ) -> OwnerReceive {
         let decoded = match read {
-            Ok(outcome) if !outcome.is_complete() => Err(ReceiveDecodeFailure::Fatal {
-                error: Error::ResponseTooLarge {
-                    max_size: buffers.receive_mut().len(),
-                },
-                discarded: 0,
-            }),
+            Ok(outcome) if !outcome.is_complete() => {
+                return match self.framing.transport {
+                    TransportKind::Datagram => {
+                        OwnerReceive::NoProgress(NoProgressReason::MalformedDatagram)
+                    }
+                    TransportKind::Stream => OwnerReceive::Fatal(ReceiveFatal::FramingFailure {
+                        cause: Error::ResponseTooLarge {
+                            max_size: buffers.receive_mut().len(),
+                        },
+                        discarded: 0,
+                    }),
+                };
+            }
             Ok(outcome) if outcome.copied_len() == 0 => {
                 return OwnerReceive::Fatal(ReceiveFatal::TransportClosed { cause: None })
             }
@@ -486,7 +475,7 @@ impl<T, F> TransportAdapter<T, F> {
         };
         match decoded {
             Ok(frames) => OwnerReceive::Frames(frames),
-            Err(error) => error.owner_receive(self.framing.transport),
+            Err(error) => error.owner_receive(),
         }
     }
 }
@@ -508,7 +497,6 @@ impl<T, F> RetainedStreamInput for TransportAdapter<T, F> {
 #[derive(Debug)]
 pub(crate) struct AdapterFraming {
     framing: EnvelopeFraming,
-    routing: RoutingState,
     transport: TransportKind,
 }
 
@@ -518,10 +506,12 @@ enum EnvelopeFraming {
     Raw {
         envelope: RawVisca,
         framer: RawFramer,
+        routing: Routing,
     },
     Sony {
         envelope: SonyEncapsulated,
         framer: SonyFramer,
+        routing: SonyRouting,
     },
 }
 
@@ -549,52 +539,70 @@ impl AdapterFraming {
                 .iter()
                 .find_map(|(key, profile)| (*key == target).then_some(*profile))
         });
-        Self::for_registry(
+        let routing = validate_profile_registry_topology(&profiles, transport.identity())?;
+        Ok(Self::for_registry(
             transport,
             &profiles,
+            routing,
             tuning,
             admission_capacity,
             strict_unconfirmed_poison,
-        )
+        ))
     }
 
-    pub(crate) fn for_registry<T>(
+    fn for_registry<T>(
         transport: &T,
         profiles: &PerTarget<Option<&ProfileSpec>>,
+        routing: ValidatedRouting,
         tuning: crate::session_config::ValidatedTuning,
         admission_capacity: NonZeroUsize,
         strict_unconfirmed_poison: bool,
-    ) -> Result<(Self, OwnerPolicy), Error>
+    ) -> (Self, OwnerPolicy)
     where
         T: HasTransportConfig,
     {
-        let identity = transport.identity();
-        let config = transport.transport_config();
+        let config = transport.io_bounds();
+        let (framing, wire) = match routing.envelope {
+            EnvelopeRouting::Raw(routing) => {
+                let envelope = RawVisca::new(routing.addressing());
+                (
+                    EnvelopeFraming::Raw {
+                        envelope,
+                        framer: RawFramer::new(config.buffer_config()),
+                        routing,
+                    },
+                    WireProtocol::raw(envelope),
+                )
+            }
+            EnvelopeRouting::Sony(routing) => {
+                let envelope = SonyEncapsulated::new(routing.visca.addressing());
+                let wire = WireProtocol::sony(envelope.clone());
+                (
+                    EnvelopeFraming::Sony {
+                        envelope,
+                        framer: SonyFramer::new(config.buffer_config()),
+                        routing,
+                    },
+                    wire,
+                )
+            }
+        };
         let policy = owner_policy_for_registry_with_tuning(
             profiles,
             config,
-            identity,
+            wire,
+            routing.transport,
             tuning,
             admission_capacity,
             strict_unconfirmed_poison,
         );
-        let registry = TargetRegistry::from_registry(profiles);
-        let framing = match policy.protocol.wire.encoder() {
-            crate::runtime::engine::ProtocolEncoder::Raw(encoder) => EnvelopeFraming::Raw {
-                envelope: encoder.envelope(),
-                framer: RawFramer::new(config.frame_bounds()),
+        (
+            Self {
+                framing,
+                transport: routing.transport,
             },
-            crate::runtime::engine::ProtocolEncoder::Sony(encoder) => EnvelopeFraming::Sony {
-                envelope: encoder.envelope(),
-                framer: SonyFramer::new(config.frame_bounds()),
-            },
-        };
-        let framing = Self {
-            framing,
-            routing: RoutingState::new(identity.addressing(), registry),
-            transport: policy.protocol.transport,
-        };
-        Ok((framing, policy))
+            policy,
+        )
     }
 
     const fn is_stream(&self) -> bool {
@@ -629,18 +637,26 @@ impl AdapterFraming {
         received: usize,
     ) -> Result<FrameBatch, ReceiveDecodeFailure> {
         match &mut self.framing {
-            EnvelopeFraming::Raw { envelope, framer } => decode_frames_with_routing(
+            EnvelopeFraming::Raw {
                 envelope,
                 framer,
-                self.routing,
+                routing,
+            } => decode_frames_with_routing(
+                envelope,
+                framer,
+                *routing,
                 buffers,
                 received,
                 self.transport,
             ),
-            EnvelopeFraming::Sony { envelope, framer } => decode_frames_with_routing(
+            EnvelopeFraming::Sony {
                 envelope,
                 framer,
-                self.routing,
+                routing,
+            } => decode_frames_with_routing(
+                envelope,
+                framer,
+                *routing,
                 buffers,
                 received,
                 self.transport,
@@ -675,8 +691,10 @@ impl RetainedStreamInput for AdapterFraming {
             return None;
         }
         match &mut self.framing {
-            EnvelopeFraming::Raw { framer, .. } => framer
-                .retained_input(|source| response_target_for_raw_prefix(self.routing, source))
+            EnvelopeFraming::Raw {
+                framer, routing, ..
+            } => framer
+                .retained_input(|source| classify_response_source(*routing, source))
                 .map(|frame| RetainedInput::Raw(RawRetention::Framed(frame))),
             EnvelopeFraming::Sony { framer, .. } => {
                 framer.has_buffered_data().then_some(RetainedInput::Sony)
@@ -698,160 +716,135 @@ pub(crate) enum StreamRejection {
     PositionLost(Error),
 }
 
-impl From<BufferOverflow> for ReceiveDecodeFailure {
-    fn from(error: BufferOverflow) -> Self {
-        Self::Fatal {
-            error: error.into(),
-            discarded: 0,
-        }
-    }
-}
-impl From<MalformedFrame> for ReceiveDecodeFailure {
-    fn from(verdict: MalformedFrame) -> Self {
-        Self::Malformed(verdict)
-    }
-}
 impl ReceiveDecodeFailure {
-    fn with_discarded(self, count: usize) -> Self {
+    fn owner_receive(self) -> OwnerReceive {
         match self {
-            Self::Fatal { error, discarded } => Self::Fatal {
-                error,
-                discarded: discarded.saturating_add(count),
-            },
-            Self::Malformed(verdict) => Self::Malformed(verdict),
-        }
-    }
-
-    fn owner_receive(self, transport: TransportKind) -> OwnerReceive {
-        match self {
-            Self::Fatal { error, discarded } => {
-                OwnerReceive::consumed_error_with_discards(error, transport, discarded)
-            }
+            Self::Fatal { error, discarded } => OwnerReceive::Fatal(ReceiveFatal::FramingFailure {
+                cause: error,
+                discarded,
+            }),
             Self::Malformed(_verdict) => {
-                OwnerReceive::NoProgress(super::NoProgressReason::MalformedDatagram)
+                OwnerReceive::NoProgress(NoProgressReason::MalformedDatagram)
             }
         }
     }
 }
 
-/// Decode one received chunk using immutable multi-target routing state.
-pub(crate) fn decode_frames_with_routing<E: AdapterEnvelope>(
+/// Decode one received chunk using its envelope's validated routing.
+fn decode_frames_with_routing<E: AdapterEnvelope>(
     envelope: &E,
     framer: &mut E::Framer,
-    routing: RoutingState,
+    routing: E::Routing,
     buffers: &mut OwnerBuffers,
     received: usize,
-
     transport: TransportKind,
 ) -> Result<FrameBatch, ReceiveDecodeFailure> {
-    let received = crate::transport::buffer::checked_read(received, buffers.receive_mut().len())
-        .map_err(|error| ReceiveDecodeFailure::Fatal {
-            error,
-            discarded: 0,
-        })?;
     if received == 0 && (transport == TransportKind::Datagram || !framer.has_buffered_data()) {
         return Ok(FrameBatch::new());
     }
     let frame_limit = buffers.receive_bounds().frames.get();
     let mut frames = buffers.take_frames();
-    let mut discarded = 0_usize;
-    let result: Result<(), ReceiveDecodeFailure> = match transport {
-        TransportKind::Datagram => (|| {
-            let input = &buffers.receive_mut()[..received];
-            let mut offset = 0;
-            while offset < input.len() {
-                let framed = match framer.scan(&input[offset..]) {
-                    FrameScan::Complete(framed) => framed,
-                    FrameScan::NeedMore => return Err(MalformedFrame::DatagramTrailingBytes.into()),
-                    FrameScan::Rejected(rejection) => return Err(E::datagram_rejection(rejection)),
-                };
-                let Some(vacancy) = frames.vacancy() else {
-                    return Err(MalformedFrame::DatagramFrameLimit { limit: frame_limit }.into());
-                };
-                offset += framed.bytes().len();
-                if let Some(frame) = decode_frame(envelope, routing, framed)? {
-                    vacancy.fill(frame);
-                }
-            }
-            Ok(())
-        })(),
-        TransportKind::Stream => (|| {
-            framer.push_slice(&buffers.receive_mut()[..received])?;
-            while let Some(vacancy) = frames.vacancy() {
-                let Some(next) =
-                    framer.visit_next_frame(|frame| decode_frame(envelope, routing, frame))
-                else {
-                    break;
-                };
-                match next {
-                    Ok(Ok(Some(frame))) => vacancy.fill(frame),
-                    Ok(Ok(None)) => {}
-                    Ok(Err(_)) => discarded = discarded.saturating_add(1),
-                    Err(rejection) => match E::stream_rejection(rejection) {
-                        StreamRejection::Discard => discarded = discarded.saturating_add(1),
-                        StreamRejection::PositionLost(error) => {
-                            return Err(ReceiveDecodeFailure::Fatal {
-                                error,
-                                discarded: 0,
-                            });
-                        }
-                    },
-                }
-            }
-            Ok(())
-        })(),
+    let input = buffers.receive_mut();
+    let result = match transport {
+        TransportKind::Datagram => input
+            .get(..received)
+            .ok_or(MalformedFrame::DatagramOversized)
+            .and_then(|input| {
+                decode_datagram(envelope, framer, routing, input, &mut frames, frame_limit)
+            })
+            .map_err(ReceiveDecodeFailure::Malformed),
+        TransportKind::Stream => {
+            let mut discarded = 0;
+            let result = crate::transport::buffer::checked_read(received, input.len()).and_then(
+                |received| {
+                    decode_stream(
+                        envelope,
+                        framer,
+                        routing,
+                        &input[..received],
+                        &mut frames,
+                        &mut discarded,
+                    )
+                },
+            );
+            frames.discarded = discarded;
+            result.map_err(|error| ReceiveDecodeFailure::Fatal { error, discarded })
+        }
     };
     match result {
-        Ok(()) => {
-            frames.discarded = discarded;
-            Ok(frames)
-        }
+        Ok(()) => Ok(frames),
         Err(error) => {
             buffers.recycle_frames(frames);
-            Err(error.with_discarded(discarded))
+            Err(error)
         }
     }
 }
 
-fn decode_frame<'a, E: AdapterEnvelope>(
+fn decode_datagram<E: AdapterEnvelope>(
     envelope: &E,
-    routing: RoutingState,
-    framed: <E::Framer as Framer>::Frame<'a>,
-) -> Result<Option<DecodedFrame>, MalformedFrame> {
-    let (payload, sequence) = match envelope.extract_owner(framed)? {
-        OwnerResponse::Visca { payload, sequence } => (payload, sequence),
-        OwnerResponse::SonyControl { code } => {
-            let Some(target) = routing.targets().sole_target() else {
-                return Ok(None);
-            };
-            return Ok(Some(DecodedFrame {
-                target,
-                sequence: None,
-                response: DecodedResponse::SonyControl { code },
-            }));
-        }
-    };
-    let Some(target) = decode_response_target(routing, payload)? else {
-        // An IP source is ambiguous when more than one target is registered;
-        // drop it without falling back to any configured target.
-        return Ok(None);
-    };
-    if !routing.targets().contains(target) {
-        // Preserve a source-valid but unregistered serial frame as an inert
-        // frame. This keeps async receive alive while ensuring the engine
-        // cannot attribute it to any registered target or request.
-        return Ok(Some(DecodedFrame {
-            target,
-            sequence,
-            response: DecodedResponse::Unknown,
-        }));
+    framer: &E::Framer,
+    routing: E::Routing,
+    mut input: &[u8],
+    frames: &mut FrameBatch,
+    frame_limit: usize,
+) -> Result<(), MalformedFrame> {
+    while !input.is_empty() {
+        let framed = match framer.scan(input) {
+            FrameScan::Complete(framed) => framed,
+            FrameScan::NeedMore => return Err(MalformedFrame::DatagramTrailingBytes),
+            FrameScan::Rejected(rejection) => return Err(E::datagram_rejection(rejection)),
+        };
+        let Some(vacancy) = frames.vacancy() else {
+            return Err(MalformedFrame::DatagramFrameLimit { limit: frame_limit });
+        };
+        input = &input[framed.bytes().len()..];
+        vacancy.fill(envelope.decode_frame(routing, framed)?);
     }
-    let response = decode_response(target, payload)?;
-    Ok(Some(DecodedFrame {
+    Ok(())
+}
+
+fn decode_stream<E: AdapterEnvelope>(
+    envelope: &E,
+    framer: &mut E::Framer,
+    routing: E::Routing,
+    input: &[u8],
+    frames: &mut FrameBatch,
+    discarded: &mut usize,
+) -> Result<(), Error> {
+    framer.push_slice(input)?;
+    while let Some(vacancy) = frames.vacancy() {
+        let Some(next) = framer.visit_next_frame(|frame| envelope.decode_frame(routing, frame))
+        else {
+            break;
+        };
+        match next {
+            Ok(Ok(frame)) => vacancy.fill(frame),
+            Ok(Err(_)) => *discarded = discarded.saturating_add(1),
+            Err(rejection) => match E::stream_rejection(rejection) {
+                StreamRejection::Discard => *discarded = discarded.saturating_add(1),
+                StreamRejection::PositionLost(error) => return Err(error),
+            },
+        }
+    }
+    Ok(())
+}
+
+fn decode_visca_frame(
+    routing: Routing,
+    payload: &[u8],
+    sequence: Option<FrameSequence>,
+) -> Result<DecodedFrame, MalformedFrame> {
+    let target = decode_response_target(routing, payload)?;
+    let response = match routing {
+        // An unregistered serial source is valid input but cannot settle work.
+        Routing::Serial(targets) if !targets.contains(target) => DecodedResponse::Unknown,
+        Routing::Ip { .. } | Routing::Serial(_) => decode_response(target, payload)?,
+    };
+    Ok(DecodedFrame {
         target,
         sequence,
         response,
-    }))
+    })
 }
 
 /// Classify a VISCA response after the owner boundary has established its
@@ -881,97 +874,28 @@ fn decode_response(target: TargetSlot, payload: &[u8]) -> Result<DecodedResponse
     })
 }
 
-/// Strictly decode the source byte of a VISCA response.
-///
-/// `decode_basic` intentionally retains its historical broad `0x9x` header
-/// behavior for protocol compatibility. The owner boundary is stricter: serial
-/// replies use exactly `0x90`, `0xa0`, ..., `0xf0` for camera 1 through 7, while IP and
-/// Sony replies use exactly `0x90` and can be attributed only to one registered
-/// target.
+/// Decode a complete reply's source using the same rule as retained prefixes.
 pub(crate) fn decode_response_target(
-    routing: RoutingState,
+    routing: Routing,
     payload: &[u8],
-) -> Result<Option<TargetSlot>, MalformedFrame> {
-    let Some(&source) = payload.first() else {
-        return Err(MalformedFrame::InvalidSource);
-    };
-    match classify_response_source(routing, source) {
-        ResponseSource::Target(target) => Ok(Some(target)),
-        ResponseSource::Ambiguous => Ok(None),
-        ResponseSource::Invalid => Err(MalformedFrame::InvalidSource),
-    }
+) -> Result<TargetSlot, MalformedFrame> {
+    payload
+        .first()
+        .and_then(|&source| classify_response_source(routing, source))
+        .ok_or(MalformedFrame::InvalidSource)
 }
 
-/// Resolve a raw-prefix source without turning malformed input into an error.
-///
-/// An incomplete frame has no decoder context, so it must be discarded when
-/// its start cannot use the exact strict source rule that complete responses
-/// use. Returning `None` keeps both owner shells structurally unable to route
-/// an invalid prefix into `ShutdownReason::FramingFailure` (#745).
-pub(crate) fn response_target_for_raw_prefix(
-    routing: RoutingState,
-    source: u8,
-) -> Option<TargetSlot> {
-    match classify_response_source(routing, source) {
-        ResponseSource::Target(target) => Some(target),
-        ResponseSource::Ambiguous | ResponseSource::Invalid => None,
-    }
-}
-
-/// A source-byte classification shared by complete-frame decoding and the
-/// incomplete raw-prefix path.  Complete decoding preserves its established
-/// error/ambiguous behavior; prefixes convert the latter two outcomes into a
-/// discard verdict before they escape the framer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ResponseSource {
-    Target(TargetSlot),
-    Ambiguous,
-    Invalid,
-}
-
-fn classify_response_source(routing: RoutingState, source: u8) -> ResponseSource {
-    match routing.addressing() {
-        AddressingMode::Serial => {
-            // The low nibble is reserved in a serial source byte. Accept only
-            // camera sources 0x90..=0xf0 on a 0x10 boundary; 0x80/0x88 are
-            // controller/broadcast addresses and never response sources.
-            if source & 0x0f != 0 || !(0x90..=0xf0).contains(&source) {
-                return ResponseSource::Invalid;
-            }
-            let id = (source >> 4).saturating_sub(8);
-            crate::IndividualCameraId::new(id)
-                .map(TargetSlot::from)
-                .map_or(ResponseSource::Invalid, ResponseSource::Target)
+fn classify_response_source(routing: Routing, source: u8) -> Option<TargetSlot> {
+    match routing {
+        // IP replies have no routable source. All VISCA reply header bytes
+        // (0x9y..=0xFy) attribute to the preflight's sole registered target.
+        Routing::Ip { target } => (source >= 0x90).then_some(target),
+        // The low nibble is reserved on a serial bus. The high nibble gives a
+        // validated camera index after excluding controller/broadcast sources.
+        Routing::Serial(_) if source >= 0x90 && source & 0x0f == 0 => {
+            Some(TargetSlot::ALL[usize::from((source >> 4) - 9)])
         }
-        AddressingMode::Ip => {
-            // #590/#598/#681: an IP VISCA reply carries no routable camera source, so it is
-            // attributable only when exactly one target is registered. A camera configured with a
-            // non-default chain address answers with *that* address (e.g. `0xA0` for VISCA address
-            // 2) even on a single-target IP session. Attribution there is camera-blind: with one
-            // target there is nothing to disambiguate, so for exactly one registered target the
-            // engine accepts any VISCA reply source (high nibble `0x9..=0xF`) and binds it to the
-            // sole target. `decode_basic` already accepts the whole `0x9y..=0xFy` range, so the
-            // classifier that follows still reads the frame.
-            match routing.targets().sole_target() {
-                Some(target) => {
-                    if source < 0x90 {
-                        // Below `0x90` is the controller/broadcast range
-                        // (`0x80`-`0x8F`), never a reply source.
-                        return ResponseSource::Invalid;
-                    }
-                    ResponseSource::Target(target)
-                }
-                None => {
-                    // More than one target registered: an IP source cannot
-                    // disambiguate between them, so keep the strict `0x90` check
-                    // and drop anything ambiguous without guessing a target.
-                    if source != 0x90 {
-                        return ResponseSource::Invalid;
-                    }
-                    ResponseSource::Ambiguous
-                }
-            }
-        }
+        Routing::Serial(_) => None,
     }
 }
 
@@ -988,16 +912,7 @@ pub(crate) fn validate_profile_transport(
     if profile.transports().supports(standard) {
         return Ok(());
     }
-    let kind = standard.configuration_kind();
-    if let Some(profile_id) = profile.capabilities().profile_id {
-        return Err(Error::UnsupportedTransport {
-            profile: profile_id,
-            transport: kind,
-        });
-    }
-    Err(Error::InvalidRequest {
-        reason: format!("profile does not support {kind} transport").into(),
-    })
+    Err(Error::unsupported_transport(profile, standard))
 }
 
 /// Validate the immutable topology of a profile registry against one
@@ -1012,35 +927,64 @@ pub(crate) fn validate_profile_transport(
 pub(crate) fn validate_profile_registry_topology(
     profiles: &PerTarget<Option<&ProfileSpec>>,
     identity: TransportIdentity<'_>,
-) -> Result<(), Error> {
-    if profiles
+) -> Result<ValidatedRouting, Error> {
+    let transport = identity.send_semantics().into();
+    let mut entries = profiles
         .iter()
-        .filter(|(_, profile)| profile.is_some())
-        .count()
-        <= 1
-    {
-        return Ok(());
+        .filter_map(|(target, profile)| profile.map(|profile| (target, profile)))
+        .peekable();
+    let (target, first) = entries.next().ok_or_else(|| Error::InvalidRequest {
+        reason: "session requires at least one registered target".into(),
+    })?;
+    let addressing = identity.addressing();
+    let envelope = if entries.peek().is_some() {
+        if matches!(identity, TransportIdentity::Tcp | TransportIdentity::Udp) {
+            return Err(Error::FeatureNotSupported {
+                feature: "multiple VISCA targets over TCP or UDP",
+            });
+        }
+        if first.envelope() != ProfileEnvelope::RawVisca
+            || entries.any(|(_, profile)| profile.envelope() != ProfileEnvelope::RawVisca)
+        {
+            return Err(Error::FeatureNotSupported {
+                feature: "multiple VISCA targets with Sony encapsulation",
+            });
+        }
+        if addressing != AddressingMode::Serial {
+            return Err(Error::FeatureNotSupported {
+                feature: "multiple VISCA targets without serial addressing",
+            });
+        }
+        EnvelopeRouting::Raw(Routing::Serial(TargetRegistry::from_registry(profiles)))
+    } else {
+        let routing = match addressing {
+            AddressingMode::Ip => Routing::Ip { target },
+            AddressingMode::Serial => Routing::Serial(TargetRegistry::from_registry(profiles)),
+        };
+        match first.envelope() {
+            ProfileEnvelope::RawVisca => EnvelopeRouting::Raw(routing),
+            ProfileEnvelope::SonyEncapsulated => EnvelopeRouting::Sony(SonyRouting {
+                target,
+                visca: routing,
+            }),
+        }
+    };
+    Ok(ValidatedRouting {
+        envelope,
+        transport,
+    })
+}
+
+#[cfg(test)]
+impl ValidatedRouting {
+    pub(super) fn wire(self) -> WireProtocol {
+        match self.envelope {
+            EnvelopeRouting::Raw(routing) => WireProtocol::raw(RawVisca::new(routing.addressing())),
+            EnvelopeRouting::Sony(routing) => {
+                WireProtocol::sony(SonyEncapsulated::new(routing.visca.addressing()))
+            }
+        }
     }
-    if matches!(identity, TransportIdentity::Tcp | TransportIdentity::Udp) {
-        return Err(Error::FeatureNotSupported {
-            feature: "multiple VISCA targets over TCP or UDP",
-        });
-    }
-    if profiles
-        .iter()
-        .filter_map(|(_, profile)| *profile)
-        .any(|profile| profile.envelope() != ProfileEnvelope::RawVisca)
-    {
-        return Err(Error::FeatureNotSupported {
-            feature: "multiple VISCA targets with Sony encapsulation",
-        });
-    }
-    if identity.addressing() != AddressingMode::Serial {
-        return Err(Error::FeatureNotSupported {
-            feature: "multiple VISCA targets without serial addressing",
-        });
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -1050,7 +994,7 @@ mod tests {
     use crate::{
         profiles::ProfileSpec,
         profiles::{GenericVisca, PtzOpticsG2, SonyFr7},
-        runtime::engine::DecodedResponse,
+        runtime::engine::{DecodedResponse, EnvelopeKind},
         runtime::owner::OwnerLimits,
         transport::envelope::{RawVisca, SonyEncapsulated},
     };
@@ -1103,21 +1047,12 @@ mod tests {
     }
 
     fn all_targets() -> TargetRegistry {
-        TargetRegistry::from_targets(&[
-            TargetSlot::CAMERA_1,
-            TargetSlot::CAMERA_2,
-            TargetSlot::CAMERA_3,
-            TargetSlot::CAMERA_4,
-            TargetSlot::CAMERA_5,
-            TargetSlot::CAMERA_6,
-            TargetSlot::CAMERA_7,
-        ])
-        .unwrap()
+        TargetRegistry::from_registry(&PerTarget::from_fn(|_| Some(())))
     }
 
     #[test]
     fn serial_source_bytes_map_exactly_to_all_seven_targets() {
-        let routing = RoutingState::new(AddressingMode::Serial, all_targets());
+        let routing = Routing::Serial(all_targets());
         for (source, expected) in [
             (0x90, TargetSlot::CAMERA_1),
             (0xa0, TargetSlot::CAMERA_2),
@@ -1129,44 +1064,70 @@ mod tests {
         ] {
             assert!(matches!(
                 decode_response_target(routing, &[source]),
-                Ok(Some(actual)) if actual == expected
+                Ok(actual) if actual == expected
             ));
         }
     }
 
     #[test]
     fn sony_control_reply_is_inert_but_preserves_its_diagnostic_code() {
-        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
-        let routing = RoutingState::new(
-            AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
-        );
-        let framed = Bytes::from_static(&[
+        let target = TargetSlot::CAMERA_2;
+        let profile = ProfileSpec::from_compile_time::<SonyFr7>().unwrap();
+        let profiles = PerTarget::from_fn(|slot| (slot == target).then_some(&profile));
+        let control = Bytes::from_static(&[
             0x02, 0x01, // control reply
             0x00, 0x02, // two-byte payload
             0x12, 0x34, 0x56, 0x78, // ignored control sequence
             0x0F, 0x01, // sequence-number error
         ]);
+        let visca = [0x01, 0x11, 0, 3, 0, 0, 0, 1, 0x90, 0x41, 0xff];
 
-        let FrameScan::Complete(framed) =
-            SonyFramer::new(crate::transport::BufferConfig::for_udp()).scan(&framed)
-        else {
-            panic!("valid control packet");
-        };
-        let decoded = decode_frame(&envelope, routing, framed)
-            .expect("valid Sony control reply")
-            .expect("sole-target Sony reply");
-        assert_eq!(decoded.target, TargetSlot::CAMERA_1);
-        assert_eq!(decoded.sequence, None);
-        assert_eq!(
-            decoded.response,
-            DecodedResponse::SonyControl { code: 0x0F01 }
-        );
+        for addressing in [AddressingMode::Ip, AddressingMode::Serial] {
+            let validated = validate_profile_registry_topology(
+                &profiles,
+                TransportIdentity::Custom {
+                    semantics: SendSemantics::Stream,
+                    addressing,
+                },
+            )
+            .expect("a single Sony target");
+            let EnvelopeRouting::Sony(routing) = validated.envelope else {
+                panic!("Sony routing");
+            };
+            let envelope = SonyEncapsulated::new(addressing);
+            let framer = SonyFramer::new(crate::transport::BufferConfig::for_udp());
+            let FrameScan::Complete(framed) = framer.scan(&control) else {
+                panic!("valid control packet");
+            };
+            let decoded = envelope
+                .decode_frame(routing, framed)
+                .expect("valid Sony control reply");
+            assert_eq!(decoded.target, target);
+            assert_eq!(decoded.sequence, None);
+            assert_eq!(
+                decoded.response,
+                DecodedResponse::SonyControl { code: 0x0F01 }
+            );
+
+            let FrameScan::Complete(framed) = framer.scan(&visca) else {
+                panic!("valid VISCA packet");
+            };
+            let decoded = envelope
+                .decode_frame(routing, framed)
+                .expect("valid Sony ACK");
+            match addressing {
+                AddressingMode::Ip => assert_eq!(decoded.target, target),
+                AddressingMode::Serial => {
+                    assert_eq!(decoded.target, TargetSlot::CAMERA_1);
+                    assert_eq!(decoded.response, DecodedResponse::Unknown);
+                }
+            }
+        }
     }
 
     #[test]
     fn serial_source_rejects_low_nibble_non_camera_and_broadcast_bytes() {
-        let routing = RoutingState::new(AddressingMode::Serial, all_targets());
+        let routing = Routing::Serial(all_targets());
         for source in [0x00, 0x70, 0x80, 0x88, 0x91, 0xa1, 0xff] {
             assert!(
                 decode_response_target(routing, &[source]).is_err(),
@@ -1178,10 +1139,8 @@ mod tests {
     #[test]
     fn camera_two_ack_and_error_retain_source_and_socket() {
         let envelope = RawVisca::new(AddressingMode::Serial);
-        let routing = RoutingState::new(AddressingMode::Serial, all_targets());
-        let ack = decode_frame(&envelope, routing, &[0xa0, 0x42, 0xff])
-            .unwrap()
-            .unwrap();
+        let routing = Routing::Serial(all_targets());
+        let ack = envelope.decode_frame(routing, &[0xa0, 0x42, 0xff]).unwrap();
         assert_eq!(ack.target, TargetSlot::CAMERA_2);
         assert!(matches!(
             ack.response,
@@ -1190,8 +1149,8 @@ mod tests {
             }
         ));
 
-        let error = decode_frame(&envelope, routing, &[0xa0, 0x61, 0x04, 0xff])
-            .unwrap()
+        let error = envelope
+            .decode_frame(routing, &[0xa0, 0x61, 0x04, 0xff])
             .unwrap();
         assert_eq!(error.target, TargetSlot::CAMERA_2);
         assert!(matches!(
@@ -1213,20 +1172,17 @@ mod tests {
     #[test]
     fn ip_single_target_attributes_any_reply_source_to_the_sole_target() {
         let envelope = RawVisca::new(AddressingMode::Ip);
-        let routing = RoutingState::new(
-            AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::CAMERA_2).unwrap(),
-        );
+        let routing = Routing::Ip {
+            target: TargetSlot::CAMERA_2,
+        };
         // The default `0x90` reply attributes to the sole target.
-        let default_source = decode_frame(&envelope, routing, &[0x90, 0x42, 0xff])
-            .unwrap()
-            .unwrap();
+        let default_source = envelope.decode_frame(routing, &[0x90, 0x42, 0xff]).unwrap();
         assert_eq!(default_source.target, TargetSlot::CAMERA_2);
         // A camera answering with its chain address `0xA0` still attributes to
         // the sole target, and its ACK still classifies (socket S2).
-        let chain_source = decode_frame(&envelope, routing, &[0xa0, 0x42, 0xff])
-            .expect("a chain-address reply on a single-target IP session is not a decode failure")
-            .expect("a single-target IP session attributes any reply source");
+        let chain_source = envelope
+            .decode_frame(routing, &[0xa0, 0x42, 0xff])
+            .expect("a chain-address reply on a single-target IP session is not a decode failure");
         assert_eq!(chain_source.target, TargetSlot::CAMERA_2);
         assert!(matches!(
             chain_source.response,
@@ -1235,40 +1191,14 @@ mod tests {
             }
         ));
         // A controller/broadcast lead byte is never a reply source.
-        assert!(decode_frame(&envelope, routing, &[0x80, 0x42, 0xff]).is_err());
-    }
-
-    /// The strict `0x90` check is retained when more than one target is
-    /// registered: an IP source cannot disambiguate between targets there, so a
-    /// non-`0x90` source is rejected and a bare `0x90` is dropped without
-    /// guessing a target (this configuration is rejected at session construction,
-    /// so the branch is defensive).
-    #[test]
-    fn ip_multi_target_keeps_the_strict_source_check() {
-        let envelope = RawVisca::new(AddressingMode::Ip);
-        let routing = RoutingState::new(
-            AddressingMode::Ip,
-            TargetRegistry::from_targets(&[TargetSlot::CAMERA_1, TargetSlot::CAMERA_2]).unwrap(),
-        );
-        // A bare `0x90` reply is ambiguous across the registered targets: it is
-        // dropped (Ok(None)) rather than attributed to a guessed target.
-        assert!(decode_frame(&envelope, routing, &[0x90, 0x41, 0xff])
-            .unwrap()
-            .is_none());
-        // A non-`0x90` source stays a hard error with more than one target.
-        assert!(decode_frame(&envelope, routing, &[0xa0, 0x41, 0xff]).is_err());
+        assert!(envelope.decode_frame(routing, &[0x80, 0x42, 0xff]).is_err());
     }
 
     #[test]
     fn valid_unregistered_serial_source_becomes_inert_unknown_frame() {
         let envelope = RawVisca::new(AddressingMode::Serial);
-        let routing = RoutingState::new(
-            AddressingMode::Serial,
-            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
-        );
-        let frame = decode_frame(&envelope, routing, &[0xa0, 0x42, 0xff])
-            .unwrap()
-            .unwrap();
+        let routing = Routing::Serial(TargetRegistry::single(TargetSlot::CAMERA_1));
+        let frame = envelope.decode_frame(routing, &[0xa0, 0x42, 0xff]).unwrap();
         assert_eq!(frame.target, TargetSlot::CAMERA_2);
         assert!(matches!(frame.response, DecodedResponse::Unknown));
     }
@@ -1279,31 +1209,28 @@ mod tests {
     #[test]
     fn socketless_ack_and_completion_decode_without_a_socket() {
         let envelope = RawVisca::new(AddressingMode::Ip);
-        let routing = RoutingState::new(
-            AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
-        );
-        let ack = decode_frame(&envelope, routing, &[0x90, 0x40, 0xff])
-            .expect("a socketless ACK is not a decode failure")
-            .expect("a socketless ACK is attributable");
+        let routing = Routing::Ip {
+            target: TargetSlot::CAMERA_1,
+        };
+        let ack = envelope
+            .decode_frame(routing, &[0x90, 0x40, 0xff])
+            .expect("a socketless ACK is not a decode failure");
         assert_eq!(ack.target, TargetSlot::CAMERA_1);
         assert!(matches!(
             ack.response,
             DecodedResponse::Ack { socket: None }
         ));
 
-        let completion = decode_frame(&envelope, routing, &[0x90, 0x50, 0xff])
-            .expect("a socketless completion is not a decode failure")
-            .expect("a socketless completion is attributable");
+        let completion = envelope
+            .decode_frame(routing, &[0x90, 0x50, 0xff])
+            .expect("a socketless completion is not a decode failure");
         assert!(matches!(
             completion.response,
             DecodedResponse::Completion { socket: None }
         ));
 
         // The socket nibble is still carried through when the camera sends one.
-        let acked = decode_frame(&envelope, routing, &[0x90, 0x42, 0xff])
-            .unwrap()
-            .unwrap();
+        let acked = envelope.decode_frame(routing, &[0x90, 0x42, 0xff]).unwrap();
         assert!(matches!(
             acked.response,
             DecodedResponse::Ack {
@@ -1317,10 +1244,9 @@ mod tests {
     #[test]
     fn malformed_frames_are_still_rejected() {
         let envelope = RawVisca::new(AddressingMode::Ip);
-        let routing = RoutingState::new(
-            AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
-        );
+        let routing = Routing::Ip {
+            target: TargetSlot::CAMERA_1,
+        };
         for frame in [
             // Too short to be any VISCA response.
             &[0x90, 0xff][..],
@@ -1328,21 +1254,20 @@ mod tests {
             &[0x90, 0x61, 0xff][..],
         ] {
             assert!(
-                decode_frame(&envelope, routing, frame).is_err(),
+                envelope.decode_frame(routing, frame).is_err(),
                 "{frame:02x?} must remain a decode failure"
             );
         }
         // A controller address is never a response source.
-        assert!(decode_frame(&envelope, routing, &[0x80, 0x40, 0xff]).is_err());
+        assert!(envelope.decode_frame(routing, &[0x80, 0x40, 0xff]).is_err());
     }
 
     #[test]
     fn an_overreported_read_keeps_counts_and_is_fatal_on_a_stream() {
         let envelope = RawVisca::new(AddressingMode::Ip);
-        let routing = RoutingState::new(
-            AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
-        );
+        let routing = Routing::Ip {
+            target: TargetSlot::CAMERA_1,
+        };
         let mut framer = RawFramer::new_with_limits(32, 32, 32);
         let mut buffers = OwnerBuffers::new(OwnerLimits {
             frames_per_receive: NonZeroUsize::new(4).unwrap(),
@@ -1359,17 +1284,16 @@ mod tests {
         )
         .unwrap_err();
         assert!(
-            matches!(failure.owner_receive(TransportKind::Stream), OwnerReceive::Fatal(ReceiveFatal::FramingFailure { cause: Error::BufferTooSmall { required, actual }, discarded: 0 }) if required == capacity + 1 && actual == capacity)
+            matches!(failure.owner_receive(), OwnerReceive::Fatal(ReceiveFatal::FramingFailure { cause: Error::BufferTooSmall { required, actual }, discarded: 0 }) if required == capacity + 1 && actual == capacity)
         );
     }
 
     #[test]
     fn datagram_partial_bytes_are_discarded_before_the_next_datagram() {
         let envelope = RawVisca::new(AddressingMode::Ip);
-        let routing = RoutingState::new(
-            AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
-        );
+        let routing = Routing::Ip {
+            target: TargetSlot::CAMERA_1,
+        };
         let mut framer = RawFramer::new_with_limits(32, 32, 32);
         let mut buffers = OwnerBuffers::new(OwnerLimits {
             frames_per_receive: NonZeroUsize::new(4).unwrap(),
@@ -1409,10 +1333,9 @@ mod tests {
     #[test]
     fn datagram_frame_batch_overflow_discards_the_whole_datagram() {
         let envelope = RawVisca::new(AddressingMode::Ip);
-        let routing = RoutingState::new(
-            AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
-        );
+        let routing = Routing::Ip {
+            target: TargetSlot::CAMERA_1,
+        };
         let mut framer = RawFramer::new_with_limits(32, 32, 32);
         let mut buffers = OwnerBuffers::new(OwnerLimits {
             frames_per_receive: NonZeroUsize::new(1).unwrap(),
@@ -1455,10 +1378,9 @@ mod tests {
     #[test]
     fn stream_cumulative_framer_overflow_is_reported_without_resync() {
         let envelope = RawVisca::new(AddressingMode::Ip);
-        let routing = RoutingState::new(
-            AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
-        );
+        let routing = Routing::Ip {
+            target: TargetSlot::CAMERA_1,
+        };
         let mut framer = RawFramer::new_with_limits(8, 32, 5);
         let mut buffers = OwnerBuffers::new(OwnerLimits {
             frames_per_receive: NonZeroUsize::new(4).unwrap(),
@@ -1497,10 +1419,12 @@ mod tests {
     #[test]
     fn malformed_discards_survive_a_later_fatal_error_in_the_same_stream_batch() {
         let envelope = SonyEncapsulated::new(AddressingMode::Ip);
-        let routing = RoutingState::new(
-            AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
-        );
+        let routing = SonyRouting {
+            target: TargetSlot::CAMERA_1,
+            visca: Routing::Ip {
+                target: TargetSlot::CAMERA_1,
+            },
+        };
         let mut framer = SonyFramer::new_with_limits(64, 16, 64);
         let mut buffers = OwnerBuffers::new(OwnerLimits {
             frames_per_receive: NonZeroUsize::new(8).unwrap(),
@@ -1532,7 +1456,7 @@ mod tests {
             }
         ));
         assert!(matches!(
-            failure.owner_receive(TransportKind::Stream),
+            failure.owner_receive(),
             OwnerReceive::Fatal(ReceiveFatal::FramingFailure { discarded: 3, .. })
         ));
         let recycled = buffers.take_frames();
@@ -1550,10 +1474,9 @@ mod tests {
     #[test]
     fn stream_malformed_frame_is_discarded_and_counted_not_poisoned() {
         let envelope = RawVisca::new(AddressingMode::Ip);
-        let routing = RoutingState::new(
-            AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
-        );
+        let routing = Routing::Ip {
+            target: TargetSlot::CAMERA_1,
+        };
         let mut framer = RawFramer::new_with_limits(64, 64, 64);
         let mut buffers = OwnerBuffers::new(OwnerLimits {
             frames_per_receive: NonZeroUsize::new(8).unwrap(),
@@ -1592,10 +1515,9 @@ mod tests {
     #[test]
     fn datagram_malformed_frame_still_discards_the_whole_datagram() {
         let envelope = RawVisca::new(AddressingMode::Ip);
-        let routing = RoutingState::new(
-            AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
-        );
+        let routing = Routing::Ip {
+            target: TargetSlot::CAMERA_1,
+        };
         let mut framer = RawFramer::new_with_limits(64, 64, 64);
         let mut buffers = OwnerBuffers::new(OwnerLimits {
             frames_per_receive: NonZeroUsize::new(8).unwrap(),
@@ -1626,10 +1548,9 @@ mod tests {
     #[test]
     fn stream_over_limit_stops_at_limit_and_buffers_remainder() {
         let envelope = RawVisca::new(AddressingMode::Ip);
-        let routing = RoutingState::new(
-            AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
-        );
+        let routing = Routing::Ip {
+            target: TargetSlot::CAMERA_1,
+        };
         let mut framer = RawFramer::new_with_limits(64, 64, 64);
         let mut buffers = OwnerBuffers::new(OwnerLimits {
             frames_per_receive: NonZeroUsize::new(2).unwrap(),
@@ -1676,10 +1597,9 @@ mod tests {
     #[test]
     fn stream_exactly_frame_limit_decodes_all_and_buffers_nothing() {
         let envelope = RawVisca::new(AddressingMode::Ip);
-        let routing = RoutingState::new(
-            AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
-        );
+        let routing = Routing::Ip {
+            target: TargetSlot::CAMERA_1,
+        };
         let mut framer = RawFramer::new_with_limits(64, 64, 64);
         let mut buffers = OwnerBuffers::new(OwnerLimits {
             frames_per_receive: NonZeroUsize::new(2).unwrap(),
@@ -1708,9 +1628,7 @@ mod tests {
             (TargetSlot::CAMERA_1, &profile),
             (TargetSlot::CAMERA_2, &profile),
         ];
-        let config = TransportConfig {
-            ..TransportConfig::default()
-        };
+        let config = IoBounds::default();
         let policy = owner_policy_for_targets(&profiles, &config, SendSemantics::Stream).unwrap();
         assert!(policy.targets[TargetSlot::CAMERA_1].is_some());
         assert!(policy.targets[TargetSlot::CAMERA_2].is_some());
@@ -1730,7 +1648,7 @@ mod tests {
         let raw_profiles = [(TargetSlot::CAMERA_1, &raw)];
         let sony_profiles = [(TargetSlot::CAMERA_1, &sony)];
         let capacity = NonZeroUsize::new(3).unwrap();
-        let config = TransportConfig::default();
+        let config = IoBounds::default();
 
         let raw_policy = owner_policy_for_targets_with_tuning(
             &raw_profiles,
@@ -1771,9 +1689,7 @@ mod tests {
             (TargetSlot::CAMERA_1, &relaxed),
             (TargetSlot::CAMERA_2, &strict),
         ];
-        let config = TransportConfig {
-            ..TransportConfig::default()
-        };
+        let config = IoBounds::default();
         let policy = owner_policy_for_targets(&profiles, &config, SendSemantics::Stream).unwrap();
         assert_eq!(
             policy.protocol.command_spacing,
@@ -1789,13 +1705,12 @@ mod tests {
     fn buffer_policy_accepts_equal_receive_and_maximum_sizes() {
         let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
         let profiles = [(TargetSlot::CAMERA_1, &profile)];
-        let config = TransportConfig {
-            buffer_config: crate::transport::BufferConfig {
+        let config = IoBounds::default()
+            .with_buffer_config(crate::transport::BufferConfig {
                 recv_buffer_size: 64,
                 max_buffer_size: 64,
-            },
-            ..TransportConfig::default()
-        };
+            })
+            .unwrap();
 
         for semantics in [SendSemantics::Datagram, SendSemantics::Stream] {
             let policy = owner_policy_for_targets(&profiles, &config, semantics)
@@ -1808,13 +1723,12 @@ mod tests {
     fn minimum_validated_receive_storage_retains_its_checked_bounds() {
         let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
         let minimum = crate::transport::BufferConfig::MIN_RECV_BUFFER_SIZE;
-        let config = TransportConfig {
-            buffer_config: crate::transport::BufferConfig {
+        let config = IoBounds::default()
+            .with_buffer_config(crate::transport::BufferConfig {
                 recv_buffer_size: minimum,
                 max_buffer_size: minimum,
-            },
-            ..TransportConfig::default()
-        };
+            })
+            .unwrap();
         for semantics in [SendSemantics::Stream, SendSemantics::Datagram] {
             let policy =
                 owner_policy_for_targets(&[(TargetSlot::CAMERA_1, &profile)], &config, semantics)
@@ -1829,35 +1743,14 @@ mod tests {
     }
 
     #[test]
-    fn buffer_policy_rejects_receive_size_larger_than_maximum() {
-        let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
-        let profiles = [(TargetSlot::CAMERA_1, &profile)];
-        let config = TransportConfig {
-            buffer_config: crate::transport::BufferConfig {
-                recv_buffer_size: 65,
-                max_buffer_size: 64,
-            },
-            ..TransportConfig::default()
-        };
-
-        for semantics in [SendSemantics::Datagram, SendSemantics::Stream] {
-            let error = owner_policy_for_targets(&profiles, &config, semantics)
-                .expect_err("receive size larger than maximum must be rejected");
-            assert!(matches!(
-                error,
-                Error::InvalidRequest { reason: message }
-                    if message.as_ref() == "transport receive buffer cannot exceed maximum buffer"
-            ));
-        }
-    }
-
-    #[test]
     fn invalid_sony_headers_are_terminal_on_streams_and_classified_on_datagrams() {
         let envelope = SonyEncapsulated::new(AddressingMode::Ip);
-        let routing = RoutingState::new(
-            AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
-        );
+        let routing = SonyRouting {
+            target: TargetSlot::CAMERA_1,
+            visca: Routing::Ip {
+                target: TargetSlot::CAMERA_1,
+            },
+        };
         for transport in [TransportKind::Stream, TransportKind::Datagram] {
             let mut framer = SonyFramer::new_with_limits(64, 64, 128);
             let mut buffers = OwnerBuffers::new(OwnerLimits::default());
@@ -1891,10 +1784,9 @@ mod tests {
     #[test]
     fn datagram_decoding_neither_copies_into_nor_clears_stream_storage() {
         let envelope = RawVisca::new(AddressingMode::Ip);
-        let routing = RoutingState::new(
-            AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
-        );
+        let routing = Routing::Ip {
+            target: TargetSlot::CAMERA_1,
+        };
         let mut framer = RawFramer::new_with_limits(64, 64, 128);
         framer.push_slice(&[0x90]).unwrap();
         let mut buffers = OwnerBuffers::new(OwnerLimits {
@@ -1943,7 +1835,7 @@ impl std::panic::RefUnwindSafe for ReceiveProbe {}
 
 #[cfg(feature = "test-utils")]
 #[derive(Debug)]
-struct ProbeConfig(crate::transport::ValidatedTransportConfig, SendSemantics);
+struct ProbeConfig(IoBounds, SendSemantics);
 
 #[cfg(feature = "test-utils")]
 impl HasTransportConfig for ProbeConfig {
@@ -1954,7 +1846,7 @@ impl HasTransportConfig for ProbeConfig {
         }
     }
 
-    fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
+    fn io_bounds(&self) -> &IoBounds {
         &self.0
     }
 }
@@ -1963,10 +1855,10 @@ impl HasTransportConfig for ProbeConfig {
 impl ReceiveProbe {
     pub(crate) fn new(
         profile: &ProfileSpec,
-        config: TransportConfig,
+        config: IoBounds,
         semantics: SendSemantics,
     ) -> Result<Self, Error> {
-        let transport = ProbeConfig(config.validated()?, semantics);
+        let transport = ProbeConfig(config, semantics);
         let target = TargetSlot::from(crate::IndividualCameraId::CAMERA_1);
         let (framing, policy) = AdapterFraming::for_targets(
             &transport,

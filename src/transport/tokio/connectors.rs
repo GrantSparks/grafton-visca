@@ -14,10 +14,9 @@ use crate::{
             AsyncDatagram, AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait,
         },
         async_tcp::NetStream,
-        async_udp::NetDatagram,
         datagram::recv_datagram,
-        socket_options::{configured_tcp_socket, TcpConnectionConfig, UdpSocketConfig},
-        ReceiveOutcome,
+        socket_options::configured_tcp_socket,
+        ReceiveOutcome, TcpConnect, UdpConnect,
     },
     Error,
 };
@@ -34,10 +33,7 @@ impl AsyncNet for TokioNet {
         Ok(tokio::net::lookup_host(endpoint).await?.collect())
     }
 
-    async fn connect_tcp(
-        address: SocketAddr,
-        options: TcpConnectionConfig,
-    ) -> io::Result<TcpStream> {
+    async fn connect_tcp(address: SocketAddr, options: TcpConnect) -> io::Result<TcpStream> {
         let socket = configured_tcp_socket(address, options)?;
         socket.set_nonblocking(true)?;
         tokio::net::TcpSocket::from_std_stream(socket.into())
@@ -83,10 +79,6 @@ impl AsyncWriteExtTrait for TokioTcpStream {
     async fn write_all<'a>(&'a mut self, buf: &'a [u8]) -> Result<(), Error> {
         Ok(self.stream.write_all(buf).await?)
     }
-
-    async fn flush(&mut self) -> Result<(), Error> {
-        Ok(self.stream.flush().await?)
-    }
 }
 
 impl NetStream for TokioTcpStream {
@@ -97,10 +89,6 @@ impl NetStream for TokioTcpStream {
     }
 }
 
-impl NetDatagram for UdpSocket {
-    type Net = TokioNet;
-}
-
 /// Connect TCP on an explicitly selected Tokio runtime.
 ///
 /// `TokioRuntime::from_handle` has already selected a runtime, so its DNS,
@@ -109,7 +97,7 @@ impl NetDatagram for UdpSocket {
 pub(crate) async fn connect_tcp_on(
     handle: &tokio::runtime::Handle,
     address: crate::transport::NetworkEndpoint,
-    config: TcpConnectionConfig,
+    config: TcpConnect,
 ) -> Result<TokioTcpStream, Error> {
     connect_on(handle, "TCP", async move {
         async_connect::connect_tcp::<TokioNet>(&address, config)
@@ -126,7 +114,7 @@ pub(crate) async fn connect_tcp_on(
 pub(crate) async fn connect_udp_on(
     handle: &tokio::runtime::Handle,
     address: crate::transport::NetworkEndpoint,
-    config: UdpSocketConfig,
+    config: UdpConnect,
 ) -> Result<UdpSocket, Error> {
     connect_on(handle, "UDP", async move {
         async_connect::connect_udp::<TokioNet>(&address, config).await
@@ -247,12 +235,17 @@ mod tests {
     ) {
         let (listener, _filler) = full_accept_queue();
         let address = listener.local_addr().unwrap().to_string();
-        let mut config = crate::transport::TransportConfig::for_tcp();
-        config.connect_timeout = Duration::from_secs(10);
+        let config = TcpConnect::default()
+            .with_connect_timeout(Duration::from_secs(10))
+            .unwrap();
         assert!(
             tokio::time::timeout(
                 Duration::from_millis(200),
-                runtime.connect_tcp(&address, config)
+                runtime.connect_tcp(
+                    crate::transport::NetworkEndpoint::parse(&address, None).unwrap(),
+                    config,
+                    crate::transport::IoBounds::default(),
+                )
             )
             .await
             .is_err(),

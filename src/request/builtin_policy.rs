@@ -1,25 +1,18 @@
 use crate::request::{CommandPolicy, CommandRetryClass, OperationPolicy};
-use crate::{CommandTimeoutClass, ControlClass};
+use crate::{CommandTimeoutClass, SubmissionClass};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BuiltinPolicy {
     pub(crate) timeout: CommandTimeoutClass,
     pub(crate) retry: CommandRetryClass,
-    pub(crate) class: ControlClass,
+    pub(crate) class: SubmissionClass,
 }
 impl BuiltinPolicy {
-    const fn submission(self) -> crate::SubmissionClass {
-        match self.class {
-            ControlClass::Background => crate::SubmissionClass::Background,
-            ControlClass::Normal => crate::SubmissionClass::Normal,
-            ControlClass::User | ControlClass::Urgent => crate::SubmissionClass::User,
-        }
-    }
     pub(crate) const fn command(self) -> CommandPolicy {
-        CommandPolicy::new(self.timeout, self.retry, self.submission())
+        CommandPolicy::new(self.timeout, self.retry, self.class)
     }
     pub(crate) const fn operation(self) -> OperationPolicy {
-        OperationPolicy::new(self.timeout, self.retry, self.submission())
+        OperationPolicy::new(self.timeout, self.retry, self.class)
     }
 }
 
@@ -28,7 +21,7 @@ impl BuiltinPolicy {
 pub(crate) const fn policy(
     stop: bool,
     operation: bool,
-    explicit: Option<(CommandTimeoutClass, CommandRetryClass, ControlClass)>,
+    explicit: Option<(CommandTimeoutClass, CommandRetryClass, SubmissionClass)>,
 ) -> BuiltinPolicy {
     let resolved = resolve(stop, operation, explicit);
     BuiltinPolicy {
@@ -41,43 +34,27 @@ pub(crate) const fn policy(
 const fn resolve(
     stop: bool,
     operation: bool,
-    explicit: Option<(CommandTimeoutClass, CommandRetryClass, ControlClass)>,
-) -> (CommandTimeoutClass, CommandRetryClass, ControlClass) {
-    if let Some(policy) = explicit {
-        assert!(
-            stop || !matches!(policy.2, ControlClass::Urgent),
-            "only a STOP ledger row may declare an urgent request policy",
-        );
-        assert!(
-            !stop
-                || matches!(
-                    policy,
-                    (
-                        CommandTimeoutClass::Quick,
-                        CommandRetryClass::Standard,
-                        ControlClass::Urgent
-                    )
-                ),
-            "a STOP ledger row requires the quick standard urgent policy",
-        );
-        policy
-    } else if stop {
+    explicit: Option<(CommandTimeoutClass, CommandRetryClass, SubmissionClass)>,
+) -> (CommandTimeoutClass, CommandRetryClass, SubmissionClass) {
+    if stop {
         (
             CommandTimeoutClass::Quick,
             CommandRetryClass::Standard,
-            ControlClass::Urgent,
+            SubmissionClass::User,
         )
+    } else if let Some(policy) = explicit {
+        policy
     } else if operation {
         (
             CommandTimeoutClass::Movement,
             CommandRetryClass::Movement,
-            ControlClass::User,
+            SubmissionClass::User,
         )
     } else {
         (
             CommandTimeoutClass::Quick,
             CommandRetryClass::Standard,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         )
     }
 }

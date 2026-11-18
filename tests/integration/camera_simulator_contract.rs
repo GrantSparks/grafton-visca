@@ -14,9 +14,9 @@ use grafton_visca::{
     raw,
     request::{CommandRetryClass, Inquiry, Request, ResponseDecoder},
     runtime::TokioExecutor,
-    testing::{CommandType, ViscaCameraSimulator},
+    testing::{CommandType, SimulatorConfig, ViscaCameraSimulator},
     transport::{AsyncTransport, HasTransportConfig, SendSemantics},
-    types::CameraId,
+    types::{CameraId, CommandSocketCount, UnitInterval},
     Error,
 };
 
@@ -54,10 +54,11 @@ fn plain_power() -> raw::PlainRequest {
 
 #[tokio::test(start_paused = true)]
 async fn ack_and_execution_delays_control_session_observations() {
-    let simulator = ViscaCameraSimulator::builder()
-        .with_ack_delay(Duration::from_millis(200))
-        .with_command_execution_time(CommandType::Zoom, Duration::from_millis(700))
-        .build();
+    let simulator = ViscaCameraSimulator::new(
+        SimulatorConfig::default()
+            .with_ack_delay(Duration::from_millis(200))
+            .with_command_execution_time(CommandType::Zoom, Duration::from_millis(700)),
+    );
     let mut monitor = simulator.clone();
     let session = open(simulator).await;
     let camera = session
@@ -75,9 +76,9 @@ async fn ack_and_execution_delays_control_session_observations() {
 
 #[tokio::test(start_paused = true)]
 async fn busy_probability_refuses_a_session_request_without_ending_the_session() {
-    let simulator = ViscaCameraSimulator::builder()
-        .with_busy_probability(1.0)
-        .build();
+    let simulator = ViscaCameraSimulator::new(
+        SimulatorConfig::default().with_busy_probability(UnitInterval::MAX),
+    );
     let session = open(simulator).await;
     let camera = session
         .camera::<GenericVisca>(grafton_visca::types::IndividualCameraId::CAMERA_1)
@@ -98,9 +99,8 @@ async fn busy_probability_refuses_a_session_request_without_ending_the_session()
 
 #[tokio::test(start_paused = true)]
 async fn complete_reply_loss_is_a_request_outcome_and_never_a_failed_write() {
-    let simulator = ViscaCameraSimulator::builder()
-        .with_packet_loss(1.0)
-        .build();
+    let simulator =
+        ViscaCameraSimulator::new(SimulatorConfig::default().with_packet_loss(UnitInterval::MAX));
     assert_eq!(
         simulator.identity().send_semantics(),
         SendSemantics::Datagram
@@ -125,10 +125,11 @@ async fn complete_reply_loss_is_a_request_outcome_and_never_a_failed_write() {
 
 #[tokio::test(start_paused = true)]
 async fn socket_count_changes_backpressure_seen_by_a_real_session() {
-    let simulator = ViscaCameraSimulator::builder()
-        .with_socket_count(1)
-        .with_command_execution_time(CommandType::Zoom, Duration::from_secs(60))
-        .build();
+    let simulator = ViscaCameraSimulator::new(
+        SimulatorConfig::default()
+            .with_socket_count(CommandSocketCount::ONE)
+            .with_command_execution_time(CommandType::Zoom, Duration::from_secs(60)),
+    );
     let mut monitor = simulator.clone();
     let session = open(simulator).await;
     let camera = session
@@ -153,9 +154,10 @@ async fn socket_count_changes_backpressure_seen_by_a_real_session() {
 
 #[tokio::test(start_paused = true)]
 async fn cancelling_an_executing_socket_suppresses_its_pending_completion() {
-    let simulator = ViscaCameraSimulator::builder()
-        .with_command_execution_time(CommandType::Zoom, Duration::from_secs(10))
-        .build();
+    let simulator = ViscaCameraSimulator::new(
+        SimulatorConfig::default()
+            .with_command_execution_time(CommandType::Zoom, Duration::from_secs(10)),
+    );
     let mut monitor = simulator.clone();
     let session = open(simulator).await;
     let camera = session
@@ -187,11 +189,12 @@ async fn cancelling_an_executing_socket_suppresses_its_pending_completion() {
 #[tokio::test(start_paused = true)]
 async fn deterministic_jitter_delays_session_replies_once() {
     async fn trace() -> (Duration, Duration) {
-        let simulator = ViscaCameraSimulator::builder()
-            .with_ack_delay(Duration::ZERO)
-            .with_command_execution_time(CommandType::Zoom, Duration::ZERO)
-            .with_network_jitter(80)
-            .build();
+        let simulator = ViscaCameraSimulator::new(
+            SimulatorConfig::default()
+                .with_ack_delay(Duration::ZERO)
+                .with_command_execution_time(CommandType::Zoom, Duration::ZERO)
+                .with_network_jitter(80),
+        );
         let mut monitor = simulator.clone();
         let session = open(simulator).await;
         let camera = session
@@ -247,7 +250,7 @@ impl Inquiry for UnknownInquiry {
 
 #[tokio::test(start_paused = true)]
 async fn unknown_inquiry_gets_a_syntax_error_instead_of_ack_and_completion() {
-    let simulator = ViscaCameraSimulator::new();
+    let simulator = ViscaCameraSimulator::default();
     let mut monitor = simulator.clone();
     let session = open(simulator).await;
     let camera = session
@@ -290,7 +293,7 @@ async fn unknown_inquiry_gets_a_syntax_error_instead_of_ack_and_completion() {
 
 #[tokio::test(start_paused = true)]
 async fn one_simulator_routes_replies_to_each_registered_camera() {
-    let simulator = ViscaCameraSimulator::new();
+    let simulator = ViscaCameraSimulator::default();
     let mut monitor = simulator.clone();
     let profile = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
     let config = SessionConfig::new(profile.clone())

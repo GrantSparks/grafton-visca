@@ -139,7 +139,7 @@ macro_rules! camera_core {
             pub(crate) $($async)* fn is_moving(&self, query: crate::camera::MotionQuery) -> crate::Result<bool> {
                 let window = crate::prepared::MotionWindow::new(query)?;
                 let queries = crate::prepared::prepare_position_queries(
-                    self.registration.as_ref(), self.tuning(), query.axes,
+                    self.registration.as_ref(), self.tuning(), query.axes(),
                 )?;
                 self.owner.observe_motion(window, &queries) $($await)*
             }

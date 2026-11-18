@@ -23,13 +23,20 @@ use super::{EnvelopeKind, TransmissionMeta};
 pub(crate) struct WireProtocol(Arc<ProtocolEncoder>);
 
 impl WireProtocol {
+    #[cfg(test)]
     pub(crate) fn new(kind: EnvelopeKind, addressing: AddressingMode) -> Self {
-        Self(Arc::new(match kind {
-            EnvelopeKind::Raw => ProtocolEncoder::Raw(RawEncoder(RawVisca::new(addressing))),
-            EnvelopeKind::Sony => {
-                ProtocolEncoder::Sony(SonyEncoder(SonyEncapsulated::new(addressing)))
-            }
-        }))
+        match kind {
+            EnvelopeKind::Raw => Self::raw(RawVisca::new(addressing)),
+            EnvelopeKind::Sony => Self::sony(SonyEncapsulated::new(addressing)),
+        }
+    }
+
+    pub(crate) fn raw(envelope: RawVisca) -> Self {
+        Self(Arc::new(ProtocolEncoder::Raw(RawEncoder(envelope))))
+    }
+
+    pub(crate) fn sony(envelope: SonyEncapsulated) -> Self {
+        Self(Arc::new(ProtocolEncoder::Sony(SonyEncoder(envelope))))
     }
 
     pub(crate) fn kind(&self) -> EnvelopeKind {
@@ -74,10 +81,6 @@ impl RawEncoder {
     pub(crate) fn plan(&self) -> WriteFraming {
         WriteFraming(FramingPlan::Raw(self.0))
     }
-
-    pub(crate) const fn envelope(&self) -> RawVisca {
-        self.0
-    }
 }
 
 #[derive(Debug)]
@@ -91,6 +94,7 @@ impl SonyEncoder {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn envelope(&self) -> SonyEncapsulated {
         self.0.clone()
     }

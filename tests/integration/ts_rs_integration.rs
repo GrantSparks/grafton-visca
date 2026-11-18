@@ -118,14 +118,6 @@ fn test_range_macro_types_use_real_newtype_derive_semantics() {
 }
 
 #[test]
-fn test_profile_group_export() {
-    use grafton_visca::profiles::ProfileGroup;
-    let cfg = Config::default();
-    let ts = ProfileGroup::export_to_string(&cfg).expect("Failed to export ProfileGroup");
-    assert!(!ts.is_empty());
-}
-
-#[test]
 fn test_value_types_export() {
     use grafton_visca::types::{
         BrightnessLevel, ContrastLevel, FocusPosition, GainLevel, GainLimit, IrisLevel, Kelvin,
@@ -169,13 +161,10 @@ fn test_value_types_export() {
 
 #[test]
 fn test_enum_types_export() {
-    use grafton_visca::types::{FStop, NdiQuality};
+    use grafton_visca::types::NdiQuality;
 
     let cfg = Config::default();
 
-    assert!(!FStop::export_to_string(&cfg)
-        .expect("Failed to export FStop")
-        .is_empty());
     assert!(!NdiQuality::export_to_string(&cfg)
         .expect("Failed to export NdiQuality")
         .is_empty());

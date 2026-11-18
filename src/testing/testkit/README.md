@@ -15,10 +15,10 @@ participation before unwinding continues.
 For runtime-free async tests, construct `ManualClockExecutor::local(&clock)`
 and call `run_until(future)`. The driver accepts borrowed futures and drives
 background tasks on the calling thread. It returns as soon as the supplied
-future completes, without draining live periodic tasks. Dropping a task join
-detaches the task; awaiting a panicked task returns `ExecError::TaskFailed`.
-Use `ManualClockExecutor::new(runtime_executor, &clock)` to keep a Tokio or
-smol scheduler while using the same virtual deadlines.
+future completes even while periodic tasks remain active.
+Use `ManualClockExecutor::new(runtime_executor, &clock)` with a
+`TokioExecutor` or `SmolExecutor` to drive the same virtual deadlines on that
+runtime's scheduler.
 
 `ScriptedTransport::new(ScriptedTransportIdentity::Tcp, steps).with_executor(executor)` accepts any executor,
 including an `Arc<ManualClockExecutor>`. `Step::After` uses that executor's
@@ -39,3 +39,9 @@ Choose a `ScriptedTransportIdentity` that matches the camera connection:
 `Tcp`, `Udp`, `Serial { bus }`, or a `Custom` identity with explicit send
 semantics and addressing. Each stream reply acts as a chunk and can span
 several reads. Each UDP reply acts as one datagram.
+
+With `runtime-tokio`, `ViscaCameraSimulator::default()` uses the default timing,
+two command sockets per camera and no added loss, busy replies or jitter.
+To adjust those settings, pass a `SimulatorConfig` to
+`ViscaCameraSimulator::new(config)`. Its setters use `CommandSocketCount` for
+the socket count and `UnitInterval` for reply loss and busy probabilities.

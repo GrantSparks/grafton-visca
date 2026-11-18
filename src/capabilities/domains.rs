@@ -2,7 +2,7 @@
 
 use super::{CapabilityDomain, CapabilityRange};
 use crate::{command::ExposureMode, WhiteBalanceMode};
-use std::{num::NonZeroUsize, ops::RangeInclusive, time::Duration};
+use std::ops::RangeInclusive;
 
 /// Which endpoint of an ordered focus range is nearest to the camera.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -106,11 +106,6 @@ pub struct PanTiltCaps {
     pub pan_speed: CapabilityRange<u8>,
     /// Supported nonzero tilt speeds.
     pub tilt_speed: CapabilityRange<u8>,
-    /// Whether both axes can move together.
-    pub simultaneous: bool,
-    /// Mechanical recovery time after preset movement.
-    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number }"))]
-    pub preset_recovery_time: Duration,
     /// Whether the variable-speed mode family is supported.
     pub variable_speed: bool,
     /// Supported motion-sync speeds, when available.
@@ -273,7 +268,14 @@ pub struct ExposureCaps {
     )]
     #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
     pub gain_range: Option<CapabilityRange<u8>>,
-    /// Exact exposure-time to shutter-code inventory.
+    /// Admissible raw shutter codes, when direct shutter control is supported.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profiles::required_option")
+    )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
+    pub shutter_codes: Option<CapabilityDomain<u8>>,
+    /// Exact exposure-time to shutter-code inventory. Empty if the mapping is unknown.
     pub shutter_speeds: Vec<super::ShutterSpeedEntry>,
     /// Supported exposure brightness positions.
     #[cfg_attr(
@@ -330,13 +332,6 @@ pub struct WhiteBalanceCaps {
     pub modes: Vec<WhiteBalanceMode>,
     /// Whether one-push white balance is supported.
     pub one_push: bool,
-    /// Supported direct color temperatures in Kelvin.
-    #[cfg_attr(
-        feature = "serde",
-        serde(deserialize_with = "crate::profiles::required_option")
-    )]
-    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
-    pub color_temp_range: Option<CapabilityRange<u16>>,
     /// Physical Kelvin value selected by each color-temperature wire code.
     ///
     /// An empty table declares no shared direct color-temperature encoding.
@@ -358,6 +353,17 @@ pub struct WhiteBalanceCaps {
 }
 
 impl WhiteBalanceCaps {
+    /// Returns the smallest and largest Kelvin values in the step table.
+    ///
+    /// An empty table has no range. The table lists the accepted temperatures,
+    /// including any gaps between the endpoints.
+    #[must_use]
+    pub fn color_temperature_range(&self) -> Option<CapabilityRange<u16>> {
+        let min = self.color_temperature_steps.iter().copied().min()?;
+        let max = self.color_temperature_steps.iter().copied().max()?;
+        CapabilityRange::<u16>::new(min, max).ok()
+    }
+
     /// Lowers a supported physical temperature through this profile's step table.
     pub fn color_temperature_wire(&self, temperature: crate::types::Kelvin) -> crate::Result<u16> {
         Self::temperature_step(&self.color_temperature_steps, temperature)
@@ -456,8 +462,6 @@ pub struct ImageCaps {
     pub flip: bool,
     /// Whether separate horizontal mirroring is documented.
     pub mirror: bool,
-    /// Whether flip changes need explicit settings persistence.
-    pub requires_settings_save_for_flip: bool,
     /// Picture-effect values documented for this model; empty means unsupported.
     pub picture_effects: Vec<crate::types::PictureEffectMode>,
 }
@@ -483,20 +487,6 @@ pub struct PresetCaps {
     )]
     #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
     pub recall_speed_range: Option<CapabilityRange<u8>>,
-    /// Whether preset tours are supported.
-    pub tour: bool,
-    /// Whether preset thumbnails are supported.
-    pub thumbnail: bool,
-    /// Required delay after preset recall.
-    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number }"))]
-    pub recall_delay: Duration,
-    /// Maximum name length; absence means names are unsupported.
-    #[cfg_attr(
-        feature = "serde",
-        serde(deserialize_with = "crate::profiles::required_option")
-    )]
-    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
-    pub names: Option<NonZeroUsize>,
 }
 
 /// Packet category used by a camera's power-status inquiry.
@@ -537,7 +527,7 @@ impl PowerStatusQuery {
     }
 }
 
-/// Power-query dialect and sequencing facts for a camera with power control.
+/// Power-query dialect and standby support for a camera with power control.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(
     feature = "serde",
@@ -549,23 +539,8 @@ impl PowerStatusQuery {
 pub struct PowerCaps {
     /// Source-backed packet category for the power-status inquiry.
     pub status_query: PowerStatusQuery,
-    /// Documented nonzero power-on duration.
-    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number }"))]
-    pub on_time: Duration,
-    /// Documented nonzero standby duration, when supported.
-    #[cfg_attr(
-        feature = "serde",
-        serde(deserialize_with = "crate::profiles::required_option")
-    )]
-    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
-    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number } | null"))]
-    pub standby: Option<Duration>,
-    /// Whether wake-on-LAN is supported.
-    pub wake_on_lan: bool,
-    /// Whether settings survive power-off.
-    pub retains_settings: bool,
-    /// Whether power-on automatically returns to home.
-    pub home_on_up: bool,
+    /// Whether the camera supports the standby command.
+    pub standby: bool,
 }
 
 impl PanTiltGeometry {
@@ -797,17 +772,24 @@ impl super::Capabilities {
                 |value| crate::types::ExposureCompensationLevel::new(value).is_ok()
             );
             optional!(
-                "capabilities.exposure.gain_range",
-                exposure.gain_range,
-                |value| crate::types::GainLevel::new(value).is_ok()
-            );
-            optional!(
                 "capabilities.exposure.iris_range",
                 exposure.iris_range,
-                |value| u8::try_from(value)
-                    .ok()
-                    .is_some_and(|value| crate::types::IrisLevel::new(value).is_ok())
+                |value| u8::try_from(value).is_ok()
             );
+            if exposure.shutter_speeds.iter().any(|entry| {
+                !exposure
+                    .shutter_codes
+                    .as_ref()
+                    .is_some_and(|codes| codes.contains(entry.value))
+            }) {
+                return Err(invalid(
+                    &[
+                        "capabilities.exposure.shutter_speeds",
+                        "capabilities.exposure.shutter_codes",
+                    ],
+                    "shutter time entries require codes in the shutter domain",
+                ));
+            }
             if !unique(&exposure.modes)
                 || exposure
                     .shutter_speeds
@@ -832,28 +814,16 @@ impl super::Capabilities {
                     "white-balance inventory must be nonempty and unique",
                 ));
             }
-            optional!(
-                "capabilities.white_balance.color_temp_range",
-                white_balance.color_temp_range,
-                |value| crate::types::Kelvin::new(value).is_ok()
-            );
             let steps = &white_balance.color_temperature_steps;
-            let valid_steps = match white_balance.color_temp_range {
-                None => steps.is_empty(),
-                Some(range) => {
-                    !steps.is_empty()
-                        && steps.len() <= 256
-                        && steps.iter().enumerate().all(|(index, value)| {
-                            range.contains(*value)
-                                && crate::types::Kelvin::new(*value).is_ok()
-                                && !steps[..index].contains(value)
-                        })
-                }
-            };
-            if !valid_steps {
+            if steps.len() > 256
+                || !unique(steps)
+                || steps
+                    .iter()
+                    .any(|&value| crate::types::Kelvin::new(value).is_err())
+            {
                 return Err(invalid(
                     &["capabilities.white_balance.color_temperature_steps"],
-                    "temperature steps must uniquely map byte codes into the declared Kelvin range",
+                    "temperature steps must map at most 256 byte codes to distinct valid Kelvin values",
                 ));
             }
             if let Some(gain) = &white_balance.rgb_gain {
@@ -916,12 +886,6 @@ impl super::Capabilities {
                 image.gamma_range,
                 |value| crate::types::GammaLevel::new(value).is_ok()
             );
-            if image.requires_settings_save_for_flip && !image.flip {
-                return Err(invalid(
-                    &["capabilities.image"],
-                    "flip persistence requires vertical flip",
-                ));
-            }
         }
         if let Some(presets) = &self.presets {
             optional!(
@@ -929,14 +893,6 @@ impl super::Capabilities {
                 presets.recall_speed_range,
                 |value| crate::command::PresetSpeed::new(value).is_ok()
             );
-        }
-        if let Some(power) = &self.power {
-            if power.on_time.is_zero() || power.standby.is_some_and(|duration| duration.is_zero()) {
-                return Err(invalid(
-                    &["capabilities.power"],
-                    "power-on and supported standby durations must be nonzero",
-                ));
-            }
         }
         Ok(())
     }
@@ -954,3 +910,98 @@ impl super::Capabilities {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct MenuCaps {}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn temperature_range_has_admitted_endpoints_and_keeps_the_wire_order() {
+        let profile = crate::profiles::ProfileId::PtzOpticsG2
+            .spec()
+            .expect("profile");
+        let mut caps = profile.capabilities().clone();
+        let white = caps.white_balance.as_mut().expect("white balance");
+        white.color_temperature_steps = [5700, 3000, 6200].into();
+        assert_eq!(
+            white
+                .color_temperature_range()
+                .map(|range| range.as_inclusive()),
+            Some(3000..=6200),
+        );
+        for (kelvin, code) in [(3000, 1), (6200, 2)] {
+            assert_eq!(
+                white
+                    .color_temperature_wire(
+                        crate::types::Kelvin::new(kelvin).expect("valid Kelvin")
+                    )
+                    .expect("listed step"),
+                code,
+            );
+        }
+        assert!(white
+            .color_temperature_wire(crate::types::Kelvin::new(5000).expect("valid Kelvin"))
+            .is_err());
+        assert!(caps.validate_domains().is_ok());
+
+        caps.white_balance
+            .as_mut()
+            .expect("white balance")
+            .color_temperature_steps = [].into();
+        assert_eq!(
+            caps.white_balance
+                .as_ref()
+                .expect("white balance")
+                .color_temperature_range(),
+            None
+        );
+        assert!(caps.validate_domains().is_ok());
+    }
+
+    #[test]
+    fn temperature_step_validation_rejects_invalid_values_duplicates_and_excess_codes() {
+        let profile = crate::profiles::ProfileId::PtzOpticsG2
+            .spec()
+            .expect("profile");
+        let mut caps = profile.capabilities().clone();
+        for steps in [vec![3200, 3200], vec![0], (2500..=2756).collect()] {
+            caps.white_balance
+                .as_mut()
+                .expect("white balance")
+                .color_temperature_steps = steps.into();
+            let error = caps
+                .validate_domains()
+                .expect_err("invalid temperature steps");
+            assert!(error
+                .to_string()
+                .contains("capabilities.white_balance.color_temperature_steps"));
+        }
+    }
+
+    #[test]
+    fn shutter_time_entries_require_an_admitted_code() {
+        let profile = crate::profiles::ProfileId::PtzOpticsG2
+            .spec()
+            .expect("profile");
+        let mut caps = profile.capabilities().clone();
+        let entry =
+            super::super::ShutterSpeedEntry::new(crate::units::ExposureTime::reciprocal(60), 1);
+        for domain in [
+            None,
+            Some(CapabilityDomain::<u8>::new(2, 3, &[][..]).expect("valid domain")),
+            Some(CapabilityDomain::<u8>::new(0, 3, &[1][..]).expect("valid domain")),
+        ] {
+            let exposure = caps.exposure.as_mut().expect("exposure domain");
+            exposure.shutter_speeds = vec![entry];
+            exposure.shutter_codes = domain;
+            assert!(caps.validate_domains().is_err());
+        }
+        caps.exposure
+            .as_mut()
+            .expect("exposure domain")
+            .shutter_codes =
+            Some(CapabilityDomain::<u8>::new(0, 3, &[][..]).expect("valid domain"));
+        assert!(caps.validate_domains().is_ok());
+    }
+}

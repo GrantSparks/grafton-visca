@@ -1,5 +1,6 @@
 //! #851: diagnostics retain terminal causes independently of event delivery.
 use super::*;
+use crate::observability::DiagnosticCapacity;
 
 async fn subscribe_before_run<R: Runtime + Executor>(
     actor: &mut AsyncOwnerActor<R>,
@@ -11,7 +12,10 @@ async fn subscribe_before_run<R: Runtime + Executor>(
     };
     actor
         .handle_event(
-            OwnerEvent::Control(ControlBoundary::SubscribeDiagnostics { capacity: 1, reply }),
+            OwnerEvent::Control(ControlBoundary::SubscribeDiagnostics {
+                capacity: DiagnosticCapacity::MIN,
+                reply,
+            }),
             &mut driver,
             Executor::now(runtime),
             false,

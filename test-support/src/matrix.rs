@@ -307,10 +307,10 @@ macro_rules! facade_matrix {
         {
             let clock = grafton_visca::testing::testkit::ManualClock::new();
             let executor = grafton_visca::testing::testkit::ManualClockExecutor::new(
-                grafton_visca::runtime::SmolRuntime::new(),
+                grafton_visca::runtime::SmolExecutor::new(),
                 &clock,
             );
-            grafton_visca::runtime::Executor::block_on(&executor, async {
+            executor.run_until(async {
                 $crate::facade_matrix!(@async executor, true, $body);
             });
         }
@@ -374,7 +374,7 @@ macro_rules! facade_matrix {
                 let duration: std::time::Duration = $duration;
                 let f = $f;
                 let timer = $executor.clone();
-                grafton_visca::runtime::Executor::spawn_bg(&$executor, async move {
+                grafton_visca::runtime::Executor::spawn_detached(&$executor, async move {
                     grafton_visca::runtime::Executor::sleep(&timer, duration).await;
                     f();
                 });

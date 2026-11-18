@@ -1,9 +1,7 @@
 //! Profile-aware construction of the typed pan/tilt STOP request.
 //!
-//! The blocking and async facades each expose a `stop_pan_tilt` entry point,
-//! and both need the same profile-dependent speed selection to build a valid
-//! stop frame. This module holds that one implementation so the two facades
-//! cannot drift apart.
+//! The pan/tilt `stop()` noun and halt preparation share this profile-aware
+//! speed selection.
 
 use crate::{
     command::semantics::StopCommand,
@@ -20,7 +18,7 @@ impl StopCommand {
         use crate::request::builtin::{BuiltinValidation, FocusStop, ZoomStop};
         crate::request::builtin::validate_row(self.row(), profile)?;
         match self {
-            Self::PanTiltStop => pan_tilt_stop_request(profile)?.validate(profile),
+            Self::PanTiltStop => pan_tilt_stop_request(profile).map(|_| ()),
             Self::ZoomStop => ZoomStop.validate(profile),
             Self::FocusStop => FocusStop.validate(profile),
             Self::Fr7ZoomHighResolutionStop => {

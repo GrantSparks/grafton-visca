@@ -13,6 +13,7 @@
 //! its transport, but never emits a protocol STOP. [`Session::close`] is the
 //! deterministic release barrier.
 
+use crate::observability::DiagnosticCapacity;
 use std::{fmt, marker::PhantomData, sync::Arc, time::Duration};
 
 use crate::{
@@ -45,14 +46,12 @@ use crate::{camera::CameraConfig, SessionConfig};
 /// Dropping this stream releases its subscription without keeping the owner
 /// alive. Queued events remain readable before the owner's original terminal cause.
 pub struct Diagnostics {
-    inner: crate::observability::DiagnosticSubscription,
+    inner: crate::runtime::owner::DiagnosticSubscription,
 }
 
 impl Diagnostics {
     fn from_owner(inner: crate::runtime::owner::DiagnosticSubscription) -> Self {
-        Self {
-            inner: crate::observability::DiagnosticSubscription::from_owner(inner),
-        }
+        Self { inner }
     }
 
     /// Receives one queued event without waiting; an empty or closed queue returns None.
@@ -137,15 +136,16 @@ impl Session {
     where
         T: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
     {
-        config.validate_opened_transport(&transport)?;
+        let routing = config.validate_opened_transport(&transport)?;
         let profiles = config.profile_registry();
-        let (mut adapter, policy) = BlockingTransportAdapter::new_with_targets(
+        let (mut adapter, policy) = BlockingTransportAdapter::new_with_routing(
             transport,
             &profiles,
+            routing,
             config.validated_tuning(),
             config.admission_capacity(),
             config.strict_unconfirmed_poison(),
-        )?;
+        );
         if config.sony_sequence_reset_on_connect() {
             adapter.send_sony_sequence_reset(policy.write_timeout.get())?;
         }
@@ -166,7 +166,10 @@ impl Session {
     }
 
     #[doc = crate::camera_facade::session_contract!(diagnostics)]
-    pub fn subscribe_diagnostics(&self, capacity: usize) -> Result<Diagnostics, Error> {
+    pub fn subscribe_diagnostics(
+        &self,
+        capacity: DiagnosticCapacity,
+    ) -> Result<Diagnostics, Error> {
         self.owner
             .subscribe_diagnostics(capacity)
             .map(Diagnostics::from_owner)
@@ -301,8 +304,8 @@ mod tests {
             }
         }
 
-        fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
-            self.inner.transport_config()
+        fn io_bounds(&self) -> &crate::transport::IoBounds {
+            self.inner.io_bounds()
         }
     }
 
@@ -800,7 +803,9 @@ mod tests {
                 config,
             )
             .expect("manual-clock session");
-        let diagnostics = session.subscribe_diagnostics(128).expect("subscription");
+        let diagnostics = session
+            .subscribe_diagnostics(DiagnosticCapacity::MAX)
+            .expect("subscription");
         let start = clock.now();
         assert!(diagnostics
             .recv_with_timeout(Duration::from_secs(3))
@@ -854,7 +859,9 @@ mod tests {
             ],
         );
         let session = Session::open(transport, &config).expect("session");
-        let diagnostics = session.subscribe_diagnostics(128).expect("subscription");
+        let diagnostics = session
+            .subscribe_diagnostics(DiagnosticCapacity::MAX)
+            .expect("subscription");
         assert!(session
             .camera::<GenericVisca>(crate::IndividualCameraId::CAMERA_1)
             .expect("camera")

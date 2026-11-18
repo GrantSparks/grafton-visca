@@ -611,6 +611,8 @@ mod dispute_regressions {
 
     #[test]
     fn socketless_disputed_ack_never_proves_the_completion_only_command_applied() {
+        use grafton_visca::observability::DiagnosticCapacity;
+
         let clock = ManualClock::new();
         let participant = clock.enter();
         let wire = ScriptedBlockingTransport::new(
@@ -659,7 +661,9 @@ mod dispute_regressions {
         let session = clock
             .open_blocking_session(&participant, wire, config)
             .expect("session");
-        let diagnostics = session.subscribe_diagnostics(64).expect("diagnostics");
+        let diagnostics = session
+            .subscribe_diagnostics(DiagnosticCapacity::new(64).expect("diagnostic capacity"))
+            .expect("diagnostics");
         let camera = session
             .camera::<AnyProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");

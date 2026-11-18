@@ -53,8 +53,7 @@ use grafton_visca::testing::testkit::ManualClock;
 use grafton_visca::{
     config::TransportKind,
     transport::{
-        AddressedBus, AddressingMode, HasTransportConfig, ReceiveOutcome, SendSemantics,
-        TransportConfig,
+        AddressedBus, AddressingMode, HasTransportConfig, IoBounds, ReceiveOutcome, SendSemantics,
     },
     wire::VISCA_TERMINATOR,
     Error,
@@ -465,7 +464,7 @@ struct Wire {
     /// The clock a blocking read waits on; real time without one.
     #[cfg(feature = "test-utils")]
     clock: Option<ManualClock>,
-    config: grafton_visca::transport::ValidatedTransportConfig,
+    config: IoBounds,
     semantics: SendSemantics,
     addressing: Option<AddressingMode>,
     kind: Option<TransportKind>,
@@ -540,10 +539,8 @@ macro_rules! wire_builders {
     ($wire:ident) => {
         impl $wire {
             /// Use `config` as the transport configuration.
-            pub fn with_config(mut self, config: TransportConfig) -> Self {
-                self.0.config = config
-                    .validated()
-                    .expect("valid test transport configuration");
+            pub fn with_config(mut self, config: IoBounds) -> Self {
+                self.0.config = config;
                 self
             }
 
@@ -597,7 +594,7 @@ macro_rules! wire_builders {
                 }
             }
 
-            fn transport_config(&self) -> &grafton_visca::transport::ValidatedTransportConfig {
+            fn io_bounds(&self) -> &IoBounds {
                 self.0
                     .camera
                     .shared

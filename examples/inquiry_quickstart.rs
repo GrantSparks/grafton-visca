@@ -31,7 +31,12 @@ fn address() -> Result<String, io::Error> {
     let address = values
         .next()
         .or_else(|| env::var("VISCA_CAMERA_ADDR").ok())
-        .unwrap_or_else(|| "192.168.0.110".to_string());
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "pass a camera address or set VISCA_CAMERA_ADDR",
+            )
+        })?;
     if let Some(extra) = values.next() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,

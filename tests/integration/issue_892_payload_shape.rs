@@ -9,6 +9,8 @@
 ))]
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
+use grafton_visca::observability::DiagnosticCapacity;
+use grafton_visca::tuning::RetryLimit;
 use std::time::Duration;
 
 use grafton_visca::{
@@ -34,7 +36,7 @@ fn config() -> SessionConfig {
         .expect("G2 profile")
         .with_tuning(
             OperationalTuning::new()
-                .with_retry_limit(0)
+                .with_retry_limit(RetryLimit::MIN)
                 .with_inquiry_timeout(Duration::from_secs(2)),
         )
 }
@@ -205,7 +207,7 @@ facade_matrix! {
                 + profile.timing().inquiry_spacing()
                 + Duration::from_millis(20);
             let config = SessionConfig::new(profile).with_tuning(
-                OperationalTuning::new().with_retry_limit(0).with_inquiry_timeout(Duration::from_secs(2))
+                OperationalTuning::new().with_retry_limit(RetryLimit::MIN).with_inquiry_timeout(Duration::from_secs(2))
             );
             let session = open!(wire, config).expect("raw stream session");
             let view = session.camera::<Polled>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("polled zoom view");
@@ -230,7 +232,7 @@ facade_matrix! {
     fn a_stale_one_byte_datagram_cannot_finish_a_four_nibble_query() {
         let wire = Rig::stale_datagram();
         let session = open!(wire, config()).expect("raw datagram session");
-        let diagnostics = wait!(session.subscribe_diagnostics(64)).expect("diagnostics");
+        let diagnostics = wait!(session.subscribe_diagnostics(DiagnosticCapacity::new(64).expect("diagnostic capacity"))).expect("diagnostics");
         let view = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("G2 view");
         inquiry_timeout(wait!(view.inquire(&grafton_visca::command::focus::ModeInquiry)).expect_err("old inquiry times out"));
         pause!(profile().timing().inquiry_spacing() + Duration::from_millis(20));
@@ -242,7 +244,7 @@ facade_matrix! {
     fn an_undocumented_payload_is_visible_and_its_query_still_times_out() {
         let wire = Rig::undocumented_datagram();
         let session = open!(wire, config()).expect("raw datagram session");
-        let diagnostics = wait!(session.subscribe_diagnostics(64)).expect("diagnostics");
+        let diagnostics = wait!(session.subscribe_diagnostics(DiagnosticCapacity::new(64).expect("diagnostic capacity"))).expect("diagnostics");
         let view = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("G2 view");
         inquiry_timeout(wait!(view.inquire(&grafton_visca::command::zoom::PositionInquiry)).expect_err("no structurally legal answer"));
         one_mismatch(wait!(session.metrics()).expect("metrics"), || diagnostics.try_recv());

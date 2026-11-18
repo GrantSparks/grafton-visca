@@ -74,8 +74,10 @@ previous_release_commit="$(git rev-parse --verify "${previous_release_tag}^{comm
 printf 'Release candidate: %s (%s)\n' "$release_tag" "$release_commit"
 ```
 
-Run the candidate software checks from that checkout. The tag-triggered CI
-gate cannot run yet; it is deliberately a separate post-tag gate below.
+Run the candidate software checks from that checkout. The canonical feature
+matrix is `.github/scripts/test-all-features.sh`. Use its `list-json` mode to
+inspect the supported legs and its `test`, `clippy` and `doc` modes to validate
+them. The post-tag steps below cover the tag-triggered CI gate.
 
 ```sh
 cargo +1.98.0 metadata --no-deps --format-version 1
@@ -83,16 +85,12 @@ bash .github/scripts/test-validate-release.sh
 python3 .github/scripts/validate-change-record.py "$previous_release_commit" "$release_commit"
 bash .github/scripts/test-validate-change-record.sh
 cargo +nightly-2026-08-26 fmt --all -- --check
-bash .github/scripts/test-all-features.sh
+bash .github/scripts/test-all-features.sh test
 bash .github/scripts/test-all-features.sh clippy
 bash .github/scripts/test-all-features.sh doc
-
-RUSTDOCFLAGS="-D warnings" cargo +1.98.0 doc --no-deps --all-features
-cargo +1.98.0 test --doc --all-features
 cargo +1.98.0 test --all-features --test api_stability_test
 cargo +1.98.0 test --all-features --test integration issue_542_async_facade::
 cargo +1.98.0 test --all-features --test integration issue_555_observability::
-cargo +1.98.0 metadata --no-deps --format-version 1
 git diff --check
 ```
 
@@ -112,12 +110,10 @@ requires API drift to carry a changelog change. Correct a published release note
 with an Unreleased entry; never rewrite the published text to make the current
 release look internally consistent.
 
-Also run the supported no-default, blocking-only, async-runtime, dynamic, and
-coexistence matrices documented in the repository before tagging. Check the
-declared `rust-version`, inspect the generated documentation, and run the project's
-security/audit checks. Registry and Synemantic validation results
-must be recorded separately; passing local builds does not imply those
-results.
+Check the declared `rust-version` and inspect the generated documentation.
+The candidate's CI run includes the Cargo Deny gate for RustSec advisories,
+licenses, and dependency sources. Record registry and Synemantic validation
+results separately.
 
 Inspect package contents before publication:
 

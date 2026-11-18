@@ -11,7 +11,7 @@
 //! The encoding and profile parts need no camera and always run. Pass an address
 //! (or set `VISCA_CAMERA_ADDR`) to also submit the custom requests to a camera.
 //! The live TCP address must include its port, for example
-//! `192.168.0.110:5678`.
+//! `192.0.2.10:5678`.
 //! The wire payloads below are illustrative; replace them with your firmware's
 //! exact vendor opcodes.
 
@@ -194,8 +194,6 @@ fn runtime_profile_spec() -> Result<ProfileSpec, Error> {
             }),
             pan_speed: CapabilityRange::<u8>::new(1, 8)?,
             tilt_speed: CapabilityRange::<u8>::new(1, 8)?,
-            simultaneous: true,
-            preset_recovery_time: Duration::ZERO,
             variable_speed: false,
             motion_sync_speed_range: None,
         })

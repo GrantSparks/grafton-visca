@@ -79,14 +79,13 @@ If you're new to the library, start with these examples in order:
 ### Validation and Reference
 - **[typed_inquiry_demo.rs](typed_inquiry_demo.rs)** - Typed inquiry API walkthrough
 - **[profile_spec.rs](profile_spec.rs)** - Hardware-free profile JSON export and validation; use the [read-only ignored probe](../docs/camera_profile_support.md#3-collect-read-only-evidence) for manual query evidence
-- **[validate_ae_commands.rs](validate_ae_commands.rs)** - Lab auto-exposure validation tool with hard-coded defaults
 
 ## Running Examples
 
 ### Prerequisites
 
 1. Ensure you have a VISCA-compatible camera connected to your network
-2. Pass the camera address as documented by the example, or set its documented environment variable. Only examples whose source header says so default to `192.168.0.110`.
+2. Pass the camera address as documented by the example, or set its documented environment variable. Replace the documentation address `192.0.2.10` with your camera address.
 3. Verify the port number; defaults vary by camera model:
    - PTZOptics cameras: TCP port `5678`, UDP port `1259`
    - Sony professional profiles: UDP port `52381`; TCP is not a supported standard construction path
@@ -98,57 +97,58 @@ Most user-facing examples accept a camera address as the first positional argume
 
 Run blocking examples:
 ```bash
-cargo run --example quickstart -- 192.168.0.110
-cargo run --example quickstart -- 192.168.0.110 --move
-cargo run --example inquiry_quickstart -- 192.168.0.110
-cargo run --example operation_handles -- 192.168.0.110
-cargo run --example motion_safety -- 192.168.0.110
+cargo run --example quickstart -- 192.0.2.10
+cargo run --example quickstart -- 192.0.2.10 --move
+cargo run --example inquiry_quickstart -- 192.0.2.10
+cargo run --example operation_handles -- 192.0.2.10
+cargo run --example motion_safety -- 192.0.2.10
 cargo run --example custom_request                       # encoding + ProfileSpec only; no camera needed
-cargo run --example custom_request -- 192.168.0.110:5678 # also submits through the runtime profile
-cargo run --example preset_demo -- 192.168.0.110 recall 1
-cargo run --example transports -- 192.168.0.110
-cargo run --example builder_api -- 192.168.0.110:1259
+cargo run --example custom_request -- 192.0.2.10:5678 # also submits through the runtime profile
+cargo run --example preset_demo -- 192.0.2.10 recall 1
+cargo run --example transports -- 192.0.2.10
+cargo run --example builder_api -- 192.0.2.10:1259
 cargo run --example type_safe_commands
 cargo run --example multi_camera                   # in-memory serial bus; no camera needed
 cargo run --example recovery                       # in-memory transport; no camera needed
 cargo run --example cancellation_blocking          # in-memory Sony transport; no camera needed
-cargo run --example transport_builder_demo -- 192.168.0.110
-cargo run --example transport_builder_demo -- 192.168.0.110 --udp
+cargo run --example transport_builder_demo -- 192.0.2.10
+cargo run --example transport_builder_demo -- 192.0.2.10 --udp
 ```
 
 Run async examples:
 ```bash
-cargo run --example quickstart_async --features runtime-tokio -- 192.168.0.110
-cargo run --example operation_handles_async --features runtime-tokio -- 192.168.0.110
-cargo run --example concurrent_control --features runtime-tokio -- 192.168.0.110
-cargo run --example error_handling --features runtime-tokio -- 192.168.0.110
+cargo run --example quickstart_async --features runtime-tokio -- 192.0.2.10
+cargo run --example operation_handles_async --features runtime-tokio -- 192.0.2.10
+cargo run --example concurrent_control --features runtime-tokio -- 192.0.2.10
+cargo run --example error_handling --features runtime-tokio -- 192.0.2.10
 cargo run --example cancellation --features runtime-tokio,transport-serial-tokio -- /dev/ttyUSB0
-cargo run --example cancellation --features runtime-tokio,transport-serial-tokio -- 192.168.0.110 --g2-unsupported
-cargo run --example dyn_quickstart --features runtime-tokio -- 192.168.0.110
-cargo run --example runtime_demo --features runtime-tokio -- 192.168.0.110
-cargo run --example sony_encapsulation --features runtime-tokio -- 192.168.0.110
+cargo run --example cancellation --features runtime-tokio,transport-serial-tokio -- 192.0.2.10 --g2-unsupported
+cargo run --example dyn_quickstart --features runtime-tokio -- 192.0.2.10
+cargo run --example runtime_demo --features runtime-tokio -- 192.0.2.10
+cargo run --example sony_encapsulation --features runtime-tokio -- 192.0.2.10
 cargo run --example serial_async_demo --features runtime-tokio,transport-serial-tokio -- /dev/ttyUSB0 1
 
 # Runtime-agnostic async example
 cargo run --example runtime_agnostic --features async
 ```
 
-Select the camera and profile explicitly for the read-only ignored probe. Its
-query/decoder candidates require evidence review; the separate AE tool's
-`--apply` flag permits control commands:
+Hardware validation is optional and private. Use the
+[gated hardware wire tests](../tests/integration/hardware_wire_rows_test.rs)
+for settings such as auto-exposure. Select the camera and profile explicitly
+for the [read-only probe](../docs/camera_profile_support.md#3-collect-read-only-evidence).
+Its query and decoder candidates require evidence review.
 ```bash
 VISCA_CAMERA_IP=10.0.0.30 VISCA_PROFILE=generic_visca \
   cargo +1.98.0 test --features serde --lib profile_probe::profile_probe -- \
   --ignored --exact --nocapture
-cargo run --example validate_ae_commands -- --apply
 ```
 
 ### With Logging
 
 Enable debug logging to see VISCA commands and responses:
 ```bash
-RUST_LOG=debug cargo run --example quickstart -- 192.168.0.110
-RUST_LOG=grafton_visca=debug cargo run --example quickstart_async --features runtime-tokio -- 192.168.0.110
+RUST_LOG=debug cargo run --example quickstart -- 192.0.2.10
+RUST_LOG=grafton_visca=debug cargo run --example quickstart_async --features runtime-tokio -- 192.0.2.10
 ```
 
 ## Camera Profiles
@@ -173,16 +173,19 @@ Profile capability contributions should follow the [Camera Profile Support Guide
 use grafton_visca::config::CameraConfig;
 use grafton_visca::profiles::PtzOpticsG2;
 use grafton_visca::runtime::TokioRuntime;
-use grafton_visca::transport::{TcpKeepaliveConfig, TransportConfig};
+use grafton_visca::transport::{BufferConfig, IoBounds, TcpConnect, TcpKeepaliveConfig};
 
-let blocking_session = grafton_visca::blocking::CameraSession::<PtzOpticsG2>::connect_tcp("192.168.0.110")?;
+let blocking_session = grafton_visca::blocking::CameraSession::<PtzOpticsG2>::connect_tcp("192.0.2.10")?;
 let blocking_camera = blocking_session.camera();
 let power_status = blocking_camera.power().status()?;
 blocking_session.close()?;
 
 let runtime = TokioRuntime::from_current()?;
-let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
-    .with_transport_config(TransportConfig::for_tcp().with_tcp_keepalive(Some(TcpKeepaliveConfig::default())));
+let config = CameraConfig::<PtzOpticsG2>::tcp_configured(
+    "192.0.2.10",
+    TcpConnect::default().with_keepalive(Some(TcpKeepaliveConfig::default()))?,
+    IoBounds::default().with_buffer_config(BufferConfig::for_tcp())?,
+);
 let async_session = grafton_visca::r#async::CameraSession::connect(&config, runtime).await?;
 let async_camera = async_session.camera();
 let power_status = async_camera.power().status().await?;

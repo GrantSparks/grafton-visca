@@ -13,7 +13,7 @@ use grafton_visca::{
     observability::SessionStatus,
     operation::AppliedOnly,
     profiles::{GenericVisca, ProfileSpec, SonyFr7},
-    transport::{SendSemantics, TransportConfig},
+    transport::{IoBounds, SendSemantics},
 };
 use grafton_visca_test_support::{facade_matrix, fake_camera};
 
@@ -28,11 +28,14 @@ impl Stream {
         Self { camera }
     }
 
-    fn config() -> TransportConfig {
-        let mut config = TransportConfig::default();
-        config = config.with_buffer_config(config.buffer_config().with_recv_buffer_size(64));
-        config = config.with_buffer_config(config.buffer_config().with_max_buffer_size(128));
-        config
+    fn config() -> IoBounds {
+        IoBounds::default()
+            .with_buffer_config(
+                grafton_visca::transport::BufferConfig::default()
+                    .with_recv_buffer_size(64)
+                    .with_max_buffer_size(128),
+            )
+            .expect("buffer bounds")
     }
 
     #[cfg(feature = "blocking")]

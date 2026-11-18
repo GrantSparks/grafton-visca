@@ -39,9 +39,6 @@ pub trait AsyncWriteExt {
         &'a mut self,
         buf: &'a [u8],
     ) -> impl Future<Output = Result<(), Error>> + Send + 'a;
-
-    /// Flush any buffered data to the underlying transport.
-    fn flush(&mut self) -> impl Future<Output = Result<(), Error>> + Send + '_;
 }
 
 /// Trait abstracting async datagram (UDP) operations across different runtimes.
@@ -66,14 +63,4 @@ pub trait AsyncDatagram: Send + Sync {
         &'a self,
         buf: &'a mut [u8],
     ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send;
-}
-
-/// Unified helper for writing data with proper flushing.
-///
-/// This function handles the common pattern of write_all followed by flush
-/// that is used across all transport implementations.
-pub async fn write_all_flush<W: AsyncWriteExt>(writer: &mut W, data: &[u8]) -> Result<(), Error> {
-    writer.write_all(data).await?;
-    writer.flush().await?;
-    Ok(())
 }

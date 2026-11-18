@@ -18,7 +18,7 @@ use grafton_visca_test_support::{facade_matrix, fake_camera};
 use grafton_visca::{
     config::SessionConfig,
     profiles::{GenericVisca, ProfileSpec},
-    transport::{AddressedBus, AddressingMode, SendSemantics, TransportConfig},
+    transport::{AddressedBus, AddressingMode, IoBounds, SendSemantics},
     Error,
 };
 
@@ -55,7 +55,11 @@ impl Bus {
         let wire = self
             .camera
             .blocking_wire()
-            .with_config(TransportConfig::for_serial())
+            .with_config(
+                IoBounds::default()
+                    .with_buffer_config(grafton_visca::transport::BufferConfig::for_serial())
+                    .expect("serial bounds"),
+            )
             .with_addressing(AddressingMode::Serial)
             .with_semantics(SendSemantics::Stream);
         match self.addressed {
@@ -73,7 +77,11 @@ impl Bus {
         let wire = self
             .camera
             .async_wire()
-            .with_config(TransportConfig::for_serial())
+            .with_config(
+                IoBounds::default()
+                    .with_buffer_config(grafton_visca::transport::BufferConfig::for_serial())
+                    .expect("serial bounds"),
+            )
             .with_addressing(AddressingMode::Serial)
             .with_semantics(SendSemantics::Stream);
         match self.addressed {

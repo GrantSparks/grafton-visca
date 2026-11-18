@@ -30,7 +30,7 @@ use grafton_visca::{
     config::SessionConfig,
     operation::AppliedOnly,
     profiles::{GenericVisca, ProfileSpec},
-    transport::{AddressingMode, BufferConfig, SendSemantics, TransportConfig},
+    transport::{AddressingMode, BufferConfig, IoBounds, SendSemantics},
 };
 
 use fake_camera::{BlockingWire, FakeCamera};
@@ -45,17 +45,13 @@ fn stream_camera(addressing: AddressingMode, reads: Vec<Vec<u8>>) -> BlockingWir
     // larger than the per-receive frame limit, reproducing the "more than 64
     // frames in one read" condition of #674 (a real raw-IP/serial session
     // uses a 256-byte buffer).
-    let config = {
-        let mut config = TransportConfig::default();
-
-        config = config.with_buffer_config({
-            let mut config = BufferConfig::default();
-            config = config.with_recv_buffer_size(1024);
-            config = config.with_max_buffer_size(8192);
-            config
-        });
-        config
-    };
+    let config = IoBounds::default()
+        .with_buffer_config(
+            BufferConfig::default()
+                .with_recv_buffer_size(1024)
+                .with_max_buffer_size(8192),
+        )
+        .expect("buffer bounds");
     let mut script = Some(reads);
     FakeCamera::new(move |_, answer| {
         for chunk in script.take().unwrap_or_default() {

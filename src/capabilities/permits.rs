@@ -22,6 +22,7 @@ pub trait Permits<Gate>: CameraProfile + sealed::Permits<Gate> {}
 macro_rules! define_permits {
     (
         [$(($domain:ident, $domain_marker:ident)),* $(,)?]
+        [$(($settlement:ident, $settlement_marker:ident)),* $(,)?]
         [$( {
             surface: $surface:ident,
             marker: $marker:ident,
@@ -40,12 +41,18 @@ macro_rules! define_permits {
                 #[derive(Debug, Clone, Copy)]
                 pub struct $domain;
             )*
+            $(
+                #[doc = concat!("Permission token for `", stringify!($settlement), "`.")]
+                #[derive(Debug, Clone, Copy)]
+                pub struct $settlement;
+            )*
         }
 
         #[cfg(any(feature = "blocking", feature = "async", test))]
         macro_rules! permit_gate {
             $(($marker) => { $crate::capabilities::gate::$surface };)*
             $(($domain_marker) => { $crate::capabilities::gate::$domain };)*
+            $(($settlement_marker) => { $crate::capabilities::gate::$settlement };)*
         }
         #[cfg(any(feature = "blocking", feature = "async"))]
         pub(crate) use permit_gate;
@@ -63,6 +70,13 @@ macro_rules! define_permits {
             impl Permits<gate::$domain> for AnyProfile {}
         )*
 
+        $(
+            impl<P: CompileTimeProfile + super::$settlement_marker> sealed::Permits<gate::$settlement> for P {}
+            impl<P: CompileTimeProfile + super::$settlement_marker> Permits<gate::$settlement> for P {}
+            impl sealed::Permits<gate::$settlement> for AnyProfile {}
+            impl Permits<gate::$settlement> for AnyProfile {}
+        )*
+
         #[cfg(test)]
         #[test]
         fn runtime_profile_permits_every_optional_surface_and_domain() {
@@ -74,6 +88,10 @@ macro_rules! define_permits {
             $(
                 permits::<gate::$domain>();
                 let _: Option<gate::$domain> = Option::<permit_gate!($domain_marker)>::None;
+            )*
+            $(
+                permits::<gate::$settlement>();
+                let _: Option<gate::$settlement> = Option::<permit_gate!($settlement_marker)>::None;
             )*
         }
     };
@@ -91,5 +109,10 @@ super::typed_support_registry::typed_support_registry!(
         (WhiteBalance, HasWhiteBalance),
         (Image, HasImage),
         (Menu, HasMenu),
+    ],
+    [
+        (PanTiltSettlement, HasPanTiltSettlement),
+        (FocusSettlement, HasFocusSettlement),
+        (PresetRecallSettlement, HasPresetRecallSettlement),
     ]
 );

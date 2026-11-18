@@ -131,6 +131,20 @@ impl TargetRegistration {
         &self.profile
     }
 
+    /// Writes the VISCA frame for this target into the supplied buffer.
+    ///
+    /// Uses the receiving profile and installation to validate and lower the
+    /// request, with the same frame checks as session preparation. Returns the
+    /// encoded byte count without adding a transport envelope or sending bytes.
+    pub fn encode(
+        &self,
+        request: &impl crate::request::Request,
+        buffer: &mut [u8],
+    ) -> Result<usize> {
+        let (lowered, ()) = crate::requests::encode_for_target(request, self, buffer, || Ok(()))?;
+        Ok(lowered.written)
+    }
+
     /// Returns the selected mount, or `None` for a fixed-range profile.
     #[must_use]
     pub const fn mount(&self) -> Option<MountPosition> {
@@ -189,30 +203,6 @@ impl TargetRegistration {
         self.convert_coordinates(pan, tilt, crate::profiles::CoordinateKind::Offset)
     }
 
-    pub(crate) fn validate_pan_tilt_offset(&self, pan: i32, tilt: i32) -> Result<()> {
-        let geometry = self
-            .profile
-            .pan_tilt_geometry()
-            .ok_or(Error::FeatureNotSupported {
-                feature: "degree-based pan/tilt positioning",
-            })?;
-        for (parameter, value, range) in [
-            ("pan offset", pan, geometry.pan_range),
-            ("tilt offset", tilt, geometry.tilt_ranges.range(self.mount)),
-        ] {
-            let span = i64::from(range.max()) - i64::from(range.min());
-            if i64::from(value).abs() > span {
-                return Err(Error::InvalidParameter {
-                    parameter,
-                    value: value.to_string().into(),
-                    reason: format!("offset must lie within the relative span -{span}..={span}")
-                        .into(),
-                });
-            }
-        }
-        Ok(())
-    }
-
     pub(crate) const fn slot(&self) -> TargetSlot {
         self.target
     }
@@ -224,7 +214,7 @@ mod tests {
     use super::*;
     use crate::{
         profiles::{GenericVisca, SonyFr7},
-        request::builtin::{PanTiltAbsolute, PanTiltRelative},
+        request::builtin::PanTiltAbsolute,
         types::{PanSpeed, TiltSpeed},
         units::Degrees,
         Request,
@@ -312,19 +302,24 @@ mod tests {
             .clone()
             .with_mount(MountPosition::Ceiling)
             .expect("ceiling");
-        let request = absolute(&ceiling, 0.0, -210.0).expect("ceiling target");
-        assert!(request.validate_for_target(&ceiling).is_ok());
-        assert!(request.validate_for_target(&desktop).is_err());
-        let relative = PanTiltRelative::for_target(
-            Degrees::new(200.0).expect("finite pan offset"),
-            Degrees::new(-35.0).expect("finite tilt offset"),
-            PanSpeed::new(9).expect("pan"),
-            TiltSpeed::new(9).expect("tilt"),
-            &desktop,
-        )
-        .expect("relative span");
-        assert!(relative.validate_for_target(&desktop).is_ok());
-        assert!(relative.validate_for_target(&ceiling).is_ok());
+        let request = crate::command::pan_tilt::Absolute::new(
+            crate::types::PanTiltPosition::from_degrees(0.0, -210.0).expect("ceiling target"),
+            crate::types::PanTiltSpeed::new(
+                PanSpeed::new(9).expect("pan"),
+                TiltSpeed::new(9).expect("tilt"),
+            ),
+        );
+        assert!(ceiling.encode(&request, &mut [0; 17]).is_ok());
+        assert!(desktop.encode(&request, &mut [0; 17]).is_err());
+        let relative = crate::command::pan_tilt::Relative::new(
+            crate::types::PanTiltPosition::from_degrees(200.0, -35.0).expect("relative span"),
+            crate::types::PanTiltSpeed::new(
+                PanSpeed::new(9).expect("pan"),
+                TiltSpeed::new(9).expect("tilt"),
+            ),
+        );
+        assert!(ceiling.encode(&relative, &mut [0; 17]).is_ok());
+        assert!(desktop.encode(&relative, &mut [0; 17]).is_ok());
     }
 }
 

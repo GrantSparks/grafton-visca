@@ -75,12 +75,15 @@ Commit hooks check formatting with the CI-pinned nightly formatter, lint the
 default feature set once, and run text hygiene checks. The default feature set
 already enables `blocking`; it does not need a second blocking-only lint pass.
 CI owns broad feature testing, all-feature and no-default linting, and rustdoc.
+The matrix's all-targets builds compile the examples for each supported facade.
+The blocking dependency job checks the native dependency graph. Cargo Deny checks
+RustSec advisories, licenses, and dependency sources.
 
-For a feature-specific lint investigation, run an opt-in hook, for example
-`pre-commit run clippy-runtime-smol --hook-stage manual --all-files`.
-`pre-commit run --hook-stage manual --all-files` runs all the extra lint and
-rustdoc hooks. Use these when the change warrants them, rather than stacking
-the entire local matrix on top of a successful CI run for the same source.
+Run `bash .github/scripts/test-all-features.sh clippy` to lint the supported
+feature shapes. To focus on one shape, find its name and Cargo arguments with
+`list-json`. Pass those arguments to `cargo +1.98.0 clippy` and end with
+`-- -D warnings`, or run that shape's tests with
+`bash .github/scripts/test-all-features.sh test-leg NAME`.
 
 We maintain high code quality standards:
 
@@ -341,11 +344,12 @@ Declare every built-in command in the following five places.
 
 1. **Ledger row** (`src/command/semantics.rs`): one `builtin_command_ledger!`
    row gives the command its `BuiltinCommand` identity and its class
-   (`plain`, `applied(<AXES>)`, `applied_stop(<AXES>)` or `targeted(<AXES>)`), plus any
-   write-only state effect. Its `packet:` column owns one `PacketPattern` built from
+   (`plain`, `applied(<AXES>)`, `applied_stop(<AXES>)`, `targeted(<AXES>)` or
+   `owner_only`), plus any write-only state effect. Its `packet:` column owns one `PacketPattern` built from
    `command::bytes::constants`, with explicit selector bytes or nibble masks
-   where needed. Sourced rows require a nonempty `Some(pattern)`; use `None`
-   only for unsourced rows. A `source!` reference contains the source ID and checked
+   where needed. Owner-only primitives keep their packet pattern and encoder
+   but skip the request and noun steps below. Sourced rows require a nonempty
+   `Some(pattern)`. Use `None` only for unsourced rows. A `source!` reference contains the source ID and checked
    evidence key. Declare each source’s model set once in `source_ids!`.
 2. **Wire encoder** (`src/command/<domain>.rs`): fixed-body and single-parameter
    encoders use the crate-internal `visca_command!` generator. Other
@@ -380,8 +384,8 @@ Declare new typed gates in `typed_support_registry`, and add an evidence-backed
 grant in `profile_registry.rs` for each built-in profile that offers the gated
 method. The tables generate the corresponding facade and capability projections.
 
-The compiler rejects a ledger row without a noun row, a noun row whose kind
-disagrees with the ledger class, and a request type without a `rows:` entry
+The compiler rejects a request-bearing ledger row without a noun row, a noun
+row whose kind disagrees with the ledger class, and a request type without a `rows:` entry
 whose noun rows disagree on their capability gate. For a value-selecting
 type, declare every possible ledger row on its noun wrapper; generated preparation tests check the row selected by each
 evaluated noun request. A typed built-in inquiry is added to

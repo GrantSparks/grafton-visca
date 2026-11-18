@@ -9,7 +9,9 @@ use crate::{capabilities::TypedSupportSet, noun_table::noun_table, source_eviden
 
 pub(crate) use crate::capabilities::Domain as DomainGate;
 
-use super::semantics::{BuiltinCommand, BuiltinRequestClass, BuiltinRequestKind};
+use super::semantics::{
+    BuiltinAxisSelection, BuiltinCommand, BuiltinRequestClass, BuiltinRequestKind,
+};
 
 /// The capability gate of one noun-table row, including both its typed noun
 /// header and any refining `where` marker.
@@ -78,6 +80,29 @@ impl RowGate {
         Err(crate::Error::FeatureNotSupported { feature: denied })
     }
 
+    /// Enforces the capability and settlement contract of a command row.
+    pub(crate) fn validate_command(
+        self,
+        command: BuiltinCommand,
+        profile: &crate::ProfileSpec,
+        feature: &'static str,
+    ) -> crate::Result<()> {
+        self.validate(profile, feature)?;
+        if !permits_settlement(
+            command,
+            profile.settlement_axes(),
+            profile.preset_recall_axes(),
+        ) {
+            return Err(crate::Error::FeatureNotSupported { feature });
+        }
+        Ok(())
+    }
+
+    /// Whether the row consumes a typed grant, beyond presence of a domain.
+    pub(crate) const fn requires_typed_support(self) -> bool {
+        matches!(self, Self::Typed(_) | Self::DomainAndTyped(_, _))
+    }
+
     /// Const comparison used by the generated request inventory.
     pub(crate) const fn same_as(self, other: Self) -> bool {
         match (self, other) {
@@ -92,6 +117,24 @@ impl RowGate {
             _ => false,
         }
     }
+}
+
+/// Tests the ledger's exact settlement requirement against a profile's proof.
+pub(crate) fn permits_settlement(
+    command: BuiltinCommand,
+    available: Option<crate::AffectedAxes>,
+    recall: Option<crate::AffectedAxes>,
+) -> bool {
+    let required = match command.classification() {
+        BuiltinRequestClass::Targeted {
+            axes: BuiltinAxisSelection::Exact(axes),
+        } => Some(axes),
+        BuiltinRequestClass::Targeted {
+            axes: BuiltinAxisSelection::ProfilePresetRecall,
+        } => recall,
+        _ => return true,
+    };
+    required.is_some_and(|axes| available.is_some_and(|available| available.contains(axes)))
 }
 
 /// The runtime gate of a built-in inquiry, generated from its noun-table row.
@@ -144,6 +187,11 @@ macro_rules! noun_row_gate {
     ([], [domain $marker:ident]) => {
         $crate::command::surface::RowGate::Domain($crate::command::surface::domain_gate!($marker))
     };
+    // The settlement refinements are proved from the ledger's targeted axes
+    // in validate_command. They do not consume a typed capability grant.
+    ([HasPanTiltSettlement], [domain HasPanTilt]) => { $crate::command::surface::RowGate::Domain($crate::capabilities::Domain::PanTilt) };
+    ([HasFocusSettlement], [domain HasFocus]) => { $crate::command::surface::RowGate::Domain($crate::capabilities::Domain::Focus) };
+    ([HasPresetRecallSettlement], [domain HasPresets]) => { $crate::command::surface::RowGate::Domain($crate::capabilities::Domain::Presets) };
     ([$($gate:ident),*], [typed $base:ident]) => {
         $crate::command::surface::RowGate::Typed($crate::capabilities::TypedSupportSet::from_surfaces(&[
             $crate::capabilities::typed_surface!($base),
@@ -193,16 +241,8 @@ pub(crate) enum StaticSurfaceDisposition {
         /// The row's capability gate.
         gate: RowGate,
     },
-    /// A broadcast handshake, never a target camera method.
-    BroadcastHandshake {
-        /// Internal protocol spelling retained for the broadcast namespace.
-        method: &'static str,
-    },
-    /// An internal cancellation primitive, never a noun method.
-    InternalCancellation {
-        /// Internal protocol spelling retained for owner cancellation.
-        method: &'static str,
-    },
+    /// A session owner emits the wire primitive directly.
+    OwnerOnly,
 }
 
 /// One derived row in the closed static noun ledger.
@@ -210,7 +250,7 @@ pub(crate) enum StaticSurfaceDisposition {
 pub(crate) struct StaticSurfaceEntry {
     /// Exactly one source semantic row.
     pub(crate) command: BuiltinCommand,
-    /// Noun mapping or explicit non-noun exception.
+    /// Noun mapping or owner-only wire primitive.
     pub(crate) disposition: StaticSurfaceDisposition,
     /// Semantic return class copied from the authoritative row.
     pub(crate) class: BuiltinRequestClass,
@@ -220,9 +260,8 @@ impl StaticSurfaceEntry {
     /// Canonical method spelling for a refused row's diagnostic.
     pub(crate) const fn feature(self) -> &'static str {
         match self.disposition {
-            StaticSurfaceDisposition::Noun { method, .. }
-            | StaticSurfaceDisposition::BroadcastHandshake { method }
-            | StaticSurfaceDisposition::InternalCancellation { method } => method,
+            StaticSurfaceDisposition::Noun { method, .. } => method,
+            StaticSurfaceDisposition::OwnerOnly => "owner-only VISCA primitive",
         }
     }
 
@@ -261,16 +300,6 @@ macro_rules! registry_class {
     };
     (targeted) => {
         BuiltinRequestKind::Targeted
-    };
-}
-
-/// Maps a protocol exception's keyword to its non-noun disposition.
-macro_rules! exception_disposition {
-    (broadcast, $method:expr) => {
-        StaticSurfaceDisposition::BroadcastHandshake { method: $method }
-    };
-    (internal, $method:expr) => {
-        StaticSurfaceDisposition::InternalCancellation { method: $method }
     };
 }
 
@@ -385,7 +414,6 @@ macro_rules! surface_registry {
                     $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
             )*
         )*
-        @exceptions; $( $exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty; )*
     ) => {
         /// The noun accessor owning a canonical method.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -408,12 +436,6 @@ macro_rules! surface_registry {
             use crate::command;
             &[
                 $( $( command_surface!($kind, $noun, $key, $method, $ret, [$($gate $(, $extra)*)?], $base), )* )*
-                $( Some(CommandSurface {
-                    name: stringify!($excommand),
-                    rows: &[BuiltinCommand::$excommand],
-                    kind: BuiltinRequestKind::Plain,
-                    disposition: exception_disposition!($exkind, stringify!($exmethod)),
-                }), )*
             ]
         };
 
@@ -540,7 +562,7 @@ const fn build_surface_index() -> [StaticSurfaceEntry; BuiltinCommand::ALL.len()
     let first = BuiltinCommand::ALL[0];
     let mut index = [StaticSurfaceEntry {
         command: first,
-        disposition: StaticSurfaceDisposition::InternalCancellation { method: "" },
+        disposition: StaticSurfaceDisposition::OwnerOnly,
         class: first.classification(),
     }; BuiltinCommand::ALL.len()];
     let mut covered = [false; BuiltinCommand::ALL.len()];
@@ -573,7 +595,7 @@ const fn build_surface_index() -> [StaticSurfaceEntry; BuiltinCommand::ALL.len()
                                 "shared protocol rows disagree on capability gates"
                             );
                         }
-                        _ => panic!("a protocol exception is repeated or exposed as a noun method"),
+                        _ => panic!("an owner-only protocol row appeared in the noun table"),
                     }
                 } else {
                     covered[slot] = true;
@@ -594,10 +616,19 @@ const fn build_surface_index() -> [StaticSurfaceEntry; BuiltinCommand::ALL.len()
             BuiltinCommand::ALL[row] as usize == row,
             "protocol row ordinals must be dense"
         );
-        assert!(
-            covered[row],
-            "a protocol row has no canonical noun or exception request"
-        );
+        if !covered[row] {
+            let command = BuiltinCommand::ALL[row];
+            let class = command.classification();
+            assert!(
+                matches!(class, BuiltinRequestClass::OwnerOnly),
+                "a request-bearing protocol row has no canonical noun method"
+            );
+            index[row] = StaticSurfaceEntry {
+                command,
+                disposition: StaticSurfaceDisposition::OwnerOnly,
+                class,
+            };
+        }
         row += 1;
     }
     index
@@ -652,8 +683,7 @@ pub(crate) const fn inquiry_kind_gate(
 pub(crate) const fn row_gate(command: BuiltinCommand) -> RowGate {
     match surface_entry(command).disposition {
         StaticSurfaceDisposition::Noun { gate, .. } => gate,
-        StaticSurfaceDisposition::BroadcastHandshake { .. }
-        | StaticSurfaceDisposition::InternalCancellation { .. } => RowGate::Always,
+        StaticSurfaceDisposition::OwnerOnly => RowGate::Always,
     }
 }
 
@@ -999,6 +1029,7 @@ mod tests {
     fn surface_ledger_is_exhaustive_unique_and_class_balanced() {
         let mut seen = std::collections::HashSet::new();
         let mut plain = 0;
+        let mut owner_only = 0;
         let mut applied_only = 0;
         let mut stops = 0;
         let mut targeted = 0;
@@ -1009,6 +1040,7 @@ mod tests {
             assert_eq!(entry.class, command.classification());
             match entry.class {
                 BuiltinRequestClass::Plain { .. } => plain += 1,
+                BuiltinRequestClass::OwnerOnly => owner_only += 1,
                 BuiltinRequestClass::AppliedOnly { stop, .. } => {
                     applied_only += 1;
                     stops += usize::from(stop);
@@ -1016,27 +1048,18 @@ mod tests {
                 BuiltinRequestClass::Targeted { .. } => targeted += 1,
             }
             match entry.disposition {
-                StaticSurfaceDisposition::Noun { method, .. }
-                | StaticSurfaceDisposition::BroadcastHandshake { method }
-                | StaticSurfaceDisposition::InternalCancellation { method } => {
-                    assert!(!method.is_empty());
+                StaticSurfaceDisposition::Noun { method, .. } => assert!(!method.is_empty()),
+                StaticSurfaceDisposition::OwnerOnly => {
+                    assert_eq!(entry.class, BuiltinRequestClass::OwnerOnly);
                 }
             }
         }
 
-        // The class distribution is pinned, not re-derived.  Summing the three
-        // counters back to `ALL.len()` proves nothing — the match above is
-        // exhaustive, so the sum is an identity — while the split between the
-        // classes is exactly what a silent reclassification changes.
-        //
-        // Maintenance: adding a command row moves one of these three numbers by
-        // one, and reclassifying a row moves two.  Update the triple in the
-        // same commit as the ledger change and say in the commit message which
-        // class the row landed in; a change here that nobody intended is the
-        // regression this assertion exists to surface.
+        // Pin counts per class to detect reclassification. Update these counts
+        // in the commit that changes the ledger and name the class in its message.
         assert_eq!(
-            (plain, applied_only, stops, targeted),
-            (164, 22, 4, 15),
+            (plain, applied_only, stops, targeted, owner_only),
+            (161, 22, 4, 15, 3),
             "the semantic class distribution of the closed ledger changed",
         );
         assert_eq!(seen.len(), BuiltinCommand::ALL.len());
@@ -1058,8 +1081,7 @@ mod tests {
         fn facts(command: BuiltinCommand) -> (&'static str, Option<RowGate>) {
             match surface_entry(command).disposition {
                 StaticSurfaceDisposition::Noun { method, gate, .. } => (method, Some(gate)),
-                StaticSurfaceDisposition::BroadcastHandshake { method }
-                | StaticSurfaceDisposition::InternalCancellation { method } => (method, None),
+                StaticSurfaceDisposition::OwnerOnly => ("owner-only VISCA primitive", None),
             }
         }
 
@@ -1094,59 +1116,28 @@ mod tests {
     }
 
     #[test]
-    fn broadcast_and_internal_rows_never_have_noun_dispositions() {
-        assert!(matches!(
-            surface_entry(BuiltinCommand::AddressSet).disposition,
-            StaticSurfaceDisposition::BroadcastHandshake { .. }
-        ));
-        assert!(matches!(
-            surface_entry(BuiltinCommand::InterfaceClear).disposition,
-            StaticSurfaceDisposition::BroadcastHandshake { .. }
-        ));
-        assert!(matches!(
-            surface_entry(BuiltinCommand::CommandCancel).disposition,
-            StaticSurfaceDisposition::InternalCancellation { .. }
-        ));
-
-        // The target-facing total is derived: the ledger is closed, so the
-        // noun rows are exactly the rows that are not one of the three named
-        // non-noun exceptions above.
-        let exceptions: Vec<BuiltinCommand> = BuiltinCommand::ALL
+    fn owner_only_rows_never_have_noun_dispositions() {
+        let owner_only: Vec<BuiltinCommand> = BuiltinCommand::ALL
             .iter()
             .copied()
             .filter(|command| !surface_entry(*command).is_target_facing())
             .collect();
         assert_eq!(
-            exceptions,
-            vec![
+            owner_only,
+            [
                 BuiltinCommand::AddressSet,
                 BuiltinCommand::InterfaceClear,
                 BuiltinCommand::CommandCancel,
             ]
         );
-
-        // Counting the noun rows and adding the exceptions back is an identity,
-        // because `is_target_facing` is what splits the two groups.  The
-        // property worth asserting is that the two groups do not overlap in
-        // method spelling: the broadcast and cancellation rows own protocol
-        // names that must never resurface as a camera noun method on any of the
-        // three facades.
-        let reserved: Vec<&'static str> = BuiltinCommand::ALL
-            .iter()
-            .filter_map(|command| match surface_entry(*command).disposition {
-                StaticSurfaceDisposition::BroadcastHandshake { method }
-                | StaticSurfaceDisposition::InternalCancellation { method } => Some(method),
-                StaticSurfaceDisposition::Noun { .. } => None,
-            })
-            .collect();
-        assert_eq!(reserved.len(), exceptions.len());
+        let reserved = ["address_set", "interface_clear", "cancel_command"];
         for command in BuiltinCommand::ALL {
             if let StaticSurfaceDisposition::Noun { noun, method, .. } =
                 surface_entry(*command).disposition
             {
                 assert!(
                     !reserved.contains(&method),
-                    "noun {noun:?} reuses the reserved non-noun spelling {method}",
+                    "noun {noun:?} reuses the reserved owner-only spelling {method}",
                 );
             }
         }

@@ -410,6 +410,10 @@ struct Step {
     remaining_members: u64,
 }
 
+/// A tracked step whose ACK names a socket and has no follow yet.
+#[derive(Clone, Copy)]
+pub(super) struct FollowCandidate(usize);
+
 /// The opening frame is always an error, so it cannot have an ACK follow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct OpeningStep {
@@ -615,6 +619,9 @@ pub(crate) struct Answered {
     pub(crate) retro: RetroFrames,
     /// Whether a proven dispute retired a `CompletionOnly` entry as rejected.
     pub(crate) completion_only_retired: bool,
+    /// A newly tracked dispute, with whether it could retire a written
+    /// CompletionOnly command.
+    pub(super) completion_dispute: Option<bool>,
 }
 
 impl StreamLedger {
@@ -783,6 +790,22 @@ impl StreamLedger {
         }
     }
 
+    /// Returns a uniquely attributable first answer, excluding runs and
+    /// staged writes. This can prove an earlier frame was an execution error.
+    pub(super) fn sole_written_candidate(
+        &self,
+        target: TargetSlot,
+        answer: Answer<'_>,
+    ) -> Option<Outstanding> {
+        let mut legal_entries = self
+            .queue(target)
+            .iter()
+            .filter(|entry| legal(answer, entry.owes));
+        let candidate = legal_entries.next()?;
+        (candidate.written && candidate.members == 1 && legal_entries.next().is_none())
+            .then_some(*candidate)
+    }
+
     pub(crate) fn answer(
         &mut self,
         target: TargetSlot,
@@ -796,6 +819,7 @@ impl StreamLedger {
             replies_settled: InquiryShapes::default(),
             retro: SmallVec::new(),
             completion_only_retired: false,
+            completion_dispute: None,
         };
         match resolve_in(queue, answer) {
             Resolution::Nothing => {}
@@ -877,6 +901,8 @@ impl StreamLedger {
                 if let (true, Some(completion_only), Some(stop), Evidence::Error(code)) =
                     (opened, completion_only, stop, evidence)
                 {
+                    answered.completion_dispute =
+                        Some(head_owes == Some(Owes::Completion) && completion_only.written);
                     state.dispute = Some(Dispute {
                         command: OpeningStep {
                             order: completion_only.order,
@@ -934,6 +960,7 @@ impl StreamLedger {
             replies_settled: settle_in(queue, order),
             retro: SmallVec::new(),
             completion_only_retired: false,
+            completion_dispute: None,
         };
         settle(
             queue,
@@ -945,23 +972,40 @@ impl StreamLedger {
         answered
     }
 
-    /// Keeps a completion or error naming `frame`'s socket that a tracked
-    /// dispute's handed-off ACK named, and returns whether it did: if the
-    /// command is proven accepted, that ACK and this frame were the same
-    /// request's; if rejected, the ACK was the late answer of the command
-    /// owed there, and this frame is that command's. Either way the command
-    /// running there has ended, so its socket is free.
-    pub(crate) fn follow(&mut self, target: TargetSlot, frame: NamedFrame) -> bool {
-        let Some(dispute) = self.targets[target].dispute.as_mut() else {
-            return false;
+    /// Finds the tracked hand-off whose ACK names this socket, without
+    /// claiming its possible terminal frame.
+    pub(super) fn follow_candidate(
+        &self,
+        target: TargetSlot,
+        socket: ViscaSocket,
+    ) -> Option<FollowCandidate> {
+        self.targets[target]
+            .dispute
+            .as_ref()?
+            .steps
+            .iter()
+            .position(|step| step.follow.is_none() && step.evidence == Evidence::Ack(Some(socket)))
+            .map(FollowCandidate)
+    }
+
+    /// Records the terminal of a tracked ACK. Once the dispute is accepted,
+    /// both frames are assigned to the same request.
+    pub(super) fn record_follow(
+        &mut self,
+        target: TargetSlot,
+        candidate: FollowCandidate,
+        frame: NamedFrame,
+    ) {
+        let Some(step) = self.targets[target]
+            .dispute
+            .as_mut()
+            .and_then(|dispute| dispute.steps.get_mut(candidate.0))
+        else {
+            unreachable!("the follow candidate came from the current dispute");
         };
-        let Some(step) = dispute.steps.iter_mut().find(|step| {
-            step.follow.is_none() && step.evidence == Evidence::Ack(Some(frame.socket()))
-        }) else {
-            return false;
-        };
+        debug_assert!(step.follow.is_none());
+        debug_assert_eq!(step.evidence, Evidence::Ack(Some(frame.socket())));
         step.follow = Some(frame);
-        true
     }
 
     /// Whether a tracked dispute may already hold `request`'s answer: the
@@ -1236,7 +1280,7 @@ impl StreamLedger {
     /// time: a stall can outlast any window. A tracked dispute whose requests
     /// have all ended, and whose windows have, goes *dormant*: it falls to
     /// the documented latch — it no longer holds anything back, and the
-    /// camera's lanes latch (the inquiry lane too, while a `CompletionOnly`
+    /// camera's lanes latch (all inquiry classes too, while a `CompletionOnly`
     /// command is not proven accepted, like any whose completion never
     /// came), so work they refuse fails at once rather than waiting — while
     /// a late answer can still settle it and reopen them.
@@ -1914,7 +1958,8 @@ mod tests {
             ledger.push(TARGET, request(id), Owes::Ack);
             ledger.mark_written(TARGET, request(id), false);
             ledger.answer(TARGET, Answer::Ack, Evidence::Ack(Some(socket)));
-            assert!(ledger.follow(TARGET, NamedFrame::Completion(socket)));
+            let candidate = ledger.follow_candidate(TARGET, socket).unwrap();
+            ledger.record_follow(TARGET, candidate, NamedFrame::Completion(socket));
             ledger.retire(TARGET, request(id), |_| {
                 (Instant::now(), Duration::from_secs(1))
             });

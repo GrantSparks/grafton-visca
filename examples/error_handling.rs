@@ -5,7 +5,7 @@
 //!
 //! Run with:
 //! ```sh
-//! cargo run --example error_handling --features runtime-tokio -- 192.168.0.110
+//! cargo run --example error_handling --features runtime-tokio -- 192.0.2.10
 //! ```
 
 mod support;
@@ -13,8 +13,13 @@ mod support;
 use std::{env, io, time::Duration};
 
 use grafton_visca::{
-    config::CameraConfig, error::Recovery, profiles::PtzOpticsG2, r#async::CameraSession,
-    runtime::TokioRuntime, transport::TransportConfig, Error,
+    config::CameraConfig,
+    error::Recovery,
+    profiles::PtzOpticsG2,
+    r#async::CameraSession,
+    runtime::TokioRuntime,
+    transport::{BufferConfig, IoBounds, TcpConnect},
+    Error,
 };
 
 use support::finish_session;
@@ -45,7 +50,7 @@ fn address() -> Result<String, io::Error> {
             ));
         }
         Some(value) => value,
-        None => env::var("VISCA_CAMERA_ADDR").unwrap_or_else(|_| "192.168.0.110".to_string()),
+        None => env::var("VISCA_CAMERA_ADDR").unwrap_or_else(|_| "192.0.2.10".to_string()),
     };
 
     if let Some(extra) = values.next() {
@@ -93,11 +98,11 @@ async fn connect_and_query(address: &str) -> Result<(), Error> {
     println!("\nConnection check:");
     println!("  Address: {address}");
 
-    let config = CameraConfig::<PtzOpticsG2>::tcp(address).with_transport_config(
-        TransportConfig::for_tcp()
-            .with_connect_timeout(Duration::from_secs(3))
-            .with_read_timeout(Duration::from_secs(2))
-            .with_write_timeout(Duration::from_secs(2)),
+    let io_timeout = Duration::from_secs(2);
+    let config = CameraConfig::<PtzOpticsG2>::tcp_configured(
+        address,
+        TcpConnect::default().with_connect_timeout(Duration::from_secs(3))?,
+        IoBounds::new(io_timeout, io_timeout, BufferConfig::for_tcp())?,
     );
 
     let runtime = TokioRuntime::from_current()?;

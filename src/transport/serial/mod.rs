@@ -13,7 +13,7 @@
 //! - **Open failure** is [`Error::ConnectionFailed`] naming the port and
 //!   carrying the platform error, so its [`std::io::ErrorKind`] survives.
 //! - **Reported configuration.** The transport reports
-//!   [`Config::transport_config`]: serial addressing and no TCP socket
+//!   [`Config::io_bounds`]: serial addressing and no TCP socket
 //!   options.
 //! - **Writes on open.** Only those [`Config::startup`] requests; the default
 //!   writes nothing. After any startup operation the received input is
@@ -51,8 +51,9 @@
 //! - **Timed serial writes** returning zero bytes report a timeout, including
 //!   during startup. They may have partially sent an earlier chunk and must
 //!   not be resubmitted automatically.
-//! - **I/F Clear** writes its broadcast and then waits a 100 ms settle delay,
-//!   both within one 2-second budget.
+//! - **I/F Clear** reserves its 100 ms settle within the 2-second startup
+//!   budget before writing. A successful write always runs the settle. A
+//!   timed-out write reports uncertain progress.
 //!
 //! Serial `flush` is never called: on POSIX it is `tcdrain`, which can block
 //! beyond every timeout. The camera's reply and the settle delay are the

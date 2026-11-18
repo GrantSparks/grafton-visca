@@ -354,7 +354,7 @@ macro_rules! owner_handle_methods {
 
             pub(crate) $($async)* fn subscribe_diagnostics(
                 &self,
-                capacity: usize,
+                capacity: crate::observability::DiagnosticCapacity,
             ) -> Result<super::DiagnosticSubscription, crate::Error> {
                 let subscription = self.control_request(|reply| {
                     super::boundary::ControlBoundary::SubscribeDiagnostics { capacity, reply }
@@ -456,18 +456,11 @@ macro_rules! owner_handle_methods {
                 let mut queries = queries.clone();
                 self.sample_positions(&mut queries, tolerance, deadline) $($await)* ?;
                 let window = window.observe_baseline(self.now(), deadline)?;
-                loop {
-                    let now = self.now();
-                    if now >= window.final_not_before() {
-                        break;
-                    }
-                    self.sleep(window.final_not_before().saturating_duration_since(now))
-                        $($await)*;
+                while let Some(remaining) = window.remaining(self.now()) {
+                    self.sleep(remaining) $($await)*;
                 }
                 self.ensure_before(deadline)?;
-                let started_at = self.now();
-                let moving = self.sample_positions(&mut queries, tolerance, deadline) $($await)* ?;
-                window.observe_final(moving, started_at)
+                self.sample_positions(&mut queries, tolerance, deadline) $($await)*
             }
 
             crate::position_inquiries::settlement_inquiries!(

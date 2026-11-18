@@ -1,33 +1,34 @@
 #![cfg(any(feature = "blocking", feature = "runtime-tokio"))]
 
 use grafton_visca::{
-    config::{CameraConfig, SessionConfig, TransportKind, TransportOptions},
+    config::{CameraConfig, SessionConfig, TransportOptions},
     profiles::ProfileId,
+    transport::StandardTransport,
     Error,
 };
 
-fn refused_configs() -> [(CameraConfig, Option<TransportKind>); 4] {
+fn refused_configs() -> [(CameraConfig, Option<StandardTransport>); 4] {
     [
         (
             CameraConfig::new(
                 ProfileId::SonyFr7,
                 TransportOptions::tcp("issue-944-no-dns.invalid"),
             ),
-            Some(TransportKind::Tcp),
+            Some(StandardTransport::Tcp),
         ),
         (
             CameraConfig::new(
                 ProfileId::SonyBrc300,
                 TransportOptions::udp("issue-944-no-dns.invalid"),
             ),
-            Some(TransportKind::Udp),
+            Some(StandardTransport::Udp),
         ),
         (
             CameraConfig::new(
                 ProfileId::SonyFr7,
                 TransportOptions::serial("/dev/issue-944-never-opened", 9600),
             ),
-            Some(TransportKind::Serial),
+            Some(StandardTransport::Serial),
         ),
         (
             CameraConfig::new(ProfileId::GenericVisca, TransportOptions::Custom),
@@ -36,7 +37,7 @@ fn refused_configs() -> [(CameraConfig, Option<TransportKind>); 4] {
     ]
 }
 
-fn assert_refusal(error: Error, transport: Option<TransportKind>) {
+fn assert_refusal(error: Error, transport: Option<StandardTransport>) {
     match transport {
         Some(expected) => assert!(
             matches!(error, Error::UnsupportedTransport { transport, .. } if transport == expected)
@@ -151,15 +152,17 @@ async fn async_camera_open_preserves_configured_transport_validation() {
         .with_camera_id(grafton_visca::types::IndividualCameraId::CAMERA_3);
     let udp = runtime
         .connect_udp(
-            "127.0.0.1:9",
-            grafton_visca::transport::TransportConfig::for_udp(),
+            grafton_visca::transport::NetworkEndpoint::parse("127.0.0.1:9", None)
+                .expect("endpoint"),
+            grafton_visca::transport::UdpConnect::default(),
+            grafton_visca::transport::IoBounds::default(),
         )
         .await
         .expect("local UDP transport");
     assert!(matches!(
         CameraSession::open(udp, &camera, runtime.clone()).await,
         Err(Error::UnsupportedTransport {
-            transport: TransportKind::Tcp,
+            transport: StandardTransport::Tcp,
             ..
         })
     ));
@@ -168,8 +171,10 @@ async fn async_camera_open_preserves_configured_transport_validation() {
         .with_transport(TransportOptions::tcp("unused.invalid"));
     let udp = runtime
         .connect_udp(
-            "127.0.0.1:9",
-            grafton_visca::transport::TransportConfig::for_udp(),
+            grafton_visca::transport::NetworkEndpoint::parse("127.0.0.1:9", None)
+                .expect("endpoint"),
+            grafton_visca::transport::UdpConnect::default(),
+            grafton_visca::transport::IoBounds::default(),
         )
         .await
         .expect("local UDP transport");
@@ -181,8 +186,10 @@ async fn async_camera_open_preserves_configured_transport_validation() {
         .expect("close");
     let udp = runtime
         .connect_udp(
-            "127.0.0.1:9",
-            grafton_visca::transport::TransportConfig::for_udp(),
+            grafton_visca::transport::NetworkEndpoint::parse("127.0.0.1:9", None)
+                .expect("endpoint"),
+            grafton_visca::transport::UdpConnect::default(),
+            grafton_visca::transport::IoBounds::default(),
         )
         .await
         .expect("local UDP transport");

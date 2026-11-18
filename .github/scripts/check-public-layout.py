@@ -18,7 +18,7 @@ import sys
 
 
 FORMAT_VERSION = 61
-ROOT_MODULES = frozenset("blocking async types command request raw wire config profiles capabilities operation error transport runtime observability state_cache testing prelude".split())
+ROOT_MODULES = frozenset("blocking async types command request raw wire config profiles capabilities operation error transport runtime observability tuning state_cache testing prelude".split())
 DOCUMENTATION_MODULES = frozenset(("architecture",))
 ROOT_MACROS = {"value": "proc_attribute", "value_enum": "proc_attribute", "ViscaInquiry": "proc_derive"}
 OLD_MODULES = frozenset("camera units profile session dynapi dyn_api runtime_adapters inquiry_conversions completion".split())
@@ -26,15 +26,16 @@ FAMILY_ENUMS = frozenset("Zoom Focus PanTilt Gain Shutter Brightness ColorTemper
 VALUE_NAMES = frozenset("AffectedAxes AffectedAxis AffectedAxisIter CameraId IndividualCameraId CommandSocketCount ViscaSocket ExposureMode FocusMode WhiteBalanceMode AutoFocusSensitivity AutoWhiteBalanceSensitivity FocusZone AntiFlickerMode ImageFlipMode SharpnessMode NoiseReduction2DMode NoiseReduction2D NoiseReduction3D PictureEffectMode NdFilterMode PowerStatus PanTiltDirection PanTiltLimitCorner MenuDirection DirectMenuTarget MenuButton VersionInfo PresetNumber MotionQuery IdleWait MovementTolerance PanTiltPosition PanTiltUnits ZoomDomain".split())
 NAMED_HOMES = {
     **dict.fromkeys(VALUE_NAMES, "types"),
-    **dict.fromkeys("Request PlainCommand Inquiry OperationCommand ResponseDecoder PayloadShape ControlClass SubmissionClass CommandRetryClass InquiryRetryClass CommandPolicy OperationPolicy InquiryPolicy Class PlainClass InquiryClass OperationClass".split(), "request"),
+    **dict.fromkeys("Request PlainCommand Inquiry OperationCommand ResponseDecoder PayloadShape SubmissionClass CommandRetryClass InquiryRetryClass CommandPolicy OperationPolicy InquiryPolicy Class PlainClass InquiryClass OperationClass".split(), "request"),
     **dict.fromkeys("ProfileSpec ProfileSpecBuilder ProfileTiming ProfileTimingBuilder ProfileEnvelope TransportCompatibility PanTiltCoordinateConversion CompileTimeProfile CameraProfile AnyProfile ProfileSelection ProfileId ProfileGroup CommandTimeouts".split(), "profiles"),
     **dict.fromkeys("CameraConfig SessionConfig OperationalTuning TransportOptions TransportKind TargetRegistration MountPosition DEFAULT_ADMISSION_CAPACITY".split(), "config"),
     **dict.fromkeys("Targeted AppliedOnly Kind CancellationOutcome Settlement HaltOutcome HaltReport OperationId".split(), "operation"),
     **dict.fromkeys("Certainty ErrorKind FailureContext FailureStage Recovery".split(), "error"),
     **dict.fromkeys("Response Payload Nibbles BoolConvention RawInquiryPayload ResponseParser parse_inquiry_payload VISCA_TERMINATOR CommandKind WireValue".split(), "wire"),
     **dict.fromkeys("StateCache StateKey KnownState StateEntry PanTiltLimitUpdate".split(), "state_cache"),
-    **dict.fromkeys("MetricsSnapshot SessionStatus".split(), "observability"),
-    **dict.fromkeys("Executor ResettableTimer ExecError TokioExecutor TokioTimer SmolExecutor SmolTimer Runtime TokioRuntime SmolRuntime TransportHandle".split(), "runtime"),
+    **dict.fromkeys("DiagnosticCapacity MetricsSnapshot SessionStatus".split(), "observability"),
+    "RetryLimit": "tuning",
+    **dict.fromkeys("Executor ResettableTimer TokioExecutor TokioTimer SmolExecutor SmolTimer Runtime TokioRuntime SmolRuntime TransportHandle".split(), "runtime"),
     **dict.fromkeys("TransportConfig TcpKeepaliveConfig BufferConfig SerialConfig SerialStartup StandardTransport".split(), "transport"),
     **dict.fromkeys("Domain DomainSet TransportSet".split(), "capabilities"),
     "CommandTimeoutClass": "profiles",
@@ -281,7 +282,7 @@ class Audit:
             return "types"
         if origin[:2] == ("camera", "profiles") or origin[:1] == ("profile_selection",):
             return "profiles"
-        if origin[:2] == ("camera", "config") or origin[:1] in (("session_config",), ("tuning",), ("target_registration",)):
+        if origin[:2] == ("camera", "config") or origin[:1] in (("session_config",), ("operational_tuning",), ("target_registration",)):
             return "config"
         if origin[:2] == ("camera", "movement"):
             return "types"

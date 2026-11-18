@@ -741,11 +741,7 @@ mod tests {
             static RESOLVER: BlockingResolver = BlockingResolver::new(1, counting);
 
             for address in ["192.168.1.010:1259", "127.1:1259", "0x7f000001:1259"] {
-                let result = crate::transport::connect::preflight(
-                    address,
-                    crate::transport::TransportConfig::for_udp(),
-                )
-                .and_then(|(endpoint, _)| {
+                let result = NetworkEndpoint::parse(address, None).and_then(|endpoint| {
                     RESOLVER.resolve(&endpoint, budget(Duration::from_secs(1)))
                 });
                 assert!(matches!(result, Err(Error::InvalidAddress { .. })));

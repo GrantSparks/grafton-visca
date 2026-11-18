@@ -96,13 +96,10 @@ The stable test boundaries are:
 | Bounded submission and completion observers | `tests/integration/issue_561_blocking_queue.rs` and the `runtime::owner` unit tests |
 | Downstream derive encoding | `tests/allocation/issue_517_inquiry_encoding.rs` coverage |
 
-The commands in this section are the canonical local/release validation
-surface. GitHub Actions currently runs the corresponding feature combinations
-as broad `--all-targets` entries in its `feature-matrix` job, including the
-`test-utils,blocking,runtime-tokio` union; it does not invoke this document's
-commands as separate allocation-only CI legs. Run the script and keep these
-named boundaries in the release review so a cfg change cannot turn a local
-release check into zero executed tests.
+The table identifies the allocation boundaries and their tests. The
+canonical feature matrix runs them via its `--all-targets` entries, including
+the `test-utils,blocking,runtime-tokio` union. Keep these named boundaries in
+the release review so a cfg change cannot silently skip their tests.
 
 ## Runtime validation and retry matrix
 
@@ -151,8 +148,11 @@ bash .github/scripts/test-all-features.sh list-json
 bash .github/scripts/test-all-features.sh
 bash .github/scripts/test-all-features.sh clippy
 bash .github/scripts/test-all-features.sh doc
-bash .github/scripts/check-blocking-dependency-boundary.sh
 ```
+
+The matrix includes the blocking dependency graph check. Its all-targets builds
+also compile the examples for each supported facade. CI runs Cargo Deny for
+RustSec advisories, licenses, and dependency sources.
 
 The blocking dependency gate is a release contract: `blocking` and
 `transport-serial` remain native synchronous graphs without an async executor.
@@ -164,27 +164,7 @@ semantic source of truth.
 
 ## Tooling release gates
 
-Run the following on the tagged release candidate, with the required tools
-installed:
-
-```text
-cargo +nightly fmt --all -- --check
-cargo check --workspace --all-targets --all-features
-cargo clippy --all-targets --all-features -- -D warnings
-RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features
-cargo test --doc --no-default-features
-cargo test --doc --all-features
-cargo check --workspace --all-targets --no-default-features
-cargo audit
-```
-
-Run compile-fail/API-contract tests under blocking, canonical async, dyn, and
-coexistence feature sets. Run the fuzz/property suite with failures treated as
-failures, not advisory output. Run Synemantic's
-external compatibility check once the service/project credentials are
-available. Hardware smoke checks are optional and private for stable releases
-and prereleases; no public device record or sign-off is required (#1008). See
-the [optional guidance](hardware_release_checklist.md).
+Follow the [candidate validation checklist in RELEASING.md](../RELEASING.md#candidate-validation).
 
 Serialization, schema, and TypeScript checks validate public data shapes only;
 they must not introduce a second protocol or semantic registry. Keep generated

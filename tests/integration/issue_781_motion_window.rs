@@ -105,11 +105,7 @@ fn config() -> SessionConfig {
 /// Any change of more than one unit is movement.
 fn creeping_zoom_query(window: Duration) -> MotionQuery {
     MotionQuery::new(AffectedAxes::ZOOM)
-        .with_tolerance({
-            let mut config = MovementTolerance::default();
-            config.zoom = 1;
-            config
-        })
+        .with_tolerance(MovementTolerance::DEFAULT.with_zoom(1))
         .with_window(window)
 }
 

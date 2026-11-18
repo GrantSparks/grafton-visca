@@ -1,6 +1,22 @@
 //! A processor borrowing an actual raw-stream state and the shared engine.
-use super::correlation::StreamCorrelation;
+use super::correlation::{StreamCorrelation, TerminalFamily};
+use super::stream_ledger::FollowCandidate;
 use super::*;
+
+/// The origin of a socket-naming error other than a cancellation reply.
+enum NamedErrorOrigin {
+    Execution(RequestId),
+    StepFollow {
+        candidate: FollowCandidate,
+        could_reject: bool,
+    },
+    HeldSocket {
+        could_reject: bool,
+    },
+    WaitingRejection,
+    Ambiguous,
+    Unmatched,
+}
 
 pub(super) struct StreamContext<'a> {
     pub(super) core: &'a mut EngineCore,
@@ -225,6 +241,111 @@ impl StreamContext<'_> {
         }
     }
 
+    fn classify_named_error(
+        &self,
+        target: TargetSlot,
+        socket: ViscaSocket,
+        code: CameraErrorCode,
+    ) -> NamedErrorOrigin {
+        let could_reject = code.refuses_before_start()
+            && self
+                .stream
+                .ledger
+                .candidates(target, Answer::NamedRejection)[0]
+                .is_some();
+        let owner = self.socket_owner(target, socket);
+        let follow = self.stream.ledger.follow_candidate(target, socket);
+        let held = self
+            .raw_hold(target, RawHoldScope::Socket(socket))
+            .is_some();
+        // A rejection names the free socket the camera allocated for the
+        // rejected command. Without named completions, a socket we still
+        // associate with an execution may have become free unseen.
+        if could_reject
+            && (owner.is_some() || follow.is_some() || held)
+            && !self.stream.learning[target].completion_sockets.is_named()
+        {
+            NamedErrorOrigin::Ambiguous
+        } else if let Some(owner) = owner {
+            NamedErrorOrigin::Execution(owner)
+        } else if let Some(follow) = follow {
+            NamedErrorOrigin::StepFollow {
+                candidate: follow,
+                could_reject,
+            }
+        } else if held {
+            NamedErrorOrigin::HeldSocket { could_reject }
+        } else if could_reject {
+            NamedErrorOrigin::WaitingRejection
+        } else {
+            NamedErrorOrigin::Unmatched
+        }
+    }
+
+    fn socket_capacity(&self, target: TargetSlot) -> CommandSocketCount {
+        let physical = self.targets[target]
+            .policy
+            .map_or(CommandSocketCount::TWO, |policy| {
+                policy.physical_command_sockets
+            });
+        self.stream.learning[target]
+            .socket_capacity_seen
+            .map_or(physical, |seen| physical.max(seen))
+    }
+
+    /// Bounds alone never finish live requests. Once no terminal is owed and
+    /// no live socket owner remains, old correlation holds cannot intercept
+    /// a successor's answers.
+    pub(super) fn release_idle_sockets(&mut self, target: TargetSlot) {
+        if !self.stream.learning[target].terminals.proved_idle
+            || [ViscaSocket::S1, ViscaSocket::S2]
+                .into_iter()
+                .any(|socket| self.socket_owner(target, socket).is_some())
+        {
+            return;
+        }
+        for socket in [ViscaSocket::S1, ViscaSocket::S2] {
+            self.stream.holds.release_socket(target, socket);
+        }
+        let learning = &mut self.stream.learning[target];
+        learning.terminals.proved_idle = false;
+        learning.pending_socketless_completions = None;
+        learning.dropped_completion_owners = [None; 2];
+    }
+
+    /// A conclusive first answer for the sole possible rejection candidate
+    /// proves that a previous ambiguous named error was an execution terminal.
+    fn prove_first_answer(&mut self, target: TargetSlot, answer: Answer<'_>) {
+        let terminals = &mut self.stream.learning[target].terminals;
+        if !terminals.awaits_named_proof() {
+            return;
+        }
+        if let Some(entry) = self
+            .stream
+            .ledger
+            .sole_written_candidate(target, answer)
+            .filter(|entry| entry.owes == Owes::Ack)
+        {
+            if terminals.prove_first_answer(entry.order) {
+                self.release_idle_sockets(target);
+            }
+        }
+    }
+
+    fn observe_named_error(&mut self, target: TargetSlot, socket: ViscaSocket, could_reject: bool) {
+        let terminals = &mut self.stream.learning[target].terminals;
+        if could_reject {
+            let waiting = self
+                .stream
+                .ledger
+                .sole_written_candidate(target, Answer::NamedRejection)
+                .map(|entry| entry.order);
+            terminals.disputed_named_error(socket, waiting);
+        } else {
+            terminals.terminal(TerminalFamily::Socketed);
+        }
+    }
+
     /// Resolves an unsequenced frame on a raw byte stream through the ledger,
     /// returning the live request it answers.
     ///
@@ -260,8 +381,12 @@ impl StreamContext<'_> {
         };
         match &frame.response {
             DecodedResponse::Ack { socket } => {
+                self.prove_first_answer(target, Answer::Ack);
                 let answered = self.stream.ledger.answer(target, Answer::Ack, evidence);
-                match self.absorb_answered(target, answered, now, effects) {
+                let resolved = self.absorb_answered(target, answered, now, effects);
+                let capacity = self.socket_capacity(target);
+                self.stream.learning[target].terminals.observe_ack(capacity);
+                match resolved {
                     Resolved::Live(entry) => Some(entry.request),
                     Resolved::Debt(debt) => {
                         self.displace_stale_socket_owner(target, *socket, effects);
@@ -307,6 +432,7 @@ impl StreamContext<'_> {
                 socket: Some(socket),
             } => {
                 self.stream.update_learning(target, |learning| {
+                    learning.terminals.terminal(TerminalFamily::Socketed);
                     learning.completion_sockets.learn_named();
                     if learning.completion_sockets.is_named() {
                         // The dropped completions were completion-only answers.
@@ -317,15 +443,12 @@ impl StreamContext<'_> {
                     self.settle_before_owner(target, owner, now, effects);
                     return Some(owner);
                 }
-                if self
-                    .stream
-                    .ledger
-                    .follow(target, NamedFrame::Completion(*socket))
-                {
-                    // Whichever explanation is true, the command running
-                    // there has ended.
-                    self.stream.holds.release_socket(target, *socket);
-                    return None;
+                if let Some(candidate) = self.stream.ledger.follow_candidate(target, *socket) {
+                    self.stream.ledger.record_follow(
+                        target,
+                        candidate,
+                        NamedFrame::Completion(*socket),
+                    );
                 }
                 self.stream.holds.release_socket(target, *socket);
                 None
@@ -338,10 +461,16 @@ impl StreamContext<'_> {
             DecodedResponse::Completion { socket: None }
                 if self.learn_socketless_completion(target).is_named() =>
             {
+                self.stream.learning[target]
+                    .terminals
+                    .terminal(TerminalFamily::CompletionOnly);
                 self.take_stream_answer(target, Answer::Completion, evidence, now, effects)?
                     .ok()
             }
             DecodedResponse::Completion { socket: None } => {
+                self.stream.learning[target]
+                    .terminals
+                    .terminal(TerminalFamily::Either);
                 let owners = [ViscaSocket::S1, ViscaSocket::S2]
                     .map(|socket| self.socket_owner(target, socket));
                 let holders = owners.iter().flatten().count();
@@ -397,6 +526,11 @@ impl StreamContext<'_> {
                 code,
             } => {
                 if code.answers_named_cancellation() {
+                    if code.confirms_cancellation() {
+                        self.stream.learning[target]
+                            .terminals
+                            .terminal(TerminalFamily::Socketed);
+                    }
                     return match self.take_stream_answer(
                         target,
                         Answer::CancelReply(*socket),
@@ -416,58 +550,46 @@ impl StreamContext<'_> {
                         }
                     };
                 }
-                // An execution error names its command's socket; a rejection
-                // names the socket the camera allocated for the rejected
-                // command, which is never one the camera is executing on
-                // (PTZOptics G2 bench, 2026-10-04: a focus STOP rejected while
-                // a move executed named the other, free socket). A socket the
-                // engine holds for a quarantined or owed command is still busy
-                // in the camera, so its error is that command's late answer.
-                // The engine knows a socket is busy only from a completion
-                // naming it: from a camera that is not known to name its
-                // sockets in completions, the owner may have finished unseen,
-                // so a rejection code that another command could have earned
-                // disputes that command instead of failing the owner.
-                let unseen_completions =
-                    !self.stream.learning[target].completion_sockets.is_named();
-                if let Some(owner) = self.socket_owner(target, *socket) {
-                    if unseen_completions
-                        && code.refuses_before_start()
-                        && self.stream.ledger.dispute(target, Answer::NamedRejection)
-                    {
-                        return None;
+                match self.classify_named_error(target, *socket, *code) {
+                    NamedErrorOrigin::Execution(owner) => {
+                        self.observe_named_error(target, *socket, false);
+                        self.settle_before_owner(target, owner, now, effects);
+                        Some(owner)
                     }
-                    self.settle_before_owner(target, owner, now, effects);
-                    return Some(owner);
-                }
-                if self
-                    .stream
-                    .ledger
-                    .follow(target, NamedFrame::Error(*socket, *code))
-                {
-                    // Whichever explanation is true, the command running
-                    // there has ended.
-                    self.stream.holds.release_socket(target, *socket);
-                    return None;
-                }
-                // A socket held for an ended command: the frame is that
-                // command's late answer, and the socket is free again. A
-                // rejection code could instead be a waiting command's
-                // rejection in the socket the camera allocated once that
-                // command had ended unseen (its completion named no socket),
-                // so the waiting command is disputed rather than left owing an
-                // answer that may have come.
-                if self.stream.holds.release_socket(target, *socket).is_some() {
-                    if unseen_completions && code.refuses_before_start() {
-                        let _ = self.stream.ledger.dispute(target, Answer::NamedRejection);
+                    NamedErrorOrigin::StepFollow {
+                        candidate,
+                        could_reject,
+                    } => {
+                        self.observe_named_error(target, *socket, could_reject);
+                        self.stream.ledger.record_follow(
+                            target,
+                            candidate,
+                            NamedFrame::Error(*socket, *code),
+                        );
+                        self.stream.holds.release_socket(target, *socket);
+                        None
                     }
-                    return None;
+                    NamedErrorOrigin::HeldSocket { could_reject } => {
+                        self.observe_named_error(target, *socket, could_reject);
+                        self.stream.holds.release_socket(target, *socket);
+                        None
+                    }
+                    NamedErrorOrigin::WaitingRejection => self
+                        .take_stream_answer(target, Answer::NamedRejection, evidence, now, effects)?
+                        .ok(),
+                    NamedErrorOrigin::Ambiguous => {
+                        self.observe_named_error(target, *socket, true);
+                        self.stream.ledger.dispute(target, Answer::NamedRejection);
+                        self.stream.holds.release_socket(target, *socket);
+                        None
+                    }
+                    NamedErrorOrigin::Unmatched => {
+                        // With no legal first-answer candidate, this can only
+                        // be an execution terminal.
+                        self.observe_named_error(target, *socket, false);
+                        None
+                    }
                 }
-                if !code.refuses_before_start() {
-                    return None;
-                }
-                self.take_stream_answer(target, Answer::NamedRejection, evidence, now, effects)?
-                    .ok()
             }
             // A socketless error is a rejection: an execution error names its
             // socket. It is therefore the first answer of the oldest
@@ -581,7 +703,24 @@ impl StreamContext<'_> {
         now: Instant,
         effects: &mut Decision,
     ) -> Option<Result<RequestId, Outstanding>> {
+        if matches!(answer, Answer::NamedRejection | Answer::SocketlessError) {
+            self.prove_first_answer(target, answer);
+        }
         let answered = self.stream.ledger.answer(target, answer, evidence);
+        if answer == Answer::SocketlessError {
+            let terminals = &mut self.stream.learning[target].terminals;
+            match answered.resolved {
+                Resolved::Live(entry) | Resolved::Debt(entry)
+                    if entry.owes == Owes::Completion && entry.written =>
+                {
+                    terminals.terminal(TerminalFamily::CompletionOnly);
+                }
+                Resolved::Disputed(_) => {
+                    terminals.disputed_socketless_error(answered.completion_dispute);
+                }
+                _ => {}
+            }
+        }
         match self.absorb_answered(target, answered, now, effects) {
             Resolved::Live(entry) => Some(Ok(entry.request)),
             Resolved::Debt(entry) => Some(Err(entry)),
@@ -632,7 +771,8 @@ impl StreamContext<'_> {
     ) -> Resolved {
         if answered.completion_only_retired {
             self.stream.update_learning(target, |learning| {
-                learning.completion_sockets.retire_completion()
+                learning.terminals.settle_completion_rejection();
+                learning.completion_sockets.retire_completion();
             });
         }
         effects.defer_frames(answered.retro);
@@ -760,8 +900,7 @@ impl StreamContext<'_> {
         effects: &mut Decision,
     ) {
         let mut until = add_duration(now, completion);
-        let capacity = if self.command_sockets(target) == CommandSocketCount::TWO
-            || self.stream.learning[target].socket_capacity_seen == Some(CommandSocketCount::TWO)
+        let capacity = if self.socket_capacity(target) == CommandSocketCount::TWO
             || self.socket_owner(target, ViscaSocket::S2).is_some()
             || self
                 .raw_hold(target, RawHoldScope::Socket(ViscaSocket::S2))

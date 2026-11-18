@@ -11,7 +11,7 @@ use grafton_visca::{
     config::SessionConfig,
     profiles::PtzOpticsG2,
     transport::{
-        BlockingTransport, HasTransportConfig, ReceiveOutcome, TransportConfig, TransportIdentity,
+        BlockingTransport, HasTransportConfig, IoBounds, ReceiveOutcome, TransportIdentity,
     },
     Error,
 };
@@ -20,7 +20,7 @@ use grafton_visca::{
 #[derive(Debug)]
 struct CallerUdp {
     socket: UdpSocket,
-    config: grafton_visca::transport::ValidatedTransportConfig,
+    config: IoBounds,
 }
 
 impl CallerUdp {
@@ -29,7 +29,8 @@ impl CallerUdp {
         socket.connect(address)?;
         Ok(Self {
             socket,
-            config: TransportConfig::for_udp().validated()?,
+            config: IoBounds::default()
+                .with_buffer_config(grafton_visca::transport::BufferConfig::for_udp())?,
         })
     }
 }
@@ -39,7 +40,7 @@ impl HasTransportConfig for CallerUdp {
         TransportIdentity::Udp
     }
 
-    fn transport_config(&self) -> &grafton_visca::transport::ValidatedTransportConfig {
+    fn io_bounds(&self) -> &IoBounds {
         &self.config
     }
 }
@@ -77,7 +78,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let address = env::args()
         .nth(1)
         .or_else(|| env::var("VISCA_CAMERA_ADDR").ok())
-        .unwrap_or_else(|| "192.168.0.110:1259".to_owned());
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "pass a camera address or set VISCA_CAMERA_ADDR",
+            )
+        })?;
 
     let transport = CallerUdp::connect(&address)?;
     let config = SessionConfig::from_compile_time::<PtzOpticsG2>()?;

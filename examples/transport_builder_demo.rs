@@ -7,8 +7,10 @@
 use std::{env, time::Duration};
 
 use grafton_visca::{
-    blocking::CameraSession, config::CameraConfig, profiles::PtzOpticsG2,
-    transport::TcpKeepaliveConfig, transport::TransportConfig,
+    blocking::CameraSession,
+    config::CameraConfig,
+    profiles::PtzOpticsG2,
+    transport::{BufferConfig, IoBounds, TcpConnect, TcpKeepaliveConfig, UdpConnect},
 };
 
 #[derive(Clone, Copy)]
@@ -21,18 +23,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let address = env::args()
         .nth(1)
         .or_else(|| env::var("VISCA_CAMERA_ADDR").ok())
-        .unwrap_or_else(|| "192.168.0.110".to_owned());
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "pass a camera address or set VISCA_CAMERA_ADDR",
+            )
+        })?;
     let kind = if env::args().any(|arg| arg == "--udp") {
         TransportKind::Udp
     } else {
         TransportKind::Tcp
     };
 
+    let budget = Duration::from_secs(3);
+    let io_timeout = Duration::from_secs(2);
     let config = match kind {
-        TransportKind::Tcp => CameraConfig::<PtzOpticsG2>::tcp(&address),
-        TransportKind::Udp => CameraConfig::<PtzOpticsG2>::udp(&address),
-    }
-    .with_transport_config(transport_config(kind));
+        TransportKind::Tcp => CameraConfig::<PtzOpticsG2>::tcp_configured(
+            &address,
+            TcpConnect::default()
+                .with_connect_timeout(budget)?
+                .with_keepalive(Some(TcpKeepaliveConfig::new(Duration::from_secs(30))))?,
+            IoBounds::new(io_timeout, io_timeout, BufferConfig::for_tcp())?,
+        ),
+        TransportKind::Udp => CameraConfig::<PtzOpticsG2>::udp_configured(
+            &address,
+            UdpConnect::default().with_connect_timeout(budget)?,
+            IoBounds::new(io_timeout, io_timeout, BufferConfig::for_udp())?,
+        ),
+    };
 
     let session = CameraSession::connect(&config)?;
     let camera = session.camera();
@@ -40,21 +58,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Power: {state:?}");
     session.close()?;
     Ok(())
-}
-
-/// Start from the transport's own defaults and adjust only the timeouts and
-/// keepalive.
-fn transport_config(kind: TransportKind) -> TransportConfig {
-    let config = match kind {
-        TransportKind::Tcp => TransportConfig::for_tcp(),
-        TransportKind::Udp => TransportConfig::for_udp(),
-    };
-    config
-        .with_connect_timeout(Duration::from_secs(3))
-        .with_read_timeout(Duration::from_secs(2))
-        .with_write_timeout(Duration::from_secs(2))
-        .with_tcp_keepalive(
-            matches!(kind, TransportKind::Tcp)
-                .then(|| TcpKeepaliveConfig::new(Duration::from_secs(30))),
-        )
 }

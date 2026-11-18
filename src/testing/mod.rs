@@ -50,7 +50,7 @@ mod camera_simulator;
 
 test_utility_exports! {
     all(feature = "runtime-tokio", any(test, feature = "test-utils")) => camera_simulator {
-        CommandType, SimulatorBuilder, SimulatorConfig, ViscaCameraSimulator,
+        CommandType, SimulatorConfig, ViscaCameraSimulator,
     };
 }
 

@@ -13,8 +13,8 @@ use std::{collections::VecDeque, time::Duration};
 
 use grafton_visca::{
     blocking::Session, config::SessionConfig, profiles::GenericVisca, profiles::ProfileSpec,
-    transport::BlockingTransport, transport::HasTransportConfig, transport::ReceiveOutcome,
-    transport::TransportConfig, Error,
+    transport::BlockingTransport, transport::HasTransportConfig, transport::IoBounds,
+    transport::ReceiveOutcome, Error,
 };
 
 /// A minimal in-memory transport that reports SERIAL addressing, so multi-target
@@ -22,16 +22,14 @@ use grafton_visca::{
 /// per-camera ACK and completion, sourced from the addressed camera.
 #[derive(Debug)]
 struct SerialBus {
-    config: grafton_visca::transport::ValidatedTransportConfig,
+    config: IoBounds,
     replies: VecDeque<Vec<u8>>,
 }
 
 impl SerialBus {
     fn new() -> Self {
         Self {
-            config: TransportConfig::for_serial()
-                .validated()
-                .expect("serial defaults"),
+            config: IoBounds::default(),
             replies: VecDeque::new(),
         }
     }
@@ -45,7 +43,7 @@ impl HasTransportConfig for SerialBus {
         }
     }
 
-    fn transport_config(&self) -> &grafton_visca::transport::ValidatedTransportConfig {
+    fn io_bounds(&self) -> &IoBounds {
         &self.config
     }
 }

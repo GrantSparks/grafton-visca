@@ -3,68 +3,24 @@
 //! This module provides a single `Executor` trait that combines all async runtime
 //! operations into one coherent interface, preventing runtime/spawner mismatches.
 
-#[cfg(feature = "async")]
 use core::future::Future;
-#[cfg(feature = "async")]
-use std::time::Instant;
-
-use crate::Error;
-
-/// Error type for executor operations.
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum ExecError {
-    /// Task was cancelled or panicked.
-    #[error("Task execution failed: {0}")]
-    TaskFailed(String),
-
-    /// Join operation failed.
-    #[error("Failed to join task: {0}")]
-    JoinFailed(String),
-}
-
-impl From<ExecError> for Error {
-    fn from(err: ExecError) -> Self {
-        Error::InvalidState {
-            reason: err.to_string().into(),
-        }
-    }
-}
+use std::time::{Duration, Instant};
 
 /// A timer that can be re-armed without allocating another future.
 ///
 /// Deadlines use the same clock as [`crate::runtime::Executor::now`]. Resetting cancels the
 /// previous deadline, including after completion. The next poll observes the
 /// new deadline; a pending timer wakes its most recently registered task.
-#[cfg(feature = "async")]
 pub trait ResettableTimer: Future<Output = ()> + Send + 'static {
     /// Cancel the previous deadline and arm this timer for `deadline`.
     fn reset(self: std::pin::Pin<&mut Self>, deadline: Instant);
 }
 
-/// Unified executor trait that combines spawning and timing operations.
+/// The scheduling and clock operations an async owner needs from its runtime.
 ///
-/// This trait represents the complete execution context required by the library,
-/// preventing misconfiguration by tying all async operations to a single type.
-///
-/// # Type Safety
-///
-/// By using a single `Executor` trait with an associated `Join` type, we ensure
-/// that runtime and spawner come from the same ecosystem, preventing runtime
-/// mismatches at compile time.
-#[cfg(feature = "async")]
+/// Timers, sleeps and the current time must use the same clock. Detached
+/// tasks must continue running independently of the caller.
 pub trait Executor: Clone + Send + Sync + 'static {
-    /// The join handle type for spawned tasks.
-    type Join<T>: Future<Output = Result<T, ExecError>> + Send + 'static
-    where
-        T: Send + 'static;
-
-    /// Type indicating whether tasks require explicit detachment.
-    ///
-    /// Set to `()` if dropping the join handle detaches the task (e.g., Tokio),
-    /// or a detachment token type otherwise (e.g., a scheduler with explicit task detachment).
-    type Detach: Send + 'static;
-
     /// Reusable timer driven by this executor's clock.
     type Timer: ResettableTimer;
 
@@ -73,61 +29,17 @@ pub trait Executor: Clone + Send + Sync + 'static {
     /// Owners create their timers once and reset them for subsequent turns.
     fn timer(&self, deadline: Instant) -> Self::Timer;
 
-    /// Spawn a future and return both join handle and optional detachment token.
-    ///
-    /// The detachment token ensures that tasks spawned for fire-and-forget
-    /// operation will continue running even when both the join handle and
-    /// detachment token are dropped. Executors where dropping the join handle
-    /// is sufficient for detachment should return `()` as the detachment token.
-    fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
+    /// Schedule a task to run independently on this runtime.
+    fn spawn_detached<F>(&self, future: F)
     where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static;
+        F: Future<Output = ()> + Send + 'static;
 
-    /// Spawn a future as a background task.
-    ///
-    /// Returns a join handle that can be used to await the task's completion.
-    /// This is a convenience wrapper around `spawn_with_detach` that discards
-    /// the detachment token.
-    fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        self.spawn_with_detach(fut).0
-    }
-
-    /// Block on a future until it completes.
-    ///
-    /// Drive a future from synchronous code outside an async runtime. Runtime
-    /// adapters may reject nested calls: Tokio's implementation panics when
-    /// called from inside a Tokio runtime.
-    fn block_on<F: Future>(&self, fut: F) -> F::Output;
-
-    /// Sleep for the specified duration.
-    ///
-    /// Returns a future that completes after the specified duration.
-    fn sleep(&self, duration: std::time::Duration) -> impl Future<Output = ()> + Send + '_;
-
-    /// Spawn a background task and detach the join handle.
-    ///
-    /// This method guarantees that the task will continue running independently
-    /// after being spawned, regardless of the executor's join handle semantics.
-    /// The implementation uses `spawn_with_detach` to ensure proper detachment
-    /// across all executor types.
-    fn spawn_bg<F>(&self, fut: F)
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        let (handle, detach_token) = self.spawn_with_detach(fut);
-        drop(handle);
-        drop(detach_token);
-    }
+    /// Sleep for the specified duration on this runtime's clock.
+    fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_;
 
     /// Get the current time according to this executor.
     ///
-    /// The default is wall-clock time. Virtual-time executors, including
+    /// The default is the system monotonic clock. Virtual-time executors, including
     /// `ManualClockExecutor`, override it with their clock.
     fn now(&self) -> Instant {
         Instant::now()
@@ -135,39 +47,26 @@ pub trait Executor: Clone + Send + Sync + 'static {
 }
 
 // Generic implementation for Arc<E> where E: Executor
-#[cfg(feature = "async")]
 #[allow(refining_impl_trait_reachable)]
 impl<E> Executor for std::sync::Arc<E>
 where
     E: Executor,
 {
-    type Join<T>
-        = <E as Executor>::Join<T>
-    where
-        T: Send + 'static;
-
-    type Detach = <E as Executor>::Detach;
-
     type Timer = E::Timer;
 
     fn timer(&self, deadline: Instant) -> Self::Timer {
         (**self).timer(deadline)
     }
 
-    fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
+    fn spawn_detached<F>(&self, future: F)
     where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
+        F: Future<Output = ()> + Send + 'static,
     {
-        (**self).spawn_with_detach(fut)
-    }
-
-    fn block_on<F: Future>(&self, fut: F) -> F::Output {
-        (**self).block_on(fut)
+        (**self).spawn_detached(future);
     }
 
     #[allow(clippy::manual_async_fn)]
-    fn sleep(&self, duration: std::time::Duration) -> impl Future<Output = ()> + Send + '_ {
+    fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
         async move { (**self).sleep(duration).await }
     }
 
@@ -179,7 +78,8 @@ where
 // Tokio executor implementation
 #[cfg(feature = "runtime-tokio")]
 mod tokio_impl {
-    use std::{pin::Pin, time::Duration};
+    use crate::Error;
+    use std::pin::Pin;
 
     use super::*;
 
@@ -279,39 +179,7 @@ mod tokio_impl {
         }
     }
 
-    // Custom join handle wrapper for Tokio
-    #[derive(Debug)]
-    pub struct TokioJoin<T>(tokio::task::JoinHandle<T>);
-
-    impl<T> Future for TokioJoin<T>
-    where
-        T: Send + 'static,
-    {
-        type Output = Result<T, ExecError>;
-
-        fn poll(
-            mut self: Pin<&mut Self>,
-            cx: &mut std::task::Context<'_>,
-        ) -> std::task::Poll<Self::Output> {
-            let join_handle = Pin::new(&mut self.0);
-            match join_handle.poll(cx) {
-                std::task::Poll::Ready(Ok(value)) => std::task::Poll::Ready(Ok(value)),
-                std::task::Poll::Ready(Err(e)) => {
-                    std::task::Poll::Ready(Err(ExecError::JoinFailed(e.to_string())))
-                }
-                std::task::Poll::Pending => std::task::Poll::Pending,
-            }
-        }
-    }
-
     impl Executor for TokioExecutor {
-        type Join<T>
-            = TokioJoin<T>
-        where
-            T: Send + 'static;
-
-        type Detach = ();
-
         type Timer = TokioTimer;
 
         fn timer(&self, deadline: Instant) -> Self::Timer {
@@ -323,16 +191,11 @@ mod tokio_impl {
             }
         }
 
-        fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
+        fn spawn_detached<F>(&self, future: F)
         where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
+            F: Future<Output = ()> + Send + 'static,
         {
-            (TokioJoin(self.handle.spawn(fut)), ())
-        }
-
-        fn block_on<F: Future>(&self, fut: F) -> F::Output {
-            self.handle.block_on(fut)
+            drop(self.handle.spawn(future));
         }
 
         #[allow(clippy::manual_async_fn)]
@@ -360,7 +223,7 @@ pub use tokio_impl::{TokioExecutor, TokioTimer};
 // smol executor implementation
 #[cfg(feature = "runtime-smol")]
 mod smol_impl {
-    use std::{pin::Pin, sync::Mutex, time::Duration};
+    use std::pin::Pin;
 
     use super::*;
 
@@ -399,69 +262,18 @@ mod smol_impl {
         }
     }
 
-    // Custom join handle wrapper for smol
-    #[derive(Debug)]
-    pub struct SmolJoin<T: 'static>(Mutex<flume::r#async::RecvFut<'static, T>>);
-
-    impl<T> Future for SmolJoin<T>
-    where
-        T: Send + 'static,
-    {
-        type Output = Result<T, ExecError>;
-
-        fn poll(
-            self: Pin<&mut Self>,
-            cx: &mut std::task::Context<'_>,
-        ) -> std::task::Poll<Self::Output> {
-            // The receive future owns its registered waker. Keep it alive
-            // between polls so task completion can wake this join handle.
-            // The private mutex preserves the Receiver-backed join's unwind
-            // safety: a panic while polling poisons this state, and a later
-            // poll reports join failure instead of reusing an uncertain hook.
-            let Ok(mut receive) = self.get_mut().0.lock() else {
-                return std::task::Poll::Ready(Err(ExecError::JoinFailed(
-                    "smol join receiver was poisoned while polling".into(),
-                )));
-            };
-            match Pin::new(&mut *receive).poll(cx) {
-                std::task::Poll::Ready(Ok(v)) => std::task::Poll::Ready(Ok(v)),
-                std::task::Poll::Ready(Err(e)) => {
-                    std::task::Poll::Ready(Err(ExecError::JoinFailed(e.to_string())))
-                }
-                std::task::Poll::Pending => std::task::Poll::Pending,
-            }
-        }
-    }
-
     impl Executor for SmolExecutor {
-        type Join<T>
-            = SmolJoin<T>
-        where
-            T: Send + 'static;
-
-        type Detach = ();
-
         type Timer = SmolTimer;
 
         fn timer(&self, deadline: Instant) -> Self::Timer {
             SmolTimer(smol::Timer::at(deadline))
         }
 
-        fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
+        fn spawn_detached<F>(&self, future: F)
         where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
+            F: Future<Output = ()> + Send + 'static,
         {
-            let (tx, rx) = flume::bounded(1);
-            smol::spawn(async move {
-                let _ = tx.send_async(fut.await).await;
-            })
-            .detach();
-            (SmolJoin(Mutex::new(rx.into_recv_async())), ())
-        }
-
-        fn block_on<F: Future>(&self, fut: F) -> F::Output {
-            smol::block_on(fut)
+            smol::spawn(future).detach();
         }
 
         #[allow(clippy::manual_async_fn)]
@@ -470,49 +282,6 @@ mod smol_impl {
                 smol::Timer::after(duration).await;
             }
         }
-    }
-
-    #[cfg(test)]
-    #[test]
-    #[allow(clippy::panic, clippy::unwrap_used)]
-    fn poisoned_join_receiver_reports_join_failure() {
-        use std::{
-            panic::{catch_unwind, AssertUnwindSafe},
-            sync::Arc,
-            task::{Context, Poll, Wake, Waker},
-        };
-
-        struct PanickingWake;
-
-        impl Wake for PanickingWake {
-            fn wake(self: Arc<Self>) {
-                panic!("the consumer's wake callback panicked");
-            }
-        }
-
-        let (sender, receiver) = flume::bounded::<u8>(1);
-        let mut join = SmolJoin(Mutex::new(receiver.clone().into_recv_async()));
-        let mut context = Context::from_waker(Waker::noop());
-        assert!(Pin::new(&mut join).poll(&mut context).is_pending());
-        // Wake the registered hook, then consume the value through another
-        // receiver. Updating that woken hook must call the new consumer waker
-        // during the next guarded poll rather than return a queued value.
-        sender.send(7).unwrap();
-        assert_eq!(receiver.try_recv().unwrap(), 7);
-        let waker = Waker::from(Arc::new(PanickingWake));
-        let mut context = Context::from_waker(&waker);
-        // &mut Future is intentionally not UnwindSafe; the test catches the
-        // callback panic to verify the join's explicit poisoned-state result.
-        let panic = catch_unwind(AssertUnwindSafe(|| {
-            let _ = Pin::new(&mut join).poll(&mut context);
-        }));
-        assert!(panic.is_err());
-        let mut context = Context::from_waker(Waker::noop());
-        assert!(matches!(
-            Pin::new(&mut join).poll(&mut context),
-            Poll::Ready(Err(ExecError::JoinFailed(message)))
-                if message.contains("poisoned")
-        ));
     }
 }
 
@@ -530,197 +299,73 @@ pub use smol_impl::{SmolExecutor, SmolTimer};
 mod spawn_tests {
     #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-    use std::{
-        future::Future,
-        pin::pin,
-        sync::{mpsc, Arc},
-        task::{Context, Poll, Wake, Waker},
-        time::Duration,
-    };
+    use std::time::Duration;
 
     use super::Executor;
 
-    fn ready_operation_wins_elapsed_timeout(executor: impl Executor) {
-        executor.block_on(async {
-            for _ in 0..10_000 {
-                assert!(matches!(
-                    async {
-                        crate::timeout::within(
-                            std::future::ready(42),
-                            executor.sleep(Duration::ZERO),
-                        )
-                        .await
-                        .ok_or_else(crate::Error::io_timeout)
-                    }
+    async fn ready_operation_wins_elapsed_timeout(executor: &impl Executor) {
+        for _ in 0..10_000 {
+            assert_eq!(
+                crate::timeout::within(std::future::ready(42), executor.sleep(Duration::ZERO))
                     .await,
-                    Ok(42)
-                ));
-            }
+                Some(42)
+            );
+        }
+    }
+
+    async fn detached_task_completes(executor: &impl Executor) {
+        let (done, completed) = flume::bounded(1);
+        executor.spawn_detached(async move {
+            done.send(42).expect("driver waits for completion");
         });
+        assert_eq!(
+            crate::timeout::within(
+                completed.recv_async(),
+                executor.sleep(Duration::from_secs(2)),
+            )
+            .await,
+            Some(Ok(42)),
+        );
     }
 
     #[cfg(feature = "runtime-smol")]
     #[test]
-    fn smol_ready_operation_wins_elapsed_timeout() {
-        ready_operation_wins_elapsed_timeout(super::SmolExecutor::new());
+    fn smol_detached_spawn_and_timeout() {
+        let executor = super::SmolExecutor::new();
+        smol::block_on(async {
+            ready_operation_wins_elapsed_timeout(&executor).await;
+            detached_task_completes(&executor).await;
+        });
     }
 
     #[cfg(feature = "runtime-tokio")]
     #[test]
-    fn tokio_ready_operation_wins_elapsed_timeout() {
+    fn tokio_detached_spawn_and_timeout() {
         let runtime = tokio::runtime::Runtime::new().unwrap();
-        ready_operation_wins_elapsed_timeout(super::TokioExecutor::from_handle(
-            runtime.handle().clone(),
-        ));
-    }
-
-    #[cfg(all(feature = "async", feature = "test-utils"))]
-    #[test]
-    fn manual_clock_ready_operation_wins_elapsed_timeout() {
-        use crate::testing::testkit::{ManualClock, ManualClockExecutor};
-        let clock = ManualClock::new();
-        ready_operation_wins_elapsed_timeout(ManualClockExecutor::local(&clock));
-    }
-
-    struct CompletionWake(mpsc::Sender<()>);
-
-    impl Wake for CompletionWake {
-        fn wake(self: Arc<Self>) {
-            let _ = self.0.send(());
-        }
-
-        fn wake_by_ref(self: &Arc<Self>) {
-            let _ = self.0.send(());
-        }
-    }
-
-    /// Poll once before allowing completion, then require the join's own
-    /// waker to fire. An outer timeout future must not accidentally poll a
-    /// broken join again and hide a lost completion wakeup.
-    fn completion_wakes_join(executor: impl Executor) {
-        let (start_tx, start_rx) = flume::bounded::<()>(1);
-        let mut join = pin!(executor.spawn(async move {
-            start_rx.recv_async().await.unwrap();
-            42
-        }));
-        let (wake_tx, wake_rx) = mpsc::channel();
-        let waker = Waker::from(Arc::new(CompletionWake(wake_tx)));
-        let mut context = Context::from_waker(&waker);
-        assert!(matches!(join.as_mut().poll(&mut context), Poll::Pending));
-
-        start_tx.send(()).unwrap();
-        wake_rx
-            .recv_timeout(Duration::from_secs(2))
-            .expect("task completion must wake its waiting join");
-        assert!(matches!(
-            join.as_mut().poll(&mut context),
-            Poll::Ready(Ok(42))
-        ));
-    }
-
-    fn dropping_join_detaches_task(executor: impl Executor) {
-        let (start_tx, start_rx) = flume::bounded::<()>(1);
-        let (done_tx, done_rx) = mpsc::channel();
-        let join = executor.spawn(async move {
-            start_rx.recv_async().await.unwrap();
-            done_tx.send(42).unwrap();
+        let executor = super::TokioExecutor::from_handle(runtime.handle().clone());
+        runtime.block_on(async {
+            ready_operation_wins_elapsed_timeout(&executor).await;
+            detached_task_completes(&executor).await;
         });
-        drop(join);
-        start_tx.send(()).unwrap();
-        assert_eq!(done_rx.recv_timeout(Duration::from_secs(2)).unwrap(), 42);
-    }
-
-    #[allow(clippy::panic)]
-    fn panicked_task_returns_an_error(executor: impl Executor) {
-        let joined = executor.spawn(async { panic!("spawn contract panic") });
-        assert!(executor.block_on(joined).is_err());
     }
 
     #[cfg(all(feature = "async", feature = "test-utils"))]
     #[test]
-    fn local_manual_executor_satisfies_spawn_contracts() {
+    fn manual_clock_detached_spawn_and_timeout() {
         use crate::testing::testkit::{ManualClock, ManualClockExecutor};
         let clock = ManualClock::new();
         let executor = ManualClockExecutor::local(&clock);
-        let (stop, stopped) = flume::bounded(1);
-        let driver = executor.clone();
-        let running = std::thread::spawn(move || {
-            driver.run_until(async { stopped.recv_async().await.expect("driver stop") })
+        executor.run_until(async {
+            ready_operation_wins_elapsed_timeout(&executor).await;
+            detached_task_completes(&executor).await;
         });
-        completion_wakes_join(executor.clone());
-        dropping_join_detaches_task(executor.clone());
-        // Keep one driver per local scheduler while exercising its contracts.
-        stop.send(()).unwrap();
-        running.join().unwrap();
-        panicked_task_returns_an_error(executor);
-    }
-
-    #[cfg(all(feature = "test-utils", feature = "runtime-smol"))]
-    #[test]
-    fn smol_manual_executor_satisfies_spawn_contracts() {
-        use crate::testing::testkit::{ManualClock, ManualClockExecutor};
-        let clock = ManualClock::new();
-        let executor = ManualClockExecutor::new(super::SmolExecutor::new(), &clock);
-        completion_wakes_join(executor.clone());
-        dropping_join_detaches_task(executor.clone());
-        panicked_task_returns_an_error(executor);
-    }
-
-    #[cfg(all(feature = "test-utils", feature = "runtime-tokio"))]
-    #[test]
-    fn tokio_manual_executor_satisfies_spawn_contracts() {
-        use crate::testing::testkit::{ManualClock, ManualClockExecutor};
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let clock = ManualClock::new();
-        let executor = ManualClockExecutor::new(
-            super::TokioExecutor::from_handle(runtime.handle().clone()),
-            &clock,
-        );
-        completion_wakes_join(executor.clone());
-        dropping_join_detaches_task(executor.clone());
-        panicked_task_returns_an_error(executor);
-    }
-
-    #[cfg(feature = "runtime-smol")]
-    #[test]
-    fn smol_executor_join_wakes_on_completion() {
-        completion_wakes_join(super::SmolExecutor::new());
-        panicked_task_returns_an_error(super::SmolExecutor::new());
-    }
-
-    #[cfg(feature = "runtime-smol")]
-    #[test]
-    fn smol_runtime_join_wakes_on_completion() {
-        completion_wakes_join(crate::runtime::SmolRuntime::new());
-        panicked_task_returns_an_error(crate::runtime::SmolRuntime::new());
-    }
-
-    #[cfg(feature = "runtime-smol")]
-    #[test]
-    fn smol_executor_dropped_join_detaches_task() {
-        dropping_join_detaches_task(super::SmolExecutor::new());
-    }
-
-    #[cfg(feature = "runtime-smol")]
-    #[test]
-    fn smol_runtime_dropped_join_detaches_task() {
-        dropping_join_detaches_task(crate::runtime::SmolRuntime::new());
-    }
-
-    #[cfg(feature = "runtime-tokio")]
-    #[test]
-    fn tokio_join_wakes_and_drop_detaches_for_parity() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let executor = super::TokioExecutor::from_handle(runtime.handle().clone());
-        completion_wakes_join(executor.clone());
-        dropping_join_detaches_task(executor.clone());
-        panicked_task_returns_an_error(executor);
     }
 }
 
 #[cfg(all(test, feature = "runtime-smol"))]
 mod smol_tests {
     use super::*;
+    use crate::Error;
     use std::{
         sync::{
             atomic::{AtomicUsize, Ordering},
@@ -761,7 +406,7 @@ mod smol_tests {
     fn timeout_returns_error_for_never_completing_future() {
         let executor = SmolExecutor::new();
         let (never_complete, _poll_count) = NeverComplete::new();
-        let result = executor.block_on(async {
+        let result = smol::block_on(async {
             crate::timeout::within(never_complete, executor.sleep(Duration::from_millis(10)))
                 .await
                 .ok_or_else(Error::io_timeout)
@@ -773,7 +418,7 @@ mod smol_tests {
     #[test]
     fn timeout_returns_ok_for_immediate_completion() {
         let executor = SmolExecutor::new();
-        let result = executor.block_on(async {
+        let result = smol::block_on(async {
             crate::timeout::within(async { 42 }, executor.sleep(Duration::from_secs(10)))
                 .await
                 .ok_or_else(Error::io_timeout)
@@ -794,7 +439,7 @@ mod smol_tests {
         let executor = SmolExecutor::new();
         let (never_complete, poll_count) = NeverComplete::new();
 
-        let result = executor.block_on(async {
+        let result = smol::block_on(async {
             crate::timeout::within(never_complete, executor.sleep(Duration::from_millis(50)))
                 .await
                 .ok_or_else(Error::io_timeout)
@@ -815,7 +460,7 @@ mod smol_tests {
     #[test]
     fn timeout_future_completing_before_deadline_succeeds() {
         let executor = SmolExecutor::new();
-        let result = executor.block_on(async {
+        let result = smol::block_on(async {
             crate::timeout::within(
                 async {
                     smol::Timer::after(Duration::from_millis(10)).await;

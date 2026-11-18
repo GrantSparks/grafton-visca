@@ -1,5 +1,5 @@
 use grafton_visca::{
-    request::ControlClass, request::Inquiry, request::InquiryClass, request::PlainClass,
+    request::Inquiry, request::InquiryClass, request::PlainClass,
     request::PlainCommand, request::Request, request::ResponseDecoder, request::CommandRetryClass,
     profiles::CommandTimeoutClass, types::CameraId, wire::Response, wire::ResponseParser,
     wire::VISCA_TERMINATOR, Error,
@@ -11,7 +11,7 @@ struct VendorStatusInquiry;
 impl Request for CustomCommand {
     type Class = PlainClass;
 
-    const MAX_SIZE: usize = 2;
+    const MAX_SIZE: usize = 3;
     fn policy(&self) -> grafton_visca::request::CommandPolicy {
         grafton_visca::request::CommandPolicy::new(grafton_visca::profiles::CommandTimeoutClass::Quick, grafton_visca::request::CommandRetryClass::Never, grafton_visca::request::SubmissionClass::Normal)
     }
@@ -22,7 +22,8 @@ impl Request for CustomCommand {
         }
 
         buffer[0] = 0x80 | camera_id.value();
-        buffer[1] = 0xFF;
+        buffer[1] = 0x01;
+        buffer[2] = VISCA_TERMINATOR;
         Ok(Self::MAX_SIZE)
     }
 }
@@ -92,7 +93,7 @@ fn main() {
     let command_len = command
         .write_into(CameraId::CAMERA_1, &mut command_buffer)
         .unwrap();
-    assert_eq!(&command_buffer[..command_len], &[0x81, VISCA_TERMINATOR]);
+    assert_eq!(&command_buffer[..command_len], &[0x81, 0x01, VISCA_TERMINATOR]);
 
     let mut inquiry_buffer = [0; VendorStatusInquiry::MAX_SIZE];
     let inquiry_len = VendorStatusInquiry

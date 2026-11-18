@@ -47,19 +47,6 @@ fn two_socket_camera() -> FakeCamera {
     FakeCamera::visca(move |_, answer| answer_on_alternating_sockets(&mut next_socket, answer))
 }
 
-fn pan_tilt_stop() -> grafton_visca::command::pan_tilt::Stop {
-    grafton_visca::command::pan_tilt::Stop::for_target(
-        &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::IndividualCameraId::CAMERA_1,
-            grafton_visca::profiles::ProfileSpec::from_compile_time::<
-                grafton_visca::profiles::PtzOpticsG2,
-            >()
-            .expect("source profile"),
-        ),
-    )
-    .expect("profile-safe stop")
-}
-
 const FIRST_WRITE_ERROR: &str = "distinctive first-write transport failure";
 
 /// The sends a camera accepted, as opposed to every attempted send (which is
@@ -136,7 +123,7 @@ fn a_third_operation_queues_until_a_socket_frees() {
         .submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop)
         .expect("second submission");
     let mut third = camera
-        .submit::<AppliedOnly, _>(&pan_tilt_stop())
+        .submit::<AppliedOnly, _>(&grafton_visca::command::pan_tilt::Stop)
         .expect("a third operation is admitted and queued");
 
     first.applied().expect("first operation applied");

@@ -12,7 +12,7 @@ use crate::{
         sony::{PayloadType, SonyHeader},
     },
     raw::PlainRequest,
-    runtime::owner::{decode_response_target, RoutingState, TargetRegistry},
+    runtime::owner::{decode_response_target, Routing, TargetRegistry},
     target::TargetSlot,
     transport::{AddressingMode, BufferConfig, Envelope, SonyEncapsulated},
     CommandTimeoutClass, SubmissionClass,
@@ -124,18 +124,14 @@ fn sequence_from(bytes: &[u8]) -> u32 {
 pub fn response_target(bytes: &[u8]) {
     let all_targets =
         TargetRegistry::from_registry(&crate::target::PerTarget::from_fn(|_| Some(())));
-    let single_target =
-        TargetRegistry::from_registry(&crate::target::PerTarget::from_fn(|target| {
-            (target == TargetSlot::ALL[0]).then_some(())
-        }));
-    let serial = RoutingState::new(AddressingMode::Serial, all_targets);
-    let single_ip = RoutingState::new(AddressingMode::Ip, single_target);
-    let ambiguous_ip = RoutingState::new(AddressingMode::Ip, all_targets);
+    let serial = Routing::Serial(all_targets);
+    let single_ip = Routing::Ip {
+        target: TargetSlot::ALL[0],
+    };
 
     for payload in [bytes, bytes.get(..1).unwrap_or(bytes)] {
         let _ = decode_response_target(serial, payload);
         let _ = decode_response_target(single_ip, payload);
-        let _ = decode_response_target(ambiguous_ip, payload);
     }
 }
 
@@ -170,15 +166,17 @@ fn drive_serial_startup(bytes: &[u8], inject_writes: bool) -> Option<crate::Resu
         recv_buffer_size: 64,
         max_buffer_size: 128,
     };
-    let config = SerialConfig::new("fuzz")
-        .with_startup(
-            SerialStartup::default()
-                .with_address_set(true)
-                .with_interface_clear(true),
-        )
-        .with_read_timeout(Duration::from_millis(2))
-        .with_write_timeout(Duration::from_millis(2))
-        .with_buffer_config(buffers);
+    let config = SerialConfig::new("fuzz").with_startup(
+        SerialStartup::default()
+            .with_address_set(true)
+            .with_interface_clear(true),
+    );
+    let io_bounds = crate::transport::IoBounds::new(
+        Duration::from_millis(2),
+        Duration::from_millis(2),
+        buffers,
+    )
+    .ok()?;
     let timing = StartupTiming {
         address_set_attempt: Duration::from_millis(10),
         address_set_attempts: 3,
@@ -187,10 +185,11 @@ fn drive_serial_startup(bytes: &[u8], inject_writes: bool) -> Option<crate::Resu
         if_clear_operation: Duration::from_millis(10),
         if_clear_settle: Duration::from_millis(2),
     };
-    let mut startup = match StartupMachine::new(&config, timing) {
+    let mut startup = match StartupMachine::new(&config, io_bounds, timing) {
         Ok(startup) => startup,
         Err(error) => return Some(Err(error)),
     };
+    let capacity = startup.read_capacity();
     let mut now = Instant::now();
     let mut cursor = 0;
     for turn in 0..256 {
@@ -202,29 +201,29 @@ fn drive_serial_startup(bytes: &[u8], inject_writes: bool) -> Option<crate::Resu
             control
         };
         match startup.next(now) {
-            Action::Write { frame, .. } => {
-                assert!(frame.len() <= startup.read_capacity());
+            Action::Write(write) => {
+                assert!(write.frame().len() <= capacity);
                 let written = if inject_writes && selector & 0x80 != 0 {
                     Err(crate::Error::io_timeout())
                 } else {
                     Ok(())
                 };
-                startup.wrote(written);
+                write.complete(written);
             }
-            Action::Read { .. } => {
-                let count = (1 + usize::from(selector) % startup.read_capacity())
-                    .min(bytes.len().saturating_sub(cursor));
+            Action::Read(read) => {
+                let count =
+                    (1 + usize::from(selector) % capacity).min(bytes.len().saturating_sub(cursor));
                 let end = cursor + count;
                 match selector & 0x0F {
-                    0x0C => startup.read(Err(crate::Error::io_timeout())),
-                    0x0D => startup.read(Ok(&[])),
-                    0x0E | 0x0F => startup.read(Err(std::io::Error::new(
+                    0x0C => read.complete(Err(crate::Error::io_timeout())),
+                    0x0D => read.complete(Ok(&[])),
+                    0x0E | 0x0F => read.complete(Err(std::io::Error::new(
                         ErrorKind::BrokenPipe,
                         "fuzz read failure",
                     )
                     .into())),
                     _ => {
-                        startup.read(Ok(&bytes[cursor..end]));
+                        read.complete(Ok(&bytes[cursor..end]));
                         cursor = end;
                     }
                 }

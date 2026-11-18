@@ -34,7 +34,7 @@ use grafton_visca::{
     r#async::{Camera, Operation, Session},
     request::{self, Inquiry, OperationCommand, Request, ResponseDecoder},
     runtime::Executor,
-    transport::{AddressingMode, TransportConfig},
+    transport::{AddressingMode, IoBounds, StandardTransport},
     types::CameraId,
     Error,
 };
@@ -124,7 +124,7 @@ fn camera() -> FakeCamera {
 /// A wire onto `camera` that reports a standard serial transport with serial
 /// addressing.
 fn serial_wire(camera: &FakeCamera) -> AsyncWire {
-    let config = TransportConfig::default();
+    let config = IoBounds::default();
 
     camera
         .async_wire()
@@ -280,8 +280,8 @@ async fn incompatible_standard_transport_fails_before_send_or_owner_spawn<E: Exe
     assert!(matches!(
         error,
         Error::UnsupportedTransport {
-            profile: ProfileId::SonyFr7,
-            transport: TransportKind::Tcp,
+            profile: Some(ProfileId::SonyFr7),
+            transport: StandardTransport::Tcp,
             ..
         }
     ));

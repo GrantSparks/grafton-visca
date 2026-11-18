@@ -91,12 +91,11 @@ enum AddressSetChunk {
 /// The I/O the startup asks its driver to perform next.
 #[derive(Debug)]
 pub(crate) enum Action<'a> {
-    /// Write the whole frame within `timeout`, then report through
-    /// [`SerialStartup::wrote`].
-    Write { frame: &'a [u8], timeout: Duration },
-    /// Perform one read of up to [`SerialStartup::read_capacity`] bytes
-    /// within `timeout`, then report through [`SerialStartup::read`].
-    Read { timeout: Duration },
+    /// Write the whole frame within its timeout, then complete the write.
+    Write(PendingWrite<'a>),
+    /// Perform one read of up to [`SerialStartup::read_capacity`] bytes within
+    /// its timeout, then complete the read.
+    Read(PendingRead<'a>),
     /// Sleep, then ask for the next action.
     Sleep(Duration),
     /// Discard everything received so far, so no startup reply, echo or bus
@@ -107,6 +106,62 @@ pub(crate) enum Action<'a> {
     Done(Result<()>),
 }
 
+/// The successful continuation of the write issued by the startup.
+#[derive(Debug)]
+enum WriteCompletion {
+    AddressSet { attempt: u8, deadline: Deadline },
+    InterfaceClear,
+}
+
+/// A write issued by one startup. Only its driver can report the result.
+#[derive(Debug)]
+pub(crate) struct PendingWrite<'a> {
+    startup: &'a mut SerialStartup,
+    completion: WriteCompletion,
+    pub(crate) timeout: Duration,
+}
+
+impl PendingWrite<'_> {
+    pub(crate) fn frame(&self) -> &[u8] {
+        match self.completion {
+            WriteCompletion::AddressSet { .. } => self.startup.address_set.as_slice(),
+            WriteCompletion::InterfaceClear => self.startup.if_clear.as_slice(),
+        }
+    }
+
+    /// A failed write is never retried because its partial bus progress is unknown.
+    pub(crate) fn complete(self, result: Result<()>) {
+        self.startup.state = match result {
+            Err(error) => State::Finished(Err(error)),
+            Ok(()) => match self.completion {
+                WriteCompletion::AddressSet { attempt, deadline } => State::AddressSet {
+                    attempt,
+                    deadline,
+                    phase: AddressPhase::Read,
+                },
+                WriteCompletion::InterfaceClear => State::SettleInterfaceClear,
+            },
+        };
+    }
+}
+
+/// A read for the current Address Set attempt.
+#[derive(Debug)]
+pub(crate) struct PendingRead<'a> {
+    startup: &'a mut SerialStartup,
+    attempt: u8,
+    deadline: Deadline,
+    pub(crate) timeout: Duration,
+}
+
+impl PendingRead<'_> {
+    /// Idle reads pause within the same attempt. Other I/O errors stay exact.
+    pub(crate) fn complete(self, result: Result<&[u8]>) {
+        self.startup
+            .complete_read(self.attempt, self.deadline, result);
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Operation {
     AddressSet,
@@ -115,15 +170,8 @@ enum Operation {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AddressPhase {
-    Write,
     Read,
     Pause,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ClearPhase {
-    Write,
-    Settle,
 }
 
 #[derive(Debug)]
@@ -138,11 +186,8 @@ enum State {
         deadline: Deadline,
         phase: AddressPhase,
     },
-    /// One bounded I/F Clear write and settle delay.
-    InterfaceClear {
-        deadline: Deadline,
-        phase: ClearPhase,
-    },
+    /// I/F Clear was written. Wait its reserved settle delay before proceeding.
+    SettleInterfaceClear,
     /// Waiting before the next Address Set attempt.
     RetryDelay { next_attempt: u8 },
     /// Every operation succeeded; discard the remaining input once.
@@ -182,6 +227,7 @@ pub(crate) struct SerialStartup {
     timing: StartupTiming,
     read_timeout: Duration,
     write_timeout: Duration,
+    if_clear_write_budget: Duration,
     read_capacity: usize,
     performed_io: bool,
     addressed_cameras: Option<u8>,
@@ -193,7 +239,16 @@ pub(crate) struct SerialStartup {
 
 impl SerialStartup {
     /// Plan the startup `config` requests: Address Set first, then I/F Clear.
-    pub(crate) fn new(config: &Config, timing: StartupTiming) -> Result<Self> {
+    pub(crate) fn new(
+        config: &Config,
+        io_bounds: crate::transport::IoBounds,
+        timing: StartupTiming,
+    ) -> Result<Self> {
+        let if_clear_write_budget = timing
+            .if_clear_operation
+            .checked_sub(timing.if_clear_settle)
+            .filter(|budget| !budget.is_zero())
+            .ok_or_else(Error::connect_timeout)?;
         let operations = [
             config.startup.address_set.then_some(Operation::AddressSet),
             config
@@ -208,14 +263,15 @@ impl SerialStartup {
             port: config.port.clone(),
             operations: operations.into_iter(),
             timing,
-            read_timeout: config.read_timeout,
-            write_timeout: config.write_timeout,
-            read_capacity: config.buffer_config.recv_buffer_size,
+            read_timeout: io_bounds.read_timeout(),
+            write_timeout: io_bounds.write_timeout(),
+            if_clear_write_budget,
+            read_capacity: io_bounds.buffer_config().recv_buffer_size(),
             performed_io: false,
             addressed_cameras: None,
             // Serial VISCA has no Sony envelope; raw framing stays
             // authoritative even when noise begins with Sony type bytes.
-            framer: RawFramer::new(config.buffer_config),
+            framer: RawFramer::new(io_bounds.buffer_config()),
             address_set: Frame::encode(&AddressSetCommand::new(), "Address Set")?,
             if_clear: Frame::encode(&InterfaceClearCommand::new(), "IF Clear")?,
             state: State::Next,
@@ -233,7 +289,7 @@ impl SerialStartup {
     }
 
     /// Retained input inspected by the bounded serial-startup fuzz driver.
-    #[cfg(feature = "test-utils")]
+    #[cfg(all(feature = "test-utils", feature = "transport-serial"))]
     pub(crate) fn retained_len(&self) -> usize {
         self.framer.buffered_len()
     }
@@ -248,24 +304,47 @@ impl SerialStartup {
                     Some(Operation::AddressSet) => self.state = State::AttemptStart { attempt: 1 },
                     Some(Operation::InterfaceClear) => {
                         debug!("Sending I/F Clear");
-                        self.begin(now, self.timing.if_clear_operation, |deadline| {
-                            State::InterfaceClear {
-                                deadline,
-                                phase: ClearPhase::Write,
-                            }
+                        // The operation starts with this action. Its write may
+                        // spend only the portion not reserved for the settle.
+                        let timeout = self.write_timeout.min(self.if_clear_write_budget);
+                        self.performed_io = true;
+                        return Action::Write(PendingWrite {
+                            startup: self,
+                            completion: WriteCompletion::InterfaceClear,
+                            timeout,
                         });
                     }
                 },
                 State::AttemptStart { attempt } => {
                     debug!("Address Set attempt {attempt}");
                     self.framer.clear();
-                    self.begin(now, self.timing.address_set_attempt, |deadline| {
-                        State::AddressSet {
-                            attempt,
-                            deadline,
-                            phase: AddressPhase::Write,
+                    let deadline = match Deadline::after(
+                        now,
+                        self.timing.address_set_attempt,
+                        "serial startup budget",
+                    ) {
+                        Ok(deadline) => deadline,
+                        Err(error) => {
+                            self.fail(error);
+                            continue;
                         }
+                    };
+                    let remaining = deadline.remaining_at(now);
+                    if remaining.is_zero() {
+                        self.expire_address_set(attempt);
+                        continue;
+                    }
+                    let timeout = self.write_timeout.min(remaining);
+                    self.performed_io = true;
+                    return Action::Write(PendingWrite {
+                        startup: self,
+                        completion: WriteCompletion::AddressSet { attempt, deadline },
+                        timeout,
                     });
+                }
+                State::SettleInterfaceClear => {
+                    self.state = State::Next;
+                    return Action::Sleep(self.timing.if_clear_settle);
                 }
                 State::RetryDelay { next_attempt } => {
                     self.state = State::AttemptStart {
@@ -289,16 +368,14 @@ impl SerialStartup {
                         continue;
                     }
                     match phase {
-                        AddressPhase::Write => {
-                            return Action::Write {
-                                frame: self.address_set.as_slice(),
-                                timeout: self.write_timeout.min(remaining),
-                            }
-                        }
                         AddressPhase::Read => {
-                            return Action::Read {
-                                timeout: self.read_timeout.min(remaining),
-                            }
+                            let timeout = self.read_timeout.min(remaining);
+                            return Action::Read(PendingRead {
+                                startup: self,
+                                attempt,
+                                deadline,
+                                timeout,
+                            });
                         }
                         AddressPhase::Pause => {
                             self.state = State::AddressSet {
@@ -310,83 +387,11 @@ impl SerialStartup {
                         }
                     }
                 }
-                State::InterfaceClear { deadline, phase } => {
-                    let remaining = deadline.remaining_at(now);
-                    match phase {
-                        ClearPhase::Write if remaining.is_zero() => {
-                            self.fail(Error::connect_timeout())
-                        }
-                        ClearPhase::Write => {
-                            return Action::Write {
-                                frame: self.if_clear.as_slice(),
-                                timeout: self.write_timeout.min(remaining),
-                            }
-                        }
-                        ClearPhase::Settle => {
-                            if remaining < self.timing.if_clear_settle {
-                                self.fail(Error::connect_timeout());
-                            } else {
-                                self.state = State::Next;
-                                return Action::Sleep(self.timing.if_clear_settle);
-                            }
-                        }
-                    }
-                }
             }
         }
     }
 
-    /// Report the result of the last requested write.
-    /// A failed write is never retried because its partial bus progress is unknown.
-    pub(crate) fn wrote(&mut self, result: Result<()>) {
-        match (result, &self.state) {
-            (Err(error), _) => self.fail(error),
-            (
-                Ok(()),
-                State::AddressSet {
-                    attempt,
-                    deadline,
-                    phase: AddressPhase::Write,
-                },
-            ) => {
-                self.state = State::AddressSet {
-                    attempt: *attempt,
-                    deadline: *deadline,
-                    phase: AddressPhase::Read,
-                };
-            }
-            (
-                Ok(()),
-                State::InterfaceClear {
-                    deadline,
-                    phase: ClearPhase::Write,
-                },
-            ) => {
-                self.state = State::InterfaceClear {
-                    deadline: *deadline,
-                    phase: ClearPhase::Settle,
-                };
-            }
-            (Ok(()), _) => self.fail(Error::InvalidState {
-                reason: "serial startup received a write result without a pending write".into(),
-            }),
-        }
-    }
-
-    /// Report the result of the last requested Address Set read.
-    /// Idle reads pause within the same attempt; all other I/O errors stay exact.
-    pub(crate) fn read(&mut self, result: Result<&[u8]>) {
-        let State::AddressSet {
-            attempt,
-            deadline,
-            phase: AddressPhase::Read,
-        } = self.state
-        else {
-            self.fail(Error::InvalidState {
-                reason: "serial startup received a read result without a pending read".into(),
-            });
-            return;
-        };
+    fn complete_read(&mut self, attempt: u8, deadline: Deadline, result: Result<&[u8]>) {
         let chunk = match result
             .and_then(|chunk| stream_read(chunk.len(), SERIAL_PORT_CLOSED).map(|_| chunk))
         {
@@ -469,17 +474,6 @@ impl SerialStartup {
         }
     }
 
-    /// Construct the operation-specific write state only after its deadline is valid.
-    fn begin(&mut self, now: Instant, budget: Duration, running: impl FnOnce(Deadline) -> State) {
-        match Deadline::after(now, budget, "serial startup budget") {
-            Ok(deadline) => {
-                self.performed_io = true;
-                self.state = running(deadline);
-            }
-            Err(error) => self.fail(error),
-        }
-    }
-
     fn fail(&mut self, error: Error) {
         self.state = State::Finished(Err(error));
     }
@@ -519,39 +513,105 @@ mod tests {
         assert_eq!(address_set_reply(&[]), None);
     }
 
-    fn startup(config: Config) -> SerialStartup {
-        SerialStartup::new(&config, StartupTiming::VISCA).expect("encodable startup frames")
+    fn startup(config: Config, buffers: BufferConfig) -> SerialStartup {
+        let bounds = crate::transport::IoBounds::default()
+            .with_buffer_config(buffers)
+            .expect("valid bounds");
+        SerialStartup::new(&config, bounds, StartupTiming::VISCA).expect("encodable startup frames")
+    }
+
+    fn accept_write(startup: &mut SerialStartup, now: Instant) {
+        let Action::Write(write) = startup.next(now) else {
+            panic!("expected a write");
+        };
+        write.complete(Ok(()));
+    }
+
+    fn feed_read(startup: &mut SerialStartup, now: Instant, bytes: &[u8]) {
+        let Action::Read(read) = startup.next(now) else {
+            panic!("expected a read");
+        };
+        read.complete(Ok(bytes));
+    }
+
+    #[test]
+    fn interface_clear_reserves_the_settle_and_honors_a_late_success() {
+        let timing = StartupTiming::VISCA;
+        let config =
+            Config::new("/dev/test").with_startup(Startup::default().with_interface_clear(true));
+        let bounds = crate::transport::IoBounds::SERIAL_DEFAULT
+            .with_write_timeout(timing.if_clear_operation)
+            .expect("valid write timeout");
+        let mut startup = SerialStartup::new(&config, bounds, timing).expect("clear startup");
+        let started = Instant::now();
+        let Action::Write(write) = startup.next(started) else {
+            panic!("expected I/F Clear");
+        };
+
+        assert_eq!(write.frame(), [0x88, 0x01, 0x00, 0x01, VISCA_TERMINATOR]);
+        assert_eq!(
+            write.timeout,
+            timing.if_clear_operation - timing.if_clear_settle
+        );
+        write.complete(Ok(()));
+
+        // The driver can resume after the write timer's deadline even on
+        // success. A completed broadcast must always settle.
+        let written = started + Duration::from_millis(1950);
+        assert!(
+            matches!(startup.next(written), Action::Sleep(delay) if delay == timing.if_clear_settle)
+        );
+        let settled = written + timing.if_clear_settle;
+        assert!(matches!(startup.next(settled), Action::DiscardInput));
+        assert!(matches!(startup.next(settled), Action::Done(Ok(()))));
+    }
+
+    #[test]
+    fn interface_clear_refuses_a_budget_with_no_time_to_write() {
+        let config =
+            Config::new("/dev/test").with_startup(Startup::default().with_interface_clear(true));
+        for budget in [Duration::from_millis(99), Duration::from_millis(100)] {
+            let timing = StartupTiming {
+                if_clear_operation: budget,
+                ..StartupTiming::VISCA
+            };
+            let error =
+                SerialStartup::new(&config, crate::transport::IoBounds::SERIAL_DEFAULT, timing)
+                    .expect_err("no write fits before settle");
+            assert_eq!(
+                error.failure_context(),
+                Error::connect_timeout().failure_context()
+            );
+            assert_eq!(error.recovery(), Error::connect_timeout().recovery());
+        }
     }
 
     #[test]
     fn no_requested_operation_performs_no_io() {
-        let mut startup = startup(Config::new("/dev/test"));
+        let mut startup = startup(Config::new("/dev/test"), BufferConfig::for_serial());
         assert!(matches!(startup.next(Instant::now()), Action::Done(Ok(()))));
     }
 
     #[test]
     fn fragmented_replies_and_noise_are_framed_within_bounds() {
-        let config = Config::new("/dev/test")
-            .with_startup(Startup::default().with_address_set(true))
-            .with_buffer_config(BufferConfig {
-                recv_buffer_size: BufferConfig::MIN_RECV_BUFFER_SIZE,
-                max_buffer_size: 64,
-            });
-        let mut startup = startup(config);
+        let config =
+            Config::new("/dev/test").with_startup(Startup::default().with_address_set(true));
+        let buffers = BufferConfig {
+            recv_buffer_size: BufferConfig::MIN_RECV_BUFFER_SIZE,
+            max_buffer_size: 64,
+        };
+        let mut startup = startup(config, buffers);
         let now = Instant::now();
-        assert!(matches!(startup.next(now), Action::Write { .. }));
-        startup.wrote(Ok(()));
+        accept_write(&mut startup, now);
         for chunk in [
             &[0x55; BufferConfig::MIN_RECV_BUFFER_SIZE][..],
             &[0x90, 0x38],
             &[VISCA_TERMINATOR, 0x88, 0x30],
         ] {
-            assert!(matches!(startup.next(now), Action::Read { .. }));
-            startup.read(Ok(chunk));
+            feed_read(&mut startup, now, chunk);
             assert!(matches!(startup.next(now), Action::Sleep(_)));
         }
-        assert!(matches!(startup.next(now), Action::Read { .. }));
-        startup.read(Ok(&[0x08, VISCA_TERMINATOR]));
+        feed_read(&mut startup, now, &[0x08, VISCA_TERMINATOR]);
         assert!(matches!(startup.next(now), Action::DiscardInput));
         assert!(matches!(startup.next(now), Action::Done(Ok(()))));
         assert_eq!(startup.addressed_cameras(), Some(7));
@@ -562,12 +622,15 @@ mod tests {
         for next_address in 0x09..=0x0f {
             let mut startup = startup(
                 Config::new("/dev/test").with_startup(Startup::default().with_address_set(true)),
+                BufferConfig::for_serial(),
             );
             let now = Instant::now();
-            assert!(matches!(startup.next(now), Action::Write { .. }));
-            startup.wrote(Ok(()));
-            assert!(matches!(startup.next(now), Action::Read { .. }));
-            startup.read(Ok(&[0x88, 0x30, next_address, VISCA_TERMINATOR]));
+            accept_write(&mut startup, now);
+            feed_read(
+                &mut startup,
+                now,
+                &[0x88, 0x30, next_address, VISCA_TERMINATOR],
+            );
             assert!(
                 matches!(startup.next(now), Action::Done(Err(Error::SerialChainTooLong { port, reported }))
                 if port == "/dev/test" && reported == next_address - 1)
@@ -577,27 +640,23 @@ mod tests {
 
     #[test]
     fn overflow_retries_the_entire_attempt_without_salvaging_its_suffix() {
-        let config = Config::new("/dev/test")
-            .with_startup(Startup::default().with_address_set(true))
-            .with_buffer_config(BufferConfig {
-                recv_buffer_size: BufferConfig::MIN_RECV_BUFFER_SIZE,
-                max_buffer_size: 64,
-            });
-        let capacity = config.buffer_config.framer_capacity();
-        let mut startup = startup(config);
+        let config =
+            Config::new("/dev/test").with_startup(Startup::default().with_address_set(true));
+        let buffers = BufferConfig {
+            recv_buffer_size: BufferConfig::MIN_RECV_BUFFER_SIZE,
+            max_buffer_size: 64,
+        };
+        let capacity = buffers.framer_capacity();
+        let mut startup = startup(config, buffers);
         let now = Instant::now();
-        assert!(matches!(startup.next(now), Action::Write { .. }));
-        startup.wrote(Ok(()));
-        assert!(matches!(startup.next(now), Action::Read { .. }));
+        accept_write(&mut startup, now);
         let mut overflowing = vec![0x55; capacity];
         overflowing.extend_from_slice(&[0x88, 0x30, 0x02, VISCA_TERMINATOR]);
-        startup.read(Ok(&overflowing));
+        feed_read(&mut startup, now, &overflowing);
         assert_eq!(startup.addressed_cameras(), None);
         assert!(matches!(startup.next(now), Action::Sleep(_)));
-        assert!(matches!(startup.next(now), Action::Write { .. }));
-        startup.wrote(Ok(()));
-        assert!(matches!(startup.next(now), Action::Read { .. }));
-        startup.read(Ok(&[0x88, 0x30, 0x04, VISCA_TERMINATOR]));
+        accept_write(&mut startup, now);
+        feed_read(&mut startup, now, &[0x88, 0x30, 0x04, VISCA_TERMINATOR]);
         assert!(matches!(startup.next(now), Action::DiscardInput));
         assert!(matches!(startup.next(now), Action::Done(Ok(()))));
         assert_eq!(startup.addressed_cameras(), Some(3));

@@ -28,7 +28,7 @@ use grafton_visca::{
     r#async::Session,
     runtime::Executor,
     state_cache::{StateEntry, StateKey},
-    transport::{AddressingMode, SendSemantics, TransportConfig},
+    transport::{AddressingMode, IoBounds, SendSemantics},
     Error,
 };
 
@@ -68,7 +68,7 @@ fn probe_camera(addressing: AddressingMode, complete: bool) -> FakeCamera {
 /// A wire onto `camera` that reports `addressing` and the send semantics that
 /// go with it: stream for serial, datagram for IP.
 fn probe_wire(camera: &FakeCamera, addressing: AddressingMode) -> AsyncWire {
-    let config = TransportConfig::default();
+    let config = IoBounds::default();
 
     let semantics = match addressing {
         AddressingMode::Serial => SendSemantics::Stream,

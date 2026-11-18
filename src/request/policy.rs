@@ -2,7 +2,7 @@
 
 use super::{CommandRetryClass, InquiryRetryClass};
 use crate::raw::{OperationReplyShape, RawReplyShape};
-use crate::{CommandTimeoutClass, ControlClass, SubmissionClass};
+use crate::{CommandTimeoutClass, SubmissionClass};
 #[cfg(feature = "serde")]
 use crate::{Error, Result};
 
@@ -118,12 +118,6 @@ macro_rules! ordinary_policy_accessors {
         pub const fn submission_class(self) -> SubmissionClass {
             self.class
         }
-
-        /// Returns the corresponding scheduler-control class.
-        #[must_use]
-        pub const fn control_class(self) -> ControlClass {
-            self.class.control_class()
-        }
     };
 }
 
@@ -206,22 +200,39 @@ impl InquiryPolicy {
     ordinary_policy_accessors!();
 }
 
+/// Admission of a command according to its ordinary policy or reviewed STOP
+/// semantics. The inquiry policy has only an ordinary submission class.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandAdmission {
+    Ordinary(SubmissionClass),
+    Stop,
+}
+
+pub(crate) type AdmissionOf<C> = <<C as crate::request::Class>::Policy as Sealed>::Admission;
+
 pub trait Sealed: Copy {
-    fn control_class(self) -> ControlClass;
+    type Admission;
+    fn ordinary_admission(self) -> Self::Admission;
 }
 
 impl Sealed for CommandPolicy {
-    fn control_class(self) -> ControlClass {
-        self.control_class()
+    type Admission = CommandAdmission;
+
+    fn ordinary_admission(self) -> Self::Admission {
+        CommandAdmission::Ordinary(self.submission_class())
     }
 }
 impl Sealed for OperationPolicy {
-    fn control_class(self) -> ControlClass {
-        self.control_class()
+    type Admission = CommandAdmission;
+
+    fn ordinary_admission(self) -> Self::Admission {
+        CommandAdmission::Ordinary(self.submission_class())
     }
 }
 impl Sealed for InquiryPolicy {
-    fn control_class(self) -> ControlClass {
-        self.control_class()
+    type Admission = SubmissionClass;
+
+    fn ordinary_admission(self) -> Self::Admission {
+        self.submission_class()
     }
 }

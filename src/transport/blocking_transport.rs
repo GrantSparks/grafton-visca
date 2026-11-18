@@ -6,7 +6,7 @@
 use core::time::Duration;
 
 use crate::{
-    transport::{builder::ValidatedTransportConfig, AddressingMode, ReceiveOutcome, SendSemantics},
+    transport::{builder::IoBounds, AddressingMode, ReceiveOutcome, SendSemantics},
     Error,
 };
 
@@ -69,12 +69,12 @@ impl HasTransportConfig for BlockingTransportHandle {
         }
     }
 
-    fn transport_config(&self) -> &ValidatedTransportConfig {
+    fn io_bounds(&self) -> &IoBounds {
         match self {
-            BlockingTransportHandle::Tcp(transport) => transport.transport_config(),
-            BlockingTransportHandle::Udp(transport) => transport.transport_config(),
+            BlockingTransportHandle::Tcp(transport) => transport.io_bounds(),
+            BlockingTransportHandle::Udp(transport) => transport.io_bounds(),
             #[cfg(feature = "transport-serial")]
-            BlockingTransportHandle::Serial(transport) => transport.transport_config(),
+            BlockingTransportHandle::Serial(transport) => transport.io_bounds(),
         }
     }
 }
@@ -332,11 +332,7 @@ impl<'a> TransportIdentity<'a> {
     }
 }
 
-/// Trait for types that carry transport configuration.
-///
-/// This trait provides a unified interface for accessing the transport configuration
-/// from various transport types, enabling the runtime to apply consistent settings
-/// (buffers, timeouts) across all transport implementations.
+/// The physical transport identity and its checked owner I/O bounds.
 ///
 /// # Example
 ///
@@ -345,7 +341,7 @@ impl<'a> TransportIdentity<'a> {
 ///
 /// // Access configuration from any transport
 /// fn inspect_config(transport: &impl HasTransportConfig) {
-///     let config = transport.transport_config().as_config();
+///     let config = transport.io_bounds();
 ///     let read_timeout = config.read_timeout();
 ///     let buffer_config = config.buffer_config();
 /// }
@@ -354,8 +350,8 @@ pub trait HasTransportConfig {
     /// Declare the transport identity. Wrappers must forward the inner identity.
     fn identity(&self) -> TransportIdentity<'_>;
 
-    /// Return settings checked by [`TransportConfig::validated`](super::TransportConfig::validated).
-    fn transport_config(&self) -> &ValidatedTransportConfig;
+    /// Return the checked read and write timeouts and receive-buffer limits.
+    fn io_bounds(&self) -> &IoBounds;
 }
 
 // Blanket implementation for references, enabling HRTB bounds like `for<'a> &'a T: HasTransportConfig`
@@ -365,8 +361,8 @@ impl<T: HasTransportConfig + ?Sized> HasTransportConfig for &T {
     }
 
     #[inline]
-    fn transport_config(&self) -> &ValidatedTransportConfig {
-        (*self).transport_config()
+    fn io_bounds(&self) -> &IoBounds {
+        (*self).io_bounds()
     }
 }
 

@@ -2,6 +2,7 @@ use super::*;
 use crate::runtime::owner::turn::{
     clamp_receive_pause, transient_receive_pause, TransientFaultRun,
 };
+use crate::transport::IoBounds;
 
 /// #1020: an overdue raw hold cannot zero-clamp a failed release probe's
 /// escalating pause. Paused Tokio time must advance to the permanent verdict.
@@ -56,7 +57,7 @@ async fn zero_length_stream_read_still_closes_the_session() {
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
-            config: crate::transport::ValidatedTransportConfig::default(),
+            config: IoBounds::default(),
             chunks,
             sent,
         },
@@ -253,7 +254,7 @@ fn smol_transport_failing_every_read_still_serves_the_boundary() {
 /// escalates its pause and then ends the session with the underlying cause,
 /// rather than retrying against a dead adapter for the process lifetime.
 #[cfg(feature = "runtime-tokio")]
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_permanently_failing_transport_eventually_ends_the_session() {
     let runtime = TokioRuntime::from_current().unwrap();
     let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
@@ -558,10 +559,10 @@ async fn consumed_truncated_datagrams_reset_the_async_fault_run() {
     let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let faults = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let truncated = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let config = crate::transport::builder::TransportConfig::default();
+    let config = IoBounds::default();
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         AlternatingFaultAndTruncatedDatagrams {
-            config: config.validated().unwrap(),
+            config,
             reads,
             faults: Arc::clone(&faults),
             truncated: Arc::clone(&truncated),
@@ -624,7 +625,7 @@ async fn a_malformed_datagram_does_not_kill_the_async_session() {
     let (sent, sent_rx) = flume::bounded(8);
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ScriptedDatagramTransport {
-            config: crate::transport::ValidatedTransportConfig::default(),
+            config: IoBounds::default(),
             datagrams,
             sent,
         },
@@ -696,7 +697,7 @@ async fn a_malformed_stream_frame_is_discarded_and_keeps_the_session() {
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
-            config: crate::transport::ValidatedTransportConfig::default(),
+            config: IoBounds::default(),
             chunks,
             sent,
         },
@@ -764,12 +765,13 @@ async fn a_stream_burst_over_the_frame_limit_keeps_the_session() {
     let (sent, sent_rx) = flume::bounded(8);
     // A large receive buffer so one read can carry a burst past the frame
     // limit, as a real 256-byte raw-IP session would.
-    let mut config = crate::transport::builder::TransportConfig::default();
-    config.buffer_config.recv_buffer_size = 1024;
+    let config = IoBounds::default()
+        .with_buffer_config(crate::transport::BufferConfig::default().with_recv_buffer_size(1024))
+        .unwrap();
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
-            config: config.validated().unwrap(),
+            config,
             chunks,
             sent,
         },
@@ -822,7 +824,7 @@ async fn a_single_target_ip_chain_address_reply_settles_the_command() {
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
-            config: crate::transport::ValidatedTransportConfig::default(),
+            config: IoBounds::default(),
             chunks,
             sent,
         },
@@ -859,7 +861,7 @@ async fn a_datagram_send_failure_never_demands_a_new_session() {
         .expect("the generic profile is valid");
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ClosedSendDatagramTransport {
-            config: crate::transport::ValidatedTransportConfig::default(),
+            config: IoBounds::default(),
         },
         &profile,
         TargetSlot::CAMERA_1,

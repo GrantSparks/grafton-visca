@@ -133,12 +133,11 @@ through their existing fluent methods or new narrow constructors. For configurat
 ```rust
 use grafton_visca::{
     Error,
-    transport::TransportConfig,
+    transport::{BufferConfig, IoBounds},
 };
 
-let config = TransportConfig::for_tcp().with_buffer_config(
-    grafton_visca::transport::BufferConfig::for_tcp().with_max_buffer_size(16_384),
-);
+let bounds = IoBounds::default()
+    .with_buffer_config(BufferConfig::for_tcp().with_max_buffer_size(16_384))?;
 let error = Error::connection_closed(None);
 match error {
     Error::ConnectionClosed { source, .. } => assert!(source.is_none()),
@@ -191,7 +190,7 @@ inquiry derive. Renamed dependencies remain supported. See
 | Multi-target serial construction | `Session::connect(&config)` with `SessionConfig::with_transport(TransportOptions::serial(port, baud))`; async construction takes a runtime last. |
 | Implicit sole-target session selector / `camera_for` | `Session::camera::<P>(target)` always names the registered `types::IndividualCameraId`. `CameraSession<P>::camera()` returns its single bound view. |
 | Raw camera-ID setter / `try_camera_id` | `IndividualCameraId::new(raw)?` then `CameraConfig::with_camera_id(id)`; multi-target configuration uses `SessionConfig::for_target` and `with_target`. |
-| `RuntimeHandle` and private runtime modules | `runtime::{Executor, TokioRuntime, SmolRuntime}`. Executors supply coherent timers, spawn and clock behavior; owners reset their timers across turns. |
+| `RuntimeHandle` and private runtime modules | `runtime::{Executor, TokioRuntime, SmolRuntime}`. Executors provide `timer`, `spawn_detached`, `sleep` and `now`. Drive application futures and join tasks through your runtime. |
 | `Transport` / `NetTransportBuilder` | Use an inherent facade constructor, or implement `transport::BlockingTransport` / `AsyncTransport` for a caller-owned adapter and attach it with `Session::open`. |
 
 `config::{CameraConfig, SessionConfig, OperationalTuning}` are reusable values:
@@ -210,8 +209,9 @@ A custom transport implements `BlockingTransport` or `AsyncTransport` plus
 `Custom { semantics, addressing }`; wrappers forward the inner identity and
 configuration. Blocking `send_with_timeout` and `recv_into_with_timeout` must
 respect the supplied positive duration. The owner already frames each supplied
-packet. `TransportConfig` carries I/O, buffer and socket settings, with private
-fields and `with_*` setters; it does not choose addressing.
+packet. `IoBounds` carries checked I/O timeouts and buffer sizes.
+`TcpConnect` and `UdpConnect` provide the socket settings for their own
+connectors.
 
 `into_camera()` retains a cloneable camera view and its owner connection.
 Retain the owning `CameraSession` when deterministic consuming `close()` is
@@ -255,7 +255,7 @@ deprecated and maps to the corresponding `r#async` types.
 | --- | --- |
 | Root control-trait calls that duplicate noun views | `camera.power()`, `zoom()`, `system()`, `pan_tilt()`, `focus()`, `exposure()`, `white_balance()`, `image()`, `presets()`, `tally()`, `nd_filter()`, `motion_sync()`, `menu()`, and `streaming()`. |
 | 1.x `is_moving` / `stop_all_motion`, and the movement waits `await_idle` / `await_pan_tilt_idle` / `await_zoom_idle` / `await_focus_idle` / `await_axes_idle` (each taking a `Duration`) | `camera.motion().is_moving(MotionQuery)` (`MotionQuery::default()` samples `AffectedAxes::MOVEMENT`; `MotionQuery::new(axes)` selects an explicit axis set), `wait_until_idle(IdleWait)`, and `stop_all()` returning a per-axis `HaltReport`. Inspect the report or explicitly collapse it with `into_result()`. There was **no** 1.x `wait_until_idle`; that name is 2.0's. |
-| 1.x `is_moving` verdict from two back-to-back position snapshots (`is_moving_axes_with_deadline` with a `MovementTolerance`) | `MotionQuery::new(axes)`, optionally `.with_tolerance(..)` and `.with_window(..)`. The second snapshot starts at least `window` (default 100 ms) after the first, so each call takes at least that long, and `false` means no movement was detected over the window. A zero window returns `Error::InvalidParameter`, and a window that cannot fit the deadline returns `Error::Timeout`. Raise the window to detect slower creep. `MotionQuery` and `IdleWait` are `#[non_exhaustive]`: build them with their constructors, presets and `with_*` methods, not struct literals. |
+| 1.x `is_moving` verdict from two back-to-back position snapshots (`is_moving_axes_with_deadline` with a `MovementTolerance`) | `MotionQuery::new(axes)`, optionally `.with_tolerance(..)` and `.with_window(..)`. The second snapshot starts at least `window` (default 100 ms) after the first, so each call takes at least that long, and `false` means no movement was detected over the window. A zero window returns `Error::InvalidParameter` before I/O and is refused during deserialization. A window that cannot fit the deadline returns `Error::Timeout`. Read the query with `axes()`, `tolerance()` and `window()`. `MovementTolerance` uses unsigned magnitudes set through its per-axis `with_*` methods. |
 | 1.x `AwaitConfig` and `await_with_config(&AwaitConfig)` (`for_pan_tilt`/`for_zoom`/`for_focus`/`for_preset_recall`, `poll_interval`, `tolerance`, `debug`) | `types::IdleWait` (same `for_*` presets plus `with_interval`/`with_tolerance`/`with_timeout`) passed to `wait_until_idle`, or `types::MotionQuery` for `is_moving`. The `debug` field has no counterpart — use `tracing`. `IdleWait` has private fields with getters; its interval must be positive, with zero refused before I/O and during deserialization. |
 | Noun-specific idle/wait aliases | The separate `motion()` safety/observation view. |
 | 1.x `Axes::ALL` as "everything that moves" | `AffectedAxes::MOVEMENT`. The 1.x `Axes` type is renamed `AffectedAxes` **and** `ALL` changed meaning — see [`Axes` → `AffectedAxes`: rename and `ALL` meaning change](#axes--affectedaxes-rename-and-all-meaning-change) below. |
@@ -288,7 +288,7 @@ root trait:
 | `WhiteBalanceControl` and its color-temperature/gain controls | `camera.white_balance()`; saturation, hue, and general image controls belong to `camera.image()` |
 | `PresetsControl`, `PowerControl`, `MenuControl` | `camera.presets()`, `camera.power()`, and `camera.menu()` respectively; vendor streaming-quality controls live under the profile-gated `camera.streaming()` noun. |
 | `InquiryControl` | The inquiry on the noun that owns the value; there is no aggregate replacement trait. |
-| `SystemControl` | `camera.system().version()` for the Sony-format version reply on profiles that implement `HasVersionInquiry` (Sony and `GenericVisca`; not the PTZOptics profiles, whose reply layout is unsourced, so send a `raw::InquiryRequest` there; custom profiles must implement `HasVersionInquiry`, include `TypedSupportSurface::VersionInquiry` in `TYPED_SUPPORT`, and list `"version_inquiry"` in persisted runtime `typed_support`, as described in the next section's gate table) and the profile-gated `camera.system().save_settings()` for PTZOptics settings persistence. Configure serial Address Set and I/F Clear at connection time with `transport::SerialStartup`, through `transport::SerialConfig::with_startup` or `CameraConfig::with_serial_startup` (Address Set runs first when both are selected; the default writes nothing to the bus). Cancel a submitted command through its `Operation::cancel()` handle; use `camera.motion()` only for movement observation and typed STOP-all. |
+| `SystemControl` | `camera.system().version()` for the Sony-format version reply on profiles that implement `HasVersionInquiry` (Sony and `GenericVisca`; not the PTZOptics profiles, whose reply layout is unsourced, so send a `raw::InquiryRequest` there; custom profiles must implement `HasVersionInquiry`, include `TypedSupportSurface::VersionInquiry` in `TYPED_SUPPORT`, and list `"version_inquiry"` in persisted runtime `typed_support`, as described in the next section's gate table) and the profile-gated `camera.system().save_settings()` for PTZOptics settings persistence. Configure serial Address Set and I/F Clear at connection time with `transport::SerialStartup`, through `transport::SerialConfig::with_startup` and `CameraConfig::serial_configured` (Address Set runs first when both are selected; the default writes nothing to the bus). Cancel a submitted command through its `Operation::cancel()` handle; use `camera.motion()` only for movement observation and typed STOP-all. |
 
 ### Layered async trait adapters
 
@@ -556,7 +556,7 @@ ND-filter position inquiries.
 | Unvalidated vendor opcodes that 1.x let through because it validated nothing on send (e.g. vendor tally mode `0A 02 02 0p` on a PTZOptics profile) | The typed and `execute` routes validate against profile capability, so a profile without the typed surface refuses the opcode (tally mode needs `HasTally`). Send a firmware-confirmed vendor opcode through `raw::PlainRequest` instead. |
 | Plain requests submitted as operations or operations without affected axes | Match the request class exactly: `execute` for plain, `inquire` for inquiry, and `submit` for a typed operation with non-empty affected axes. |
 | Caller-selected lifecycle IDs, retry class, target, or settlement metadata | Owner-derived preparation metadata. Callers select a request, a timeout, and a scheduling class; they do not select protocol identity or queue positions. |
-| `runtime::Priority` and the `*_priority` camera methods | `SubmissionClass` and the `with_submission_class` / `set_submission_class` camera-view surface. `ControlClass::Urgent` is now intrinsic safety metadata, not caller QoS. See [Submission priority](#submission-priority). |
+| `runtime::Priority` and the `*_priority` camera methods | `SubmissionClass` and the `with_submission_class` / `set_submission_class` camera-view surface. Typed STOPs and owner-issued cancellation use the urgent lane. See [Submission priority](#submission-priority). |
 
 The built-in command classification remains one closed semantic ledger. A
 custom request must declare its class explicitly; wire opcode or response shape
@@ -659,27 +659,26 @@ at once. Wait from the task that holds it, and pass `&mut` where 1.x passed
 
 ## Submission priority
 
-1.x's `runtime::Priority` is gone. 2.0 separates caller-selected ordinary-work
-QoS (`SubmissionClass`) from a request's intrinsic classification
-(`ControlClass`). That separation prevents submission APIs from manufacturing
-or demoting the urgent lane used by stops and protocol cancellation.
+`SubmissionClass` replaces 1.x's `runtime::Priority` for ordinary work.
+Typed STOPs and owner-issued protocol cancellation always use the urgent
+lane.
 
 | 1.x `runtime::Priority` | 2.0 submission choice |
 | --- | --- |
 | `Priority::Low` | `SubmissionClass::Background` |
 | `Priority::Normal` | `SubmissionClass::Normal` |
 | `Priority::High` | `SubmissionClass::User` |
-| `Priority::Critical` | No general submission override. Typed stops and owner-issued protocol cancellation are intrinsically `ControlClass::Urgent`; ordinary traffic may be raised only to `SubmissionClass::User`. |
+| `Priority::Critical` | No general submission override. Typed STOPs and owner-issued protocol cancellation use the urgent lane; ordinary traffic may be raised only to `SubmissionClass::User`. |
 
 The dispatch rule remains highest occupied class first and admission order
 within a class; a class decides only which *queued* request is written next.
 1.x had no per-request classification, so a handle's priority was the only
 signal and everything a handle submitted sat in one lane. In 2.0 every request
-already carries an intrinsic class — ordinary control is `Normal`, drives and
-absolute moves are `User`, and the typed stops plus owner-issued protocol cancellation are `Urgent`
-— so an emergency stop preempts queued work with no API call at all. Public QoS
+selects its ordinary class in its policy. Ordinary control uses `Normal`.
+Drives and absolute moves use `User`. Typed STOPs and owner-issued
+cancellation take priority over queued ordinary work. Public QoS
 can move ordinary traffic among the lower three lanes but cannot cross that
-safety boundary. On a raw profile an intrinsically `Urgent` stop may also cross
+safety boundary. On a raw profile, a typed STOP may also cross
 one un-acknowledged raw command and create one explicit two-candidate
 safety-lane state (#714). An ACK observed while both raw candidates are open
 binds to neither; either operation may therefore report
@@ -696,7 +695,7 @@ contention error.
 | `camera.set_command_priority(Priority::Low)` | `camera.set_submission_class(Some(SubmissionClass::Background))` |
 | `camera.command_priority()` | `camera.submission_class()` — returns `Option<SubmissionClass>`, where `None` means "use each request's intrinsic class" |
 | `camera.execute_with_priority(cmd, Priority::High)` | `camera.with_submission_class(SubmissionClass::User).execute(&cmd)` |
-| `camera.execute_with_priority(stop, Priority::Critical)` | Submit the typed stop normally; it is intrinsically `ControlClass::Urgent`. |
+| `camera.execute_with_priority(stop, Priority::Critical)` | Submit the typed STOP normally. It uses the urgent lane. |
 | — (no 1.x equivalent) | `camera.with_submission_class(class)` derives a view whose `execute`, `inquire`, `submit`, and noun methods all use that ordinary-work class. |
 | `BlockingClient` priority methods | The same names on `blocking::Camera`; `blocking::CameraSession` exposes forwarding default helpers and returns that `Camera` from `camera()` |
 | — (no 1.x equivalent) | `with_submission_class` and `set_submission_class` are identical on typed, dynamic async, and native blocking dynamic camera views. |
@@ -706,7 +705,7 @@ Three behavioural differences are worth reading before porting:
 - **No public QoS override can weaken an urgent request.** A handle set to
   `Background`, and a view derived with
   `with_submission_class(SubmissionClass::Background)`, still submits `PanTiltStop`, `ZoomStop`,
-  `FocusStop`, and owner-issued protocol cancellation as `ControlClass::Urgent`.
+  `FocusStop`, and owner-issued protocol cancellation through the urgent lane.
   Nor can ordinary work manufacture the urgent lane: `SubmissionClass` has no
   `Urgent` variant, and `request::CommandPolicy`, `request::OperationPolicy`, and
   `request::InquiryPolicy` all take that ordinary-work type. A raw caller who needs
@@ -772,6 +771,7 @@ Undeclared raw/custom requests remain outside the fence. An axis declaration
 never grants reserved STOP priority or changes the command's wire semantics.
 
 Superseded motion fails with `Error::MotionSuperseded { axes, context }`.
+The `axes` field contains the request's declared axes that the halt fence covers.
 `context` is a `FailureContext` (also returned by `failure_context()`): its
 certainty is `NotAccepted` when the request never reached the camera — it was
 still queued, or every written attempt was rejected before ACK — and
@@ -1062,8 +1062,8 @@ Retained public protocol values also changed shape:
 | Profile constants and global zoom/magnification helpers | Read `ZoomCaps::{optical_max, digital_max, optical_ratio}` from the validated spec. `ZoomScale` maps the selected profile/lens geometry; it does not infer one camera's lens from another profile. |
 | `types::{PanPosition, TiltPosition}`, `PanTilt::{AbsolutePositionRaw, RelativePositionRaw, LimitSetRaw}` | `PanTilt::{AbsolutePosition, RelativePosition, LimitSet}` take the raw `i16` wire words directly (an unsigned-centered word `w` is `w as i16`); the value types restated PTZOptics G2 ranges as if they were protocol limits. Profile-aware requests take `Degrees`. |
 | `units::Magnification<T>` | Removed; it had no consumer. `ZoomScale::units(f32)` and `ZoomScale::magnification(u16) -> Option<f32>` name the quantity in the method. |
-| `ExposureExt::fstop_to_iris_units` | Removed (#828): an uncalibrated placeholder that returned the minimum iris for `NaN`. Use a wire `IrisLevel` code established by the selected model's iris table; no profile-less `FStop` conversion is supported (#844). |
-| `profiles::{G2Gain, G2PresetId}` | Removed. `G2Gain` offered 24 dB, which the G2 profile rejects; use `GainLevel` and `PresetNumber` with the profile's `ExposureCaps::gain_range` and `PresetCaps::highest` memory number. |
+| `ExposureExt::fstop_to_iris_units` | Removed (#828): an uncalibrated placeholder that returned the minimum iris for `NaN`. Use a wire `IrisLevel` code established by the selected model's iris domain (#844). |
+| `profiles::{G2Gain, G2PresetId}` | Removed. `G2Gain` assigned physical gain values without a model-specific table. Use `GainLevel` and `PresetNumber` with the profile's `ExposureCaps::gain_range` and `PresetCaps::highest` memory number. |
 | Duplicate capability predicates and metadata support constants | Query `Capabilities::supports(TypedSupportSurface)` for the method contract, or read the optional domain record for sourced numeric facts. No metadata trait or convenience boolean supplies an additional permission mechanism. |
 | Feature-specific convenience predicates | Query the exact `TypedSupportSurface`; inspect `ExposureCaps::iris_range`, `ZoomCaps::digital_max`, and `FocusCaps::zones` for the supporting facts. |
 | Unconditional preset speed constants | `PresetCaps::recall_speed_range` is optional. `None` means that the source establishes no recall-speed domain; EVI-H100 and Generic VISCA do not gain that command from a baseline preset domain. |
@@ -1071,7 +1071,7 @@ Retained public protocol values also changed shape:
 | Transport support repeated in metadata constants and profile helpers | The registry's transport block emits static `SupportsTcp`/`SupportsUdp`/`SupportsSerial` markers and the runtime `ProfileSpec::transports()` value. Resolve a built-in with `ProfileId::spec()`; read its transport facts before connection. |
 | Public `*Ext::validate_*` helpers and `ValidationError` | Removed. Request preparation validates profile-specific ranges before I/O; explicit `CapabilityRange`/`CapabilityDomain::validate` calls return the crate's `Error`. Out-of-range values are refused rather than clamped. |
 | `Error::InvalidPreset { preset, max }`, returned by `G2PresetId::new` | Removed with `G2PresetId`. An out-of-profile preset number is `Error::ParameterOutOfRange` with the profile's `0..=highest_preset` bounds. |
-| `retry_config(RetryConfig)` with any `max_retries` and retry delays | `OperationalTuning::with_retry_limit`, `with_initial_retry_backoff`, `with_maximum_retry_backoff`, and `with_retry_budget`, which `validate_tuning` accepts only when they make retries more conservative: the retry count may only shrink below the default 3, and the backoff and budget may only lengthen beyond the profile's bounds (#828). |
+| `retry_config(RetryConfig)` with any `max_retries` and retry delays | `OperationalTuning::with_retry_limit`, `with_initial_retry_backoff`, `with_maximum_retry_backoff`, and `with_retry_budget`, with a checked `tuning::RetryLimit` from 0 to 3. Validation requires backoff and budget overrides to meet or exceed the profile's bounds (#828, #1098). |
 | `SonyEviH100`, `SonyBrc300`, `NearusBrc300` over TCP or UDP | Serial only: their manuals document RS-232C/RS-422 VISCA and no IP transport. |
 | `Presets::MAX_PRESETS`, `Capabilities::max_presets` (documented as a count, used as the highest index) | `PresetCaps::highest` is the highest preset memory number, so presets are `0..=highest` and `0` is one preset. Runtime support is `Capabilities::presets: Some(PresetCaps { highest: 0, .. })`; an absent domain is `None`. The registry field is `presets: { highest: N, .. }`. |
 | Highest preset number of `SonyEviH100` 6, `GenericVisca` 6, `NearusBrc300` 16 | 5 for all three: R8 and R21 document `CAM_Memory` p = 0 to 5, and Generic VISCA keeps what R8, R12 and R21 share. Presets 6 and above are refused with `ParameterOutOfRange`. |
@@ -1133,7 +1133,7 @@ A type validates its own representable domain. The target profile validates
 camera-specific ranges and sparse inventories before I/O. For example,
 `BrightnessLevel` represents a byte while each profile admits only the values
 in its `ExposureCaps::brightness_range`; `ShutterSpeed` represents a byte while
-the profile's shutter table determines which codes it accepts.
+the profile's shutter code domain determines which codes it accepts.
 
 Inquiry derive attributes retain their checked grammar. Repeated or unknown
 keys fail compilation; `opcode`/`subcode` accept unsuffixed integer literals in
@@ -1167,7 +1167,7 @@ malformed reply now fails the same way on every inquiry and profile:
 | `Nibbles::u8_pair(start)` and `Nibbles::last_nibble()` | `Nibbles::zero_extended_u8()` (at least two nibbles) and `Nibbles::zero_extended_nibble()` (at least one), with widths checked at compile time and nonzero padding rejected as `InvalidResponseFormat`. Canonical derived inquiries use the built-in inquiry table's same padding and enum-code checks; unknown enum codes report `InvalidResponse`. Custom decoders can use the checked `Nibbles` helpers directly. The old per-parser derive selectors are removed (#881). |
 | Independent horizontal/vertical flip payload fields | Combined flip readback carries `ImageFlipMode`; vertical-only readback carries a boolean. |
 | Numeric fields in `InquiryData`, including sharpness and brightness positions, were bare integers | Profile-independent fields carry their checked value types (`SharpnessLevel`, `BrightnessLevel`, `ZoomPosition`, `GainLevel`, and the other numeric reply types). `wire::parse_inquiry_payload`, `Response::parse_with_type` and canonical derived inquiries apply the same range checks as typed accessors; out-of-range replies return `InvalidResponse` with `ErrorKind::Protocol` (#938). |
-| The gain inquiry decoded only the last nibble of `00 00 0p 0q` | Both digits are retained in the checked `InquiryData::Gain::gain: GainLevel`. Every canonical parser rejects a value above its built-in `0x19` union as an `InvalidResponse` protocol error instead of truncating it (#845, #938). |
+| The gain inquiry decoded only the last nibble of `00 00 0p 0q` | Both digits are retained in the checked `InquiryData::Gain::gain: GainLevel`. Canonical parsers reject a nonzero upper byte as an `InvalidResponse` protocol error instead of truncating it (#845, #938). |
 | A pan/tilt position reply of the wrong length returned `Error::DecoderNotFound { inquiry_kind, payload_hex }` | `Error::InvalidResponseLength`, as for every other inquiry and framing; `Error::DecoderNotFound` is removed. A profile that pairs BRC-300 framing with unsigned-centered coordinates is rejected where it is built: `ProfileSpecBuilder::build`, `ProfileSpec` and `PanTiltCoordinateConversion` deserialization reject it with the profile-field error `InvalidRequest` naming `pan_tilt_coordinates`, and a compile-time profile that declares it fails to build at `PanTiltCoordinateConversion::for_profile`. |
 | Enum-specific byte conversion methods | Import `wire::WireValue` and call `to_wire` or `from_wire`. Boolean properties use `bool`; mode properties use their value enums. |
 | `visca_command!` declared downstream commands | The generator is crate-internal. Implement `Request` for a downstream command, or send an explicit frame with `raw::PlainRequest` (#883). |
@@ -1179,15 +1179,15 @@ malformed reply now fails the same way on every inquiry and profile:
 
 Each of these is breaking for code that relied on the 1.x behaviour.
 
-**One set of per-transport defaults.** `TransportConfig::for_tcp()`,
-`for_udp()` and `for_serial()` are the defaults every built-in entry point
-uses. Start from the matching constructor to change a field:
+**Per-transport defaults.** The standard TCP, UDP and serial constructors
+use `BufferConfig::for_tcp()`, `for_udp()` and `for_serial()` respectively.
+Use the corresponding configured constructor to supply explicit settings:
 
 | 1.x | 2.0 |
 | --- | --- |
 | `Transport::tcp()` / `udp()` limited replies to 128 bytes | 256 bytes (TCP) and 1024 bytes (UDP), as every other entry point |
-| `CameraConfig::with_transport_config(c)` replaced a `BufferConfig::default()` buffer with the transport preset | the supplied configuration is used as given; pass `TransportConfig::for_tcp()` (or `for_udp`, `for_serial`) as the base |
-| `TransportConfig::for_udp()`-equivalent configs reported TCP nodelay/keepalive | `for_udp()` and `for_serial()` report `None` for TCP-only fields; `tcp_nodelay: None` keeps the OS default |
+| A generic buffer selection was replaced by the transport preset | An explicit `IoBounds` value is used as supplied |
+| A shared settings record carried TCP nodelay and keepalive | `TcpConnect` owns both settings. `UdpConnect` owns its setup timeout and IP hop limit |
 | `NetTransportBuilder::udp_buffers()`, `raw_ip_buffers()`, `sony_ip_buffers()`, `BufferConfig::for_sony_ip()` | Use the transport-specific buffer defaults with `BufferConfig::with_recv_buffer_size` and `BufferConfig::with_max_buffer_size` for explicit limits. |
 | `TransportBuilderExt` | Removed along with `Transport` and `NetTransportBuilder`; use concrete adapters or facade constructors |
 | `declare_net_transport!` (exported by accident) | removed |
@@ -1234,12 +1234,15 @@ writes explicitly:
 use grafton_visca::{
     config::CameraConfig,
     profiles::PtzOpticsG2,
-    transport::SerialStartup,
+    transport::{BufferConfig, IoBounds, SerialConfig, SerialStartup},
     blocking::CameraSession,
 };
 
-let config = CameraConfig::<PtzOpticsG2>::serial("/dev/ttyUSB0", 9_600)
-    .with_serial_startup(SerialStartup::default().with_address_set(true).with_interface_clear(true));
+let device = SerialConfig::new("/dev/ttyUSB0").with_startup(
+    SerialStartup::default().with_address_set(true).with_interface_clear(true),
+);
+let bounds = IoBounds::default().with_buffer_config(BufferConfig::for_serial())?;
+let config = CameraConfig::<PtzOpticsG2>::serial_configured(device, bounds);
 let session = CameraSession::connect(&config)?;
 # Ok(()) }
 ```
@@ -1247,8 +1250,8 @@ let session = CameraSession::connect(&config)?;
 `transport::SerialConfig` replaces `address_set_on_connect` / `if_clear_on_connect`
 (fields and builder methods) with a private startup value and
 `SerialConfig::with_startup(SerialStartup)`; the unused `camera_address` field and method are
-removed, and timeouts and buffer limits default to
-`TransportConfig::for_serial()` (5 s) instead of 100 ms. A timed-out or
+removed. The standard serial constructor uses five-second read and write
+timeouts and the serial buffer preset. A timed-out or
 partial Address Set write now fails startup instead of being resent; a startup
 whose Address Set attempts all go unanswered fails with
 `Error::MaxRetriesExceeded`; a startup read error is returned unchanged
@@ -1267,10 +1270,8 @@ Both classify as `InvalidParameter` and are not automatically retryable;
 `ConnectionFailed` retains actual serial-device open failures and their OS causes.
 Extra cameras up to the seven-camera limit are allowed. Without Address Set, the serial identity has
 `bus: None`. A custom transport that wraps another forwards `identity()` and
-`transport_config()`, preserving the inner serial bus report and its startup
-validation. A caller-owned transport stores the result of
-`TransportConfig::validated()` and returns it as `&ValidatedTransportConfig`.
-Use `ValidatedTransportConfig::as_config()` to inspect its settings.
+`io_bounds()`, preserving the inner serial bus report and the checked I/O
+bounds. A caller-owned transport stores and returns its own `&IoBounds`.
 
 ### Reconfiguring timeouts at runtime
 
@@ -1322,8 +1323,8 @@ governing deadline, and the profile busy timeout. `with_initial_retry_backoff`, 
 lengthen those bounds: `validate_tuning` rejects a first backoff below 50 ms, a
 ceiling below the profile's, or a budget below ten seconds (or the busy
 timeout), and a request whose own budget is longer than the override keeps it.
-`with_retry_limit` may only lower the default base retry count of 3. Neither can
-make an ambiguous raw replay safe.
+`with_retry_limit` takes a checked `tuning::RetryLimit` from 0 to 3. Replay
+safety still depends on correlation evidence.
 
 **Tuning is a one-way ratchet toward *more* conservative (design decision D15).**
 `OperationalTuning` may only lengthen a validated profile's timing facts, never

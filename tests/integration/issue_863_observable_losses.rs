@@ -6,6 +6,7 @@
     feature = "runtime-smol"
 ))]
 
+use grafton_visca::observability::DiagnosticCapacity;
 use grafton_visca::{config::SessionConfig, profiles::GenericVisca};
 use grafton_visca_test_support::{
     facade_matrix,
@@ -20,7 +21,7 @@ facade_matrix! {
         let session = open!(peer, SessionConfig::from_compile_time::<GenericVisca>().unwrap())
             .unwrap();
         let camera = session.camera::<GenericVisca>(grafton_visca::types::IndividualCameraId::CAMERA_1).unwrap();
-        let fast = wait!(session.subscribe_diagnostics(128)).unwrap();
+        let fast = wait!(session.subscribe_diagnostics(DiagnosticCapacity::MAX)).unwrap();
         let mut delivered = 0;
         for _ in 0..40 {
             wait!(camera.execute(&grafton_visca::command::focus::SetMode::new(grafton_visca::types::FocusMode::Manual))).unwrap();
@@ -41,7 +42,7 @@ facade_matrix! {
         assert_eq!(metrics.dropped_staged_diagnostics, 0);
         assert_eq!(metrics.dropped_diagnostic_events, 0);
 
-        let slow = wait!(session.subscribe_diagnostics(1)).unwrap();
+        let slow = wait!(session.subscribe_diagnostics(DiagnosticCapacity::MIN)).unwrap();
         assert!(slow.try_recv().is_none(), "a subscription does not replay history");
         wait!(camera.execute(&grafton_visca::command::focus::SetMode::new(grafton_visca::types::FocusMode::Manual))).unwrap();
         let metrics = wait!(session.metrics()).unwrap();

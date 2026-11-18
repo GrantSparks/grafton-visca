@@ -15,7 +15,7 @@ use grafton_visca::{
     blocking::Session,
     config::SessionConfig,
     profiles::{ProfileSpec, PtzOpticsG2},
-    transport::{AddressingMode, SendSemantics, TransportConfig},
+    transport::{AddressingMode, IoBounds, SendSemantics},
 };
 
 use fake_camera::FakeCamera;
@@ -42,9 +42,13 @@ fn burst_camera(recv_buffer_size: usize) -> FakeCamera {
 
 #[test]
 fn a_split_reply_followed_by_a_full_read_keeps_the_stream_running() {
-    let mut config = TransportConfig::for_tcp();
-    config = config.with_buffer_config(config.buffer_config().with_recv_buffer_size(64));
-    config = config.with_buffer_config(config.buffer_config().with_max_buffer_size(64));
+    let config = IoBounds::default()
+        .with_buffer_config(
+            grafton_visca::transport::BufferConfig::default()
+                .with_recv_buffer_size(64)
+                .with_max_buffer_size(64),
+        )
+        .expect("buffer bounds");
     let fake = burst_camera(config.buffer_config().recv_buffer_size());
     let wire = fake
         .blocking_wire()

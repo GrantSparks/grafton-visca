@@ -11,8 +11,8 @@ use std::future::Future;
 use crate::{
     executor::Executor,
     transport::{
-        AsyncTransport, HasTransportConfig, NetworkEndpoint, ReceiveOutcome, TransportConfig,
-        ValidatedTransportConfig,
+        AsyncTransport, HasTransportConfig, IoBounds, NetworkEndpoint, ReceiveOutcome, TcpConnect,
+        UdpConnect,
     },
     Error,
 };
@@ -28,13 +28,13 @@ use crate::{
 ///
 /// ```no_run
 /// # #[cfg(feature = "runtime-tokio")]
-/// use grafton_visca::{runtime::Runtime, runtime::TokioRuntime};
+/// use grafton_visca::{runtime::{Runtime, TokioRuntime}, transport::{IoBounds, NetworkEndpoint, TcpConnect}};
 ///
 /// # #[cfg(feature = "runtime-tokio")]
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let runtime = TokioRuntime::from_current()?;
 /// let tcp_transport = runtime
-///     .connect_tcp("192.168.0.110:5678", Default::default())
+///     .connect_tcp(NetworkEndpoint::parse("192.168.0.110:5678", None)?, TcpConnect::default(), IoBounds::default())
 ///     .await?;
 /// # Ok(())
 /// # }
@@ -56,100 +56,38 @@ pub trait Runtime: Executor + Clone + Send + Sync + 'static {
     #[cfg(feature = "transport-serial-tokio")]
     type SerialTransport: AsyncTransport + HasTransportConfig + Send + Sync + 'static;
 
-    /// Connect to a TCP endpoint.
+    /// Connect to a checked TCP endpoint with the provided settings.
     ///
-    /// This method creates a TCP transport using the runtime's specific
-    /// implementation. The transport is configured with the provided settings.
-    /// Runtime connectors have no profile default port, so `addr` must include
-    /// an explicit port. Explicit IPv6 ports require brackets.
-    ///
-    /// The returned future is [`Send`] so standard construction can move it to
-    /// an executor task before polling. Custom runtime implementations must
-    /// preserve that guarantee.
-    fn connect_tcp<'a>(
-        &'a self,
-        addr: &'a str,
-        cfg: TransportConfig,
-    ) -> impl Future<Output = Result<Self::TcpTransport, Error>> + Send + 'a;
-
-    /// Connect to a UDP endpoint.
-    ///
-    /// This method creates a UDP transport using the runtime's specific
-    /// implementation. The transport is configured with the provided settings.
-    /// Runtime connectors have no profile default port, so `addr` must include
-    /// an explicit port. Explicit IPv6 ports require brackets.
-    ///
-    /// The returned future is [`Send`] so standard construction can move it to
-    /// an executor task before polling. Custom runtime implementations must
-    /// preserve that guarantee.
-    fn connect_udp<'a>(
-        &'a self,
-        addr: &'a str,
-        cfg: TransportConfig,
-    ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + 'a;
-
-    /// Connect using an endpoint and I/O bounds already checked by the session plan.
-    ///
-    /// Custom runtimes can implement this hook to reuse the plan's checked values.
-    /// The default delegates to the string connector for backward compatibility.
-    #[allow(clippy::manual_async_fn)]
-    fn connect_tcp_endpoint(
+    /// Parse a textual endpoint with [`NetworkEndpoint::parse`]. Use the
+    /// connector value for socket setup and report the I/O bounds from the
+    /// returned transport.
+    /// The returned future is [`Send`] so a session can move it to an executor
+    /// task before polling.
+    fn connect_tcp(
         &self,
         endpoint: NetworkEndpoint,
-        config: ValidatedTransportConfig,
-    ) -> impl Future<Output = Result<Self::TcpTransport, Error>> + Send + '_ {
-        async move {
-            self.connect_tcp(&endpoint.to_string(), *config.as_config())
-                .await
-        }
-    }
+        options: TcpConnect,
+        io_bounds: IoBounds,
+    ) -> impl Future<Output = Result<Self::TcpTransport, Error>> + Send + '_;
 
-    /// Connect using a UDP endpoint and I/O bounds already checked by the session plan.
-    ///
-    /// Custom runtimes can implement this hook to reuse the plan's checked values.
-    /// The default delegates to the string connector for backward compatibility.
-    #[allow(clippy::manual_async_fn)]
-    fn connect_udp_endpoint(
+    /// Connect to a checked UDP endpoint with the provided settings.
+    fn connect_udp(
         &self,
         endpoint: NetworkEndpoint,
-        config: ValidatedTransportConfig,
-    ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + '_ {
-        async move {
-            self.connect_udp(&endpoint.to_string(), *config.as_config())
-                .await
-        }
-    }
+        options: UdpConnect,
+        io_bounds: IoBounds,
+    ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + '_;
 
-    /// Connect to a serial port.
+    /// Connect to a serial port using checked device settings.
     ///
-    /// Runtimes with serial support return their own serial transport. The
-    /// default rejects the connection without opening a device, allowing every
-    /// runtime to share the same connection entry point.
-    ///
-    /// The returned future is [`Send`] so standard construction can move it to
-    /// an executor task before polling.
+    /// A runtime without serial support returns [`Error::FeatureNotSupported`]
+    /// before opening a device.
     #[cfg(feature = "transport-serial-tokio")]
-    #[allow(clippy::manual_async_fn)]
     fn connect_serial(
         &self,
-        _config: crate::transport::SerialConfig,
-    ) -> impl Future<Output = Result<Self::SerialTransport, Error>> + Send + '_ {
-        async {
-            Err(Error::FeatureNotSupported {
-                feature: "serial transport for this runtime",
-            })
-        }
-    }
-
-    /// Connect using serial device settings already checked by the session plan.
-    #[cfg(feature = "transport-serial-tokio")]
-    #[allow(clippy::manual_async_fn)]
-    fn connect_validated_serial(
-        &self,
-        config: crate::transport::ValidatedSerialConfig,
-    ) -> impl Future<Output = Result<Self::SerialTransport, Error>> + Send + '_ {
-        async move { self.connect_serial(config.as_config().clone()).await }
-    }
+        config: crate::transport::SerialConfig,
+        io_bounds: IoBounds,
+    ) -> impl Future<Output = Result<Self::SerialTransport, Error>> + Send + '_;
 }
 
 // A runtime that has no Tokio serial integration still needs an associated
@@ -173,7 +111,7 @@ impl HasTransportConfig for std::convert::Infallible {
         match *self {}
     }
 
-    fn transport_config(&self) -> &ValidatedTransportConfig {
+    fn io_bounds(&self) -> &IoBounds {
         match *self {}
     }
 }
@@ -193,14 +131,14 @@ impl HasTransportConfig for std::convert::Infallible {
 ///
 /// ```no_run
 /// # #[cfg(feature = "runtime-tokio")]
-/// use grafton_visca::{runtime::Runtime, runtime::TokioRuntime, runtime::TransportHandle};
+/// use grafton_visca::{runtime::{Runtime, TokioRuntime, TransportHandle}, transport::{IoBounds, NetworkEndpoint, TcpConnect}};
 ///
 /// # #[cfg(feature = "runtime-tokio")]
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let runtime = TokioRuntime::from_current()?;
 /// let transport: TransportHandle<TokioRuntime> = TransportHandle::Tcp(
 ///     runtime
-///         .connect_tcp("192.168.0.110:5678", Default::default())
+///         .connect_tcp(NetworkEndpoint::parse("192.168.0.110:5678", None)?, TcpConnect::default(), IoBounds::default())
 ///         .await?,
 /// );
 /// # Ok(())
@@ -255,12 +193,12 @@ impl<R: Runtime> HasTransportConfig for TransportHandle<R> {
         }
     }
 
-    fn transport_config(&self) -> &ValidatedTransportConfig {
+    fn io_bounds(&self) -> &IoBounds {
         match self {
-            TransportHandle::Tcp(transport) => transport.transport_config(),
-            TransportHandle::Udp(transport) => transport.transport_config(),
+            TransportHandle::Tcp(transport) => transport.io_bounds(),
+            TransportHandle::Udp(transport) => transport.io_bounds(),
             #[cfg(feature = "transport-serial-tokio")]
-            TransportHandle::Serial(transport) => transport.transport_config(),
+            TransportHandle::Serial(transport) => transport.io_bounds(),
         }
     }
 }
@@ -272,29 +210,17 @@ impl<R: Runtime> HasTransportConfig for TransportHandle<R> {
 macro_rules! delegate_executor {
     ($runtime:ty, $executor:ty) => {
         impl Executor for $runtime {
-            type Join<T>
-                = <$executor as Executor>::Join<T>
-            where
-                T: Send + 'static;
-
-            type Detach = <$executor as Executor>::Detach;
-
             type Timer = <$executor as Executor>::Timer;
 
             fn timer(&self, deadline: std::time::Instant) -> Self::Timer {
                 self.executor.timer(deadline)
             }
 
-            fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
+            fn spawn_detached<F>(&self, fut: F)
             where
-                F: Future + Send + 'static,
-                F::Output: Send + 'static,
+                F: Future<Output = ()> + Send + 'static,
             {
-                self.executor.spawn_with_detach(fut)
-            }
-
-            fn block_on<F: Future>(&self, fut: F) -> F::Output {
-                self.executor.block_on(fut)
+                self.executor.spawn_detached(fut);
             }
 
             fn sleep(&self, duration: std::time::Duration) -> impl Future<Output = ()> + Send + '_ {
@@ -314,10 +240,6 @@ mod tokio_impl {
     use crate::{
         executor::TokioExecutor,
         transport::tokio::{TcpTransport, UdpTransport},
-        transport::{
-            connect::preflight,
-            socket_options::{TcpConnectionConfig, UdpSocketConfig},
-        },
     };
 
     use std::future::Future;
@@ -361,83 +283,47 @@ mod tokio_impl {
         type SerialTransport = crate::transport::tokio::serial::Serial;
 
         #[allow(clippy::manual_async_fn)]
-        fn connect_tcp<'a>(
-            &'a self,
-            addr: &'a str,
-            cfg: TransportConfig,
-        ) -> impl Future<Output = Result<Self::TcpTransport, Error>> + Send + 'a {
-            async move {
-                let (endpoint, cfg) = preflight(addr, cfg)?;
-                self.connect_tcp_endpoint(endpoint, cfg).await
-            }
-        }
-
-        #[allow(clippy::manual_async_fn)]
-        fn connect_udp<'a>(
-            &'a self,
-            addr: &'a str,
-            cfg: TransportConfig,
-        ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + 'a {
-            async move {
-                let (endpoint, cfg) = preflight(addr, cfg)?;
-                self.connect_udp_endpoint(endpoint, cfg).await
-            }
-        }
-
-        #[allow(clippy::manual_async_fn)]
-        fn connect_tcp_endpoint(
+        fn connect_tcp(
             &self,
             endpoint: NetworkEndpoint,
-            cfg: ValidatedTransportConfig,
+            options: TcpConnect,
+            io_bounds: IoBounds,
         ) -> impl Future<Output = Result<Self::TcpTransport, Error>> + Send + '_ {
             let handle = self.executor.handle().clone();
             async move {
                 // Own the connector on the selected runtime rather than the task's
                 // ambient Tokio context, just as for the resulting session actor.
-                let stream = crate::transport::tokio::connectors::connect_tcp_on(
-                    &handle,
-                    endpoint,
-                    TcpConnectionConfig::from(cfg),
-                )
-                .await?;
-                Ok(TcpTransport::new(stream, cfg))
+                let stream =
+                    crate::transport::tokio::connectors::connect_tcp_on(&handle, endpoint, options)
+                        .await?;
+                Ok(TcpTransport::new(stream, io_bounds))
             }
         }
 
         #[allow(clippy::manual_async_fn)]
-        fn connect_udp_endpoint(
+        fn connect_udp(
             &self,
             endpoint: NetworkEndpoint,
-            cfg: ValidatedTransportConfig,
+            options: UdpConnect,
+            io_bounds: IoBounds,
         ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + '_ {
             let handle = self.executor.handle().clone();
             async move {
-                let socket = crate::transport::tokio::connectors::connect_udp_on(
-                    &handle,
-                    endpoint,
-                    UdpSocketConfig::from(cfg),
-                )
-                .await?;
-                Ok(UdpTransport::new(socket, cfg))
+                let socket =
+                    crate::transport::tokio::connectors::connect_udp_on(&handle, endpoint, options)
+                        .await?;
+                Ok(UdpTransport::new(socket, io_bounds))
             }
         }
 
         #[cfg(feature = "transport-serial-tokio")]
-        #[allow(clippy::manual_async_fn)]
         fn connect_serial(
             &self,
             config: crate::transport::SerialConfig,
-        ) -> impl Future<Output = Result<Self::SerialTransport, Error>> + Send + '_ {
-            async move { self.connect_validated_serial(config.validated()?).await }
-        }
-
-        #[cfg(feature = "transport-serial-tokio")]
-        fn connect_validated_serial(
-            &self,
-            config: crate::transport::ValidatedSerialConfig,
+            io_bounds: IoBounds,
         ) -> impl Future<Output = Result<Self::SerialTransport, Error>> + Send + '_ {
             let handle = self.executor.handle().clone();
-            crate::transport::tokio::serial::Serial::connect_on(handle, config)
+            crate::transport::tokio::serial::Serial::connect_on(handle, config, io_bounds)
         }
     }
 
@@ -445,80 +331,7 @@ mod tokio_impl {
     #[allow(clippy::expect_used)]
     mod tests {
         use super::*;
-        use crate::transport::BufferConfig;
         use std::{future, time::Duration};
-
-        fn invalid_buffer_config() -> TransportConfig {
-            TransportConfig {
-                buffer_config: BufferConfig {
-                    recv_buffer_size: 65,
-                    max_buffer_size: 64,
-                },
-                ..TransportConfig::default()
-            }
-        }
-
-        fn assert_invalid_buffer_error<T>(result: Result<T, Error>) {
-            assert!(matches!(
-                result,
-                Err(Error::InvalidRequest { reason: actual })
-                    if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
-            ));
-        }
-
-        #[tokio::test]
-        async fn invalid_runtime_config_returns_before_connector_io() {
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-                .await
-                .expect("bind listener");
-            let address = listener.local_addr().expect("listener address").to_string();
-            let runtime = TokioRuntime::from_current().expect("runtime");
-
-            let tcp = runtime.connect_tcp(&address, invalid_buffer_config()).await;
-            let accepted =
-                tokio::time::timeout(Duration::from_millis(100), listener.accept()).await;
-
-            assert!(matches!(
-                tcp,
-                Err(Error::InvalidRequest { reason: actual })
-                    if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
-            ));
-            assert!(
-                accepted.is_err(),
-                "invalid configuration must be rejected before runtime TCP connect"
-            );
-
-            assert_invalid_buffer_error(
-                runtime
-                    .connect_udp("127.0.0.1:9", invalid_buffer_config())
-                    .await,
-            );
-
-            // The malformed endpoint makes the buffer error's precedence over
-            // runtime address parsing explicit.
-            assert_invalid_buffer_error(runtime.connect_udp("[::1", invalid_buffer_config()).await);
-        }
-
-        #[cfg(feature = "transport-serial-tokio")]
-        #[tokio::test]
-        async fn invalid_runtime_serial_config_returns_before_device_open() {
-            let runtime = TokioRuntime::from_current().expect("runtime");
-            let config = crate::transport::SerialConfig::new(
-                "grafton-visca-invalid-buffer-bounds-serial-device",
-            )
-            .with_buffer_config(BufferConfig {
-                recv_buffer_size: 65,
-                max_buffer_size: 64,
-            });
-
-            let result = Runtime::connect_serial(&runtime, config).await;
-
-            assert!(matches!(
-                result,
-                Err(Error::InvalidRequest { reason: actual })
-                    if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
-            ));
-        }
 
         /// `from_handle` is allowed to be constructed and awaited while a
         /// different Tokio runtime is current. The ambient runtime below has a
@@ -534,7 +347,7 @@ mod tokio_impl {
                 .build()?;
             let listener =
                 selected.block_on(async { tokio::net::TcpListener::bind("127.0.0.1:0").await })?;
-            let address = listener.local_addr()?.to_string();
+            let endpoint = NetworkEndpoint::parse(&listener.local_addr()?.to_string(), None)?;
             let selected_handle = selected.handle().clone();
 
             let ambient = tokio::runtime::Builder::new_current_thread()
@@ -550,20 +363,21 @@ mod tokio_impl {
                 });
 
                 let tcp = runtime
-                    .connect_tcp(&address, TransportConfig::default())
+                    .connect_tcp(endpoint, TcpConnect::default(), IoBounds::default())
                     .await
                     ?;
                 assert_eq!(accepted.await??, selected_for_accept.id());
                 let udp = runtime
-                    .connect_udp("127.0.0.1:9", TransportConfig::default())
+                    .connect_udp(NetworkEndpoint::parse("127.0.0.1:9", None)?, UdpConnect::default(), IoBounds::default())
                     .await
                     ?;
                 drop((tcp, udp));
 
-                let actor_task = runtime.spawn(async {
-                    tokio::runtime::Handle::current().id()
+                let (task, completed) = flume::bounded(1);
+                runtime.spawn_detached(async move {
+                    let _ = task.send(tokio::runtime::Handle::current().id());
                 });
-                assert_eq!(actor_task.await?, selected_handle.id());
+                assert_eq!(completed.recv_async().await?, selected_handle.id());
 
                 let before = Executor::now(&runtime);
                 let sleep = runtime.sleep(Duration::from_secs(1));
@@ -647,101 +461,59 @@ mod smol_impl {
         type SerialTransport = std::convert::Infallible;
 
         #[allow(clippy::manual_async_fn)]
-        fn connect_tcp<'a>(
-            &'a self,
-            addr: &'a str,
-            cfg: TransportConfig,
-        ) -> impl Future<Output = Result<Self::TcpTransport, Error>> + Send + 'a {
-            // The connector preflights, resolves and bounds the connect.
-            TcpTransport::connect_with_config(addr, cfg)
-        }
-
-        #[allow(clippy::manual_async_fn)]
-        fn connect_udp<'a>(
-            &'a self,
-            addr: &'a str,
-            cfg: TransportConfig,
-        ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + 'a {
-            // The connector preflights, resolves and bounds the connect.
-            UdpTransport::connect_with_config(addr, cfg)
-        }
-
-        #[allow(clippy::manual_async_fn)]
-        fn connect_tcp_endpoint(
+        fn connect_tcp(
             &self,
             endpoint: NetworkEndpoint,
-            cfg: ValidatedTransportConfig,
+            options: TcpConnect,
+            io_bounds: IoBounds,
         ) -> impl Future<Output = Result<Self::TcpTransport, Error>> + Send + '_ {
-            async move { TcpTransport::connect_endpoint(&endpoint, cfg).await }
+            async move { TcpTransport::connect_endpoint(&endpoint, options, io_bounds).await }
         }
 
         #[allow(clippy::manual_async_fn)]
-        fn connect_udp_endpoint(
+        fn connect_udp(
             &self,
             endpoint: NetworkEndpoint,
-            cfg: ValidatedTransportConfig,
+            options: UdpConnect,
+            io_bounds: IoBounds,
         ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + '_ {
-            async move { UdpTransport::connect_endpoint(&endpoint, cfg).await }
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use crate::transport::BufferConfig;
-
-        fn invalid_buffer_config() -> TransportConfig {
-            TransportConfig {
-                buffer_config: BufferConfig {
-                    recv_buffer_size: 65,
-                    max_buffer_size: 64,
-                },
-                ..TransportConfig::default()
-            }
-        }
-
-        #[test]
-        fn invalid_runtime_config_is_rejected_before_connector_io() {
-            smol::block_on(async {
-                let runtime = SmolRuntime::new();
-
-                let tcp = runtime
-                    .connect_tcp("127.0.0.1:9", invalid_buffer_config())
-                    .await;
-                assert!(matches!(
-                    tcp,
-                    Err(Error::InvalidRequest { reason: actual })
-                        if actual.as_ref()
-                            == "transport receive buffer cannot exceed maximum buffer"
-                ));
-
-                // SmolRuntime forwards UDP construction to UdpTransport; the
-                // transport's connector-spy test owns that shared setup seam.
-                let udp = runtime
-                    .connect_udp("127.0.0.1:9", invalid_buffer_config())
-                    .await;
-                assert!(matches!(
-                    udp,
-                    Err(Error::InvalidRequest { reason: actual })
-                        if actual.as_ref()
-                            == "transport receive buffer cannot exceed maximum buffer"
-                ));
-            });
+            async move { UdpTransport::connect_endpoint(&endpoint, options, io_bounds).await }
         }
 
         #[cfg(feature = "transport-serial-tokio")]
+        #[allow(clippy::manual_async_fn)]
+        fn connect_serial(
+            &self,
+            _config: crate::transport::SerialConfig,
+            _io_bounds: IoBounds,
+        ) -> impl Future<Output = Result<Self::SerialTransport, Error>> + Send + '_ {
+            async {
+                Err(Error::FeatureNotSupported {
+                    feature: "serial transport for this runtime",
+                })
+            }
+        }
+    }
+
+    #[cfg(all(test, feature = "transport-serial-tokio"))]
+    #[allow(clippy::expect_used)]
+    mod tests {
+        use super::*;
+
         #[test]
         fn unsupported_serial_runtime_returns_a_send_future_without_device_io() {
             fn connect<R: Runtime>(
                 runtime: &R,
+                config: crate::transport::SerialConfig,
             ) -> impl Future<Output = Result<R::SerialTransport, Error>> + Send + '_ {
-                runtime.connect_serial(crate::transport::SerialConfig::new(
-                    "grafton-visca-unsupported-runtime-serial-device",
-                ))
+                runtime.connect_serial(config, IoBounds::default())
             }
 
             let runtime = SmolRuntime::new();
-            let result = smol::block_on(connect(&runtime));
+            let config = crate::transport::SerialConfig::new(
+                "grafton-visca-unsupported-runtime-serial-device",
+            );
+            let result = smol::block_on(connect(&runtime, config));
             assert!(matches!(
                 result,
                 Err(Error::FeatureNotSupported {

@@ -145,6 +145,10 @@ pub trait CameraProfile: sealed::CameraProfile {
     #[doc(hidden)]
     const TRANSPORTS: Option<crate::capabilities::TransportSet>;
 
+    /// The declared settlement proof. Runtime profiles check the registered specification.
+    #[doc(hidden)]
+    const SETTLEMENT_SUPPORT: Option<crate::capabilities::SettlementSupport>;
+
     /// The configuration's checked profile selection.
     ///
     /// Runtime selections retain either persisted form. Typed selections also
@@ -168,6 +172,7 @@ impl CameraProfile for AnyProfile {
     const TYPED_SUPPORT: Option<crate::capabilities::TypedSupportSet> = None;
     const DOMAINS: Option<crate::capabilities::DomainSet> = None;
     const TRANSPORTS: Option<crate::capabilities::TransportSet> = None;
+    const SETTLEMENT_SUPPORT: Option<crate::capabilities::SettlementSupport> = None;
 
     type Selection = ProfileSelection;
 
@@ -240,6 +245,8 @@ fn declared_builtin_matches<P: CompileTimeProfile>(id: ProfileId) -> bool {
     P::TYPED_SUPPORT == id.typed_support()
         && P::DOMAINS == id.domains()
         && P::TRANSPORTS == id.transport_compatibility().transport_set()
+        && <P as CompileTimeProfile>::SETTLEMENT_SUPPORT
+            .is_none_or(|proof| Some(proof) == id.settlement_support())
 }
 
 impl<P: CompileTimeProfile> CameraProfile for P {
@@ -249,6 +256,9 @@ impl<P: CompileTimeProfile> CameraProfile for P {
         Some(<P as CompileTimeProfile>::DOMAINS);
     const TRANSPORTS: Option<crate::capabilities::TransportSet> =
         Some(<P as CompileTimeProfile>::TRANSPORTS);
+
+    const SETTLEMENT_SUPPORT: Option<crate::capabilities::SettlementSupport> =
+        <P as CompileTimeProfile>::SETTLEMENT_SUPPORT;
 
     type Selection = TypedProfileSelection<P>;
 

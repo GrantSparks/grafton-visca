@@ -44,7 +44,7 @@ same builder and deserialization validation. These are its top-level fact keys:
 
 | JSON key | Meaning |
 | --- | --- |
-| `capabilities` | Identity, optional domain records, ranges, mode inventories and `typed_support` grants |
+| `capabilities` | Identity, optional domain records, inquiry availability, ranges, mode inventories and `typed_support` grants |
 | `encodings` | Selected variants for granted surfaces with multiple encodings |
 | `transports` | `tcp_port`, `udp_port` and `serial` compatibility |
 | `envelope` | Raw VISCA or Sony encapsulation |
@@ -59,6 +59,10 @@ Every current fact key is required, including optional nested keys. Explicit
 keys are rejected. Export again with the current release when an older file
 needs regeneration. Durations serialize as `{"secs": ..., "nanos": ...}`.
 
+The `capabilities.inquiries` boolean records whether the camera answers VISCA
+inquiries. Each optional typed inquiry still requires its own grant. In the
+power domain, `standby` records support for the standby command.
+
 Domain records describe presence and supported values. For example,
 `capabilities.zoom` owns zoom ranges, and `capabilities.focus.zones` lists the
 focus zones that may be sent. An absent domain is `null`; empty mode tables and
@@ -72,7 +76,16 @@ and generates both the `Has*` marker and the runtime support entry. A domain's
 presence does not grant every optional method within it. Getter and setter
 support may differ: `ColorTemperatureInquiry` is separate from
 `ColorTemperature`, while `NoiseReduction2D` covers its evidenced command and
-inquiry family together.
+inquiry family together. In the white-balance domain,
+`color_temperature_steps` is the table of accepted Kelvin values in wire
+order. `WhiteBalanceCaps::color_temperature_range()` derives its endpoints
+from that table.
+
+A targeted noun requires settlement for every affected axis. Pan/tilt home and
+reset, direct focus position, and preset recall carry dedicated settlement
+markers. A downstream compile-time profile declares the matching
+`SettlementSupport` alongside its domain and typed capability markers.
+`ProfileSpec::settlement_axes()` gives the available axes for a runtime profile.
 
 Runtime discovery uses `camera.capabilities().supports(surface)` and the optional
 domain records. `Camera<AnyProfile>` exposes all noun methods and checks their
@@ -100,7 +113,7 @@ one source: `capabilities.typed_support: grants(...)` owns the grants and varian
 choices; `encodings: from_grants` derives the map.
 
 An existing concept with another evidenced packet dialect needs a variant,
-its `for_target(&TargetRegistration, ...)` encoder arm and independent literal
+a lowering arm selected from the receiving target and independent literal
 golden rows. Keep the existing method, request, value and marker. A different
 semantic contract requires separate review before a profile can use it.
 
@@ -231,15 +244,18 @@ while authored evidence entries belong in source.
 
 Once the facts and grants have evidence, add one row to
 [`src/camera/profile_registry.rs`](../src/camera/profile_registry.rs). Start from
-its complete `GenericVisca` row as a structural template, then transfer the
-reviewed Acme values from `acme_cam.json` into its `facts` tree. The fact keys
-and nesting are the exported JSON schema, not a second naming convention:
+a camera-specific row such as `PtzOpticsG2` to see how to populate the domain
+records. Use `GenericVisca` as a reference for withheld records. Transfer the
+reviewed Acme values from `acme_cam.json` into the `facts` tree using the fact
+keys and nesting from the exported JSON schema.
 
 | Reviewed JSON fact | Registry row |
 | --- | --- |
 | `capabilities.model_name` | Same `model_name` fact in `facts.capabilities` |
-| `capabilities.pan_tilt.coordinates` | Same nested coordinate record |
+| `capabilities.pan_tilt.geometry.coordinates` | Same nested coordinate record |
 | `capabilities.focus.zones` | Same explicit zone inventory |
+| `capabilities.inquiries` | Whether the camera answers VISCA inquiries |
+| `capabilities.power.standby` | Whether the camera supports the standby command |
 | `transports.tcp_port`, `udp_port`, `serial` | Same three facts in `facts.transports` |
 | A duration's `secs` and `nanos` | The same duration as a typed Rust `Duration` expression |
 | `capabilities.typed_support` | `grants(...)`, with one checked source reference per grant |
@@ -431,8 +447,8 @@ full public impact is visible in the documentation diff.
 | `system().version` | `HasVersionInquiry` | `types :: VersionInfo` | `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
 | `system().save_settings` | `HasSettingsSave` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
 | `pan_tilt().position` | `HasPanTilt`, `HasPanTiltPositioning` | `types :: PanTiltPosition` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
-| `pan_tilt().home` | `HasPanTilt` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
-| `pan_tilt().reset` | `HasPanTilt` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `pan_tilt().home` | `HasPanTilt`, `HasPanTiltSettlement` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `pan_tilt().reset` | `HasPanTilt`, `HasPanTiltSettlement` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
 | `pan_tilt().drive` | `HasPanTilt` | `Operation<AppliedOnly>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
 | `pan_tilt().stop` | `HasPanTilt` | `Operation<AppliedOnly>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
 | `pan_tilt().absolute` | `HasPanTilt`, `HasPanTiltPositioning` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
@@ -447,7 +463,7 @@ full public impact is visible in the documentation diff.
 | `focus().far_variable` | `HasFocus` | `Operation<AppliedOnly>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
 | `focus().near_variable` | `HasFocus` | `Operation<AppliedOnly>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
 | `focus().stop` | `HasFocus` | `Operation<AppliedOnly>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
-| `focus().set_position` | `HasFocus` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `focus().set_position` | `HasFocus`, `HasFocusSettlement` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
 | `focus().one_push` | `HasFocus`, `HasOnePushFocus` | `Operation<AppliedOnly>` | `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
 | `focus().infinity` | `HasFocus`, `HasFocusInfinity` | `Operation<Targeted>` | `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
 | `focus().toggle_mode` | `HasFocus` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
@@ -462,7 +478,7 @@ full public impact is visible in the documentation diff.
 | `focus().zone` | `HasFocus`, `HasFocusZoneInquiry` | `types :: FocusZone` | `PtzOpticsG2`, `PtzOptics30x` |
 | `focus().sensitivity` | `HasFocus`, `HasAutoFocusSensitivity` | `types :: AutoFocusSensitivity` | No built-in profile |
 | `focus().set_mode` | `HasFocus` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
-| `presets().recall` | `HasPresets` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `presets().recall` | `HasPresets`, `HasPresetRecallSettlement` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
 | `presets().set_recall_speed` | `HasPresets`, `HasPresetRecallSpeed` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7` |
 | `presets().store` | `HasPresets`, `HasPresetMemory` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
 | `presets().clear` | `HasPresets`, `HasPresetMemory` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
@@ -679,8 +695,6 @@ in the inquiry inventory. The typed surface excludes unsourced focus-range,
 night/day, standby, digital-PTZ, auto-trace, focus-unlock, broadcast-domain,
 two-tone, digital-mode, and dynamic-range queries. Raw inquiries with explicit
 model evidence remain available; the sourced dynamic-range setter is retained.
-`FStop` is descriptive, with no universal wire conversion to `IrisLevel`: use
-an iris code established by that profile's model source (#844).
 
 Runtime typed noun gates compose with their row refinements. A tally brightness
 or PTZOptics tally row requires `Tally` as well as its refining surface, matching
@@ -986,7 +1000,7 @@ keep any smoke-check notes private.
 
 - **FR7 shutter codes (R7).** No checked R7 shutter-code inventory has
   been transcribed, so `SonyFr7` advertises no shutter codes
-  (`ExposureCaps::shutter_speeds` is empty) and `ShutterSpeed` positions are refused before any I/O.
+  (`ExposureCaps::shutter_codes` is absent) and `ShutterSpeed` positions are refused before any I/O.
 - **BRC-H900 shutter codes (R11).** No checked R11 shutter-code inventory has
   been transcribed, so `SonyBrcH900` advertises no shutter codes either.
   Its sourced reset/step commands and inquiry use `HasShutter`; direct
@@ -1008,14 +1022,16 @@ that the cameras lack shutter control. Send the shutter command as a
 `raw::PlainRequest` request until a source-backed table is recorded in
 [VISCA reference](visca_reference.md) and added to the profile.
 
-### PTZOptics G2 profile interpretation
-
-- **PTZOptics G2-family shutter codes.** The PTZOptics sources document only
-  `pq = Shutter Position`, not a code-to-time table, so `PtzOpticsG2`,
-  `PtzOpticsG3` and `PtzOptics30x` ship the table `01` (1/30 s) through `11`
-  (1/10000 s). The optional `hw05_shutter_round_trip` test
-  (`tests/integration/hardware_wire_rows_test.rs`) checks write/read agreement;
-  it does not measure exposure time or establish a code-to-time table.
+- **PTZOptics iris, shutter, gain and bright positions.** R1 and R14 document
+  two-nibble position registers. `PtzOpticsG2`, `PtzOpticsG3` and
+  `PtzOptics30x` admit `0x00..=0xFF` for each. The camera determines which
+  codes it accepts for its model and firmware.
+- **PTZOptics shutter time mapping.** None of those profiles has a
+  code-to-time table. The optional `hw05_shutter_round_trip` test
+  (`tests/integration/hardware_wire_rows_test.rs`) checks write/read agreement
+  using codes read from the camera. Add narrower bounds or an exposure-time
+  table when a vendor table or recorded bench evidence identifies the model,
+  firmware and date.
 - **PTZOptics G2 tilt polarity.** The typed profile interprets increasing raw
   tilt as increasing tilt degrees. `tests/integration/pan_tilt_polarity.rs`
   pins the encoded direction, and the optional `hw05_tilt_polarity` test checks
@@ -1054,10 +1070,8 @@ on manual p. 14. Runtime profiles must therefore provide the image domain, backl
 typed grant together.
 
 An iris range in runtime metadata is a discovery fact, not a typed-support
-grant. `IrisLevel` covers the built-in wire-domain union (`0x00..=0x1E`) and
-`GainLevel` covers the union of built-in gain codes (`0x00..=0x19`, including
-BRC-H900); profile ranges make
-the model-specific admission decision for either value. `HasIris`
+grant. `IrisLevel` and `GainLevel` cover the two-nibble wire domain
+(`0x00..=0xFF`), and the profile defines admissible codes. `HasIris`
 covers standard iris reset/up/down/direct control and the `09 04 4B` position
 inquiry. It is enabled for the same eight built-ins:
 the three PTZOptics profiles, BRC-H900, EVI-H100, BRC-300, Nearus BRC-300, and
@@ -1137,13 +1151,13 @@ each nominal endpoint is within one wire unit, and clamps that final rounding
 cell. Values outside the nominal degree range are always refused. Relative
 moves use the selected source range's full span and the same conversion rule.
 
-`ProfileSpec::position_inquiries()` returns `Option<types::AffectedAxes>` as
-the per-axis settlement matrix; `None` means no position inquiries. Each axis
-uses its public inquiry's canonical gate: IRIS polling requires the `Iris`
-grant, and ND-filter polling requires `NdFilter`. Validation checks this same
-axis-to-inquiry declaration for position inquiries and preset recall axes.
-`PresetCaps::recall_axes` describes exact recall effects; completionless
-profiles need every corresponding settlement inquiry.
+`ProfileSpec::position_inquiries()` lists the axes that can be polled.
+Each axis uses its public inquiry's canonical gate. Iris polling requires the
+`Iris` grant, and ND-filter polling requires `NdFilter`.
+`PresetCaps::recall_axes` describes the preset's physical effects. The
+profile must support those axes, including the `Iris` inquiry grant when
+recall affects iris. Recall is callable when `ProfileSpec::settlement_axes()`
+contains every affected axis.
 
 Profile defaults use the validated `IndividualCameraId` and cannot select
 broadcast. `SessionConfig::new` registers that proven default directly. Every

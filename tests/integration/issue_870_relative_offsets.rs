@@ -10,7 +10,7 @@ use grafton_visca::{
         SonyBrcH900, SonyEviH100, SonyFr7,
     },
     request::Request,
-    types::{CameraId, Degrees, PanSpeed, TiltSpeed},
+    types::{Degrees, PanSpeed, TiltSpeed},
 };
 use proptest::prelude::*;
 
@@ -66,9 +66,7 @@ fn words<R: Request>(request: &R, target: &TargetRegistration) -> (i32, i32) {
         _ => panic!("add the new codec to the independent word reader"),
     };
     let mut frame = [0_u8; 17];
-    let len = request
-        .write_into(CameraId::CAMERA_1, &mut frame)
-        .expect("frame");
+    let len = target.encode(request, &mut frame).expect("frame");
     assert_eq!(len, 7 + pan_nibbles + tilt_nibbles);
     // Read signed words independently of the production framing decoder.
     let signed = |nibbles: &[u8]| {
@@ -90,8 +88,7 @@ fn words<R: Request>(request: &R, target: &TargetRegistration) -> (i32, i32) {
 }
 
 fn relative(target: &TargetRegistration, pan: f32, tilt: f32) -> (i32, i32) {
-    let request = grafton_visca::command::pan_tilt::Relative::for_target(
-        target,
+    let request = grafton_visca::command::pan_tilt::Relative::new(
         grafton_visca::types::PanTiltPosition {
             pan: Degrees::new(pan).expect("valid degrees"),
             tilt: Degrees::new(tilt).expect("valid degrees"),
@@ -100,14 +97,12 @@ fn relative(target: &TargetRegistration, pan: f32, tilt: f32) -> (i32, i32) {
             pan: PanSpeed::new(1).expect("speed"),
             tilt: TiltSpeed::new(1).expect("speed"),
         },
-    )
-    .expect("reachable offset");
+    );
     words(&request, target)
 }
 
 fn absolute(target: &TargetRegistration, pan: f32, tilt: f32) -> (i32, i32) {
-    let request = grafton_visca::command::pan_tilt::Absolute::for_target(
-        target,
+    let request = grafton_visca::command::pan_tilt::Absolute::new(
         grafton_visca::types::PanTiltPosition {
             pan: Degrees::new(pan).expect("valid degrees"),
             tilt: Degrees::new(tilt).expect("valid degrees"),
@@ -116,8 +111,7 @@ fn absolute(target: &TargetRegistration, pan: f32, tilt: f32) -> (i32, i32) {
             pan: PanSpeed::new(1).expect("speed"),
             tilt: TiltSpeed::new(1).expect("speed"),
         },
-    )
-    .expect("reachable absolute point");
+    );
     words(&request, target)
 }
 
@@ -208,17 +202,20 @@ fn every_builtin_span_boundary_encodes_and_one_more_unit_is_refused() {
             } else {
                 (pan + pan.signum(), 0)
             };
-            let result = grafton_visca::command::pan_tilt::Relative::for_target(
-                &target,
-                grafton_visca::types::PanTiltPosition {
-                    pan: Degrees::new(conversion.pan_degrees(outside_pan)).expect("valid degrees"),
-                    tilt: Degrees::new(conversion.tilt_degrees(outside_tilt))
-                        .expect("valid degrees"),
-                },
-                grafton_visca::types::PanTiltSpeed {
-                    pan: PanSpeed::new(1).expect("speed"),
-                    tilt: TiltSpeed::new(1).expect("speed"),
-                },
+            let result = target.encode(
+                &grafton_visca::command::pan_tilt::Relative::new(
+                    grafton_visca::types::PanTiltPosition {
+                        pan: Degrees::new(conversion.pan_degrees(outside_pan))
+                            .expect("valid degrees"),
+                        tilt: Degrees::new(conversion.tilt_degrees(outside_tilt))
+                            .expect("valid degrees"),
+                    },
+                    grafton_visca::types::PanTiltSpeed {
+                        pan: PanSpeed::new(1).expect("speed"),
+                        tilt: TiltSpeed::new(1).expect("speed"),
+                    },
+                ),
+                &mut [0; 17],
             );
             assert!(
                 matches!(result, Err(grafton_visca::Error::InvalidParameter { .. })),

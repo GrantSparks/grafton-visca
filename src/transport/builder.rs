@@ -1,20 +1,6 @@
-//! Shared transport configuration and validation.
-//!
-//! Start from the appropriate transport defaults, then select overrides:
-//!
-//! ```rust
-//! use grafton_visca::{transport::TcpKeepaliveConfig, transport::TransportConfig};
-//! use std::time::Duration;
-//!
-//! let config = TransportConfig::for_tcp()
-//!     .with_tcp_keepalive(Some(TcpKeepaliveConfig::new(Duration::from_secs(30))));
-//! assert_eq!(config.read_timeout(), Duration::from_secs(5));
-//! ```
+//! Checked owner I/O bounds and per-kind connector settings.
 
-use std::{
-    num::NonZeroUsize,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use crate::{timeout::NonZeroDuration, transport::buffer::BufferConfig, Error};
 
@@ -127,98 +113,101 @@ pub(crate) const DEFAULT_TCP_KEEPALIVE: TcpKeepaliveConfig = TcpKeepaliveConfig 
     interval: Some(DEFAULT_TCP_KEEPALIVE_INTERVAL),
 };
 
-/// Common configuration options for all transport types.
-///
-/// # Per-transport defaults
-///
-/// [`TransportConfig::for_tcp`], [`TransportConfig::for_udp`] and
-/// [`TransportConfig::for_serial`] are the single source of the defaults each
-/// built-in transport uses. Every built-in entry point — [`crate::config::CameraConfig`],
-/// the runtime connectors and the direct
-/// transport constructors — starts from them, so the largest reply a session
-/// accepts never depends on which entry point opened the transport.
-///
-/// | Constructor | `recv_buffer_size` | TCP fields |
-/// |---|---|---|
-/// | [`for_tcp`](Self::for_tcp) | 256 ([`BufferConfig::for_tcp`]) | nodelay on, keepalive on |
-/// | [`for_udp`](Self::for_udp) | 1024 ([`BufferConfig::for_udp`]) | `None` |
-/// | [`for_serial`](Self::for_serial) | 256 ([`BufferConfig::for_serial`]) | `None` |
-///
-/// [`TransportConfig::default`] is the transport-neutral base the three
-/// constructors refine. It is the right starting point only for a custom
-/// transport that has no built-in kind.
-///
-/// [`crate::config::CameraConfig`]: crate::config::CameraConfig
+/// Default connect, read and write timeout for built-in transports.
+const DEFAULT_TIMEOUT: Duration = NonZeroDuration::from_secs::<5>().get();
+
+fn validate_timeout(name: &str, parameter: &'static str, duration: Duration) -> crate::Result<()> {
+    if NonZeroDuration::checked(duration).is_none() {
+        return Err(Error::InvalidRequest {
+            reason: format!("transport {name} timeout must be non-zero").into(),
+        });
+    }
+    crate::timeout::instant_after(Instant::now(), duration, parameter).map(drop)
+}
+
+fn validate_ttl(value: Option<u32>) -> crate::Result<()> {
+    if value.is_some_and(|ttl| !(1..=255).contains(&ttl)) {
+        return Err(Error::InvalidRequest {
+            reason: "transport TTL must be in 1..=255".into(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_keepalive(value: Option<TcpKeepaliveConfig>) -> crate::Result<()> {
+    if let Some(keepalive) = value {
+        for (name, duration) in std::iter::once(("idle", keepalive.idle))
+            .chain(keepalive.interval.map(|interval| ("interval", interval)))
+        {
+            if duration.subsec_nanos() != 0 || !(1..=32_767).contains(&duration.as_secs()) {
+                return Err(Error::InvalidRequest {
+                    reason: format!("TCP keepalive {name} must be whole seconds in 1..=32767")
+                        .into(),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Checked read and write timeouts and receive-buffer limits used by the owner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
-    serde(deny_unknown_fields)
+    serde(try_from = "IoBoundsData")
 )]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(
+    feature = "schemars",
+    derive(schemars::JsonSchema),
+    schemars(deny_unknown_fields)
+)]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[non_exhaustive]
-pub struct TransportConfig {
-    /// Connection timeout duration.
-    ///
-    /// Bounds name resolution plus connection setup for the IP transports on
-    /// every facade. Serial devices have no connect phase.
-    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number; nanos: number }"))]
-    pub(crate) connect_timeout: Duration,
+pub struct IoBounds {
     /// Read timeout for receive operations.
     #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number; nanos: number }"))]
-    pub(crate) read_timeout: Duration,
+    read_timeout: Duration,
     /// Write timeout for send operations.
     #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number; nanos: number }"))]
-    pub(crate) write_timeout: Duration,
+    write_timeout: Duration,
     /// Frame and retention limits for received data.
-    pub(crate) buffer_config: BufferConfig,
-
-    /// TCP nodelay (Nagle's algorithm disabled when `Some(true)`).
-    ///
-    /// `None` leaves the operating-system default in place.
-    pub(crate) tcp_nodelay: Option<bool>,
-    /// IPv4 TTL / IPv6 hop limit (Time To Live) for packets, in `1..=255`.
-    /// IPv4-mapped IPv6 endpoints use the IPv4 TTL. `None` keeps the OS default.
-    pub(crate) ttl: Option<u32>,
-    /// TCP keepalive policy. When set, enables OS-level probes that detect
-    /// broken peers and may preserve idle network-path state. These probes do
-    /// not send VISCA traffic or guarantee that a camera application keeps its
-    /// session open.
-    pub(crate) tcp_keepalive: Option<TcpKeepaliveConfig>,
+    buffer_config: BufferConfig,
 }
 
-impl Default for TransportConfig {
+impl Default for IoBounds {
     fn default() -> Self {
-        Self::DEFAULT
+        Self::with_known_buffers(BufferConfig::DEFAULT)
     }
 }
 
-/// The default connect, read, and write timeout of every built-in transport.
-const DEFAULT_TRANSPORT_TIMEOUT: NonZeroDuration = NonZeroDuration::from_secs::<5>();
+impl IoBounds {
+    pub(crate) const TCP_DEFAULT: Self = Self::with_known_buffers(BufferConfig::for_tcp());
+    pub(crate) const UDP_DEFAULT: Self = Self::with_known_buffers(BufferConfig::for_udp());
+    pub(crate) const SERIAL_DEFAULT: Self = Self::with_known_buffers(BufferConfig::for_serial());
 
-impl TransportConfig {
-    const DEFAULT: Self = Self {
-        connect_timeout: DEFAULT_TRANSPORT_TIMEOUT.get(),
-        read_timeout: DEFAULT_TRANSPORT_TIMEOUT.get(),
-        write_timeout: DEFAULT_TRANSPORT_TIMEOUT.get(),
-        buffer_config: BufferConfig::DEFAULT,
-        tcp_nodelay: Some(true),
-        ttl: None,
-        tcp_keepalive: Some(DEFAULT_TCP_KEEPALIVE),
-    };
-
-    /// Returns the connection timeout.
-    #[must_use]
-    pub const fn connect_timeout(&self) -> Duration {
-        self.connect_timeout
+    const fn with_known_buffers(buffer_config: BufferConfig) -> Self {
+        Self {
+            read_timeout: DEFAULT_TIMEOUT,
+            write_timeout: DEFAULT_TIMEOUT,
+            buffer_config,
+        }
     }
 
-    /// Selects the connection timeout. Transport opening validates the configuration.
-    #[must_use]
-    pub const fn with_connect_timeout(mut self, value: Duration) -> Self {
-        self.connect_timeout = value;
-        self
+    /// Checks the supplied timeouts and buffer limits.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a timeout is zero or not representable, or if the
+    /// frame and retention bounds exceed their supported limits.
+    pub fn new(
+        read_timeout: Duration,
+        write_timeout: Duration,
+        buffer_config: BufferConfig,
+    ) -> crate::Result<Self> {
+        Self::default()
+            .with_read_timeout(read_timeout)?
+            .with_write_timeout(write_timeout)?
+            .with_buffer_config(buffer_config)
     }
 
     /// Returns the receive timeout.
@@ -227,11 +216,15 @@ impl TransportConfig {
         self.read_timeout
     }
 
-    /// Selects the receive timeout. Transport opening validates the configuration.
-    #[must_use]
-    pub const fn with_read_timeout(mut self, value: Duration) -> Self {
+    /// Selects a nonzero receive timeout.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the timeout is zero or not representable.
+    pub fn with_read_timeout(mut self, value: Duration) -> crate::Result<Self> {
+        validate_timeout("read", "read_timeout", value)?;
         self.read_timeout = value;
-        self
+        Ok(self)
     }
 
     /// Returns the send timeout.
@@ -240,11 +233,15 @@ impl TransportConfig {
         self.write_timeout
     }
 
-    /// Selects the send timeout. Transport opening validates the configuration.
-    #[must_use]
-    pub const fn with_write_timeout(mut self, value: Duration) -> Self {
+    /// Selects a nonzero send timeout.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the timeout is zero or not representable.
+    pub fn with_write_timeout(mut self, value: Duration) -> crate::Result<Self> {
+        validate_timeout("write", "write_timeout", value)?;
         self.write_timeout = value;
-        self
+        Ok(self)
     }
 
     /// Returns the receive frame and retention limits.
@@ -253,426 +250,430 @@ impl TransportConfig {
         self.buffer_config
     }
 
-    /// Selects the receive frame and retention limits. Transport opening validates the configuration.
-    #[must_use]
-    pub const fn with_buffer_config(mut self, value: BufferConfig) -> Self {
-        self.buffer_config = value;
+    /// Selects checked receive frame and retention limits.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if either bound exceeds its supported limits or
+    /// one complete frame would not fit within the retention limit.
+    pub fn with_buffer_config(mut self, value: BufferConfig) -> crate::Result<Self> {
+        let reason = if value.recv_buffer_size < BufferConfig::MIN_RECV_BUFFER_SIZE {
+            format!(
+                "transport receive buffer must hold the largest VISCA reply ({} bytes)",
+                BufferConfig::MIN_RECV_BUFFER_SIZE
+            )
+            .into()
+        } else if value.max_buffer_size == 0 {
+            "transport maximum buffer must be non-zero".into()
+        } else if value.recv_buffer_size > value.max_buffer_size {
+            "transport receive buffer cannot exceed maximum buffer".into()
+        } else if value.recv_buffer_size > BufferConfig::MAX_RECV_BUFFER_SIZE {
+            "transport receive buffer cannot exceed 65535 bytes".into()
+        } else if value.max_buffer_size > BufferConfig::MAX_RETENTION_SIZE {
+            "transport maximum buffer cannot exceed 1048576 bytes".into()
+        } else {
+            self.buffer_config = value;
+            return Ok(self);
+        };
+        Err(Error::InvalidRequest { reason })
+    }
+
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    #[allow(clippy::unwrap_used)]
+    pub(crate) const fn receive_capacity(&self) -> std::num::NonZeroUsize {
+        std::num::NonZeroUsize::new(self.buffer_config.recv_buffer_size()).unwrap()
+    }
+
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    #[allow(clippy::unwrap_used)]
+    pub(crate) const fn read_timeout_bound(&self) -> NonZeroDuration {
+        NonZeroDuration::checked(self.read_timeout).unwrap()
+    }
+
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    #[allow(clippy::unwrap_used)]
+    pub(crate) const fn write_timeout_bound(&self) -> NonZeroDuration {
+        NonZeroDuration::checked(self.write_timeout).unwrap()
+    }
+}
+
+#[cfg(feature = "serde")]
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+struct IoBoundsData {
+    read_timeout: Duration,
+    write_timeout: Duration,
+    buffer_config: BufferConfig,
+}
+
+#[cfg(feature = "serde")]
+impl TryFrom<IoBoundsData> for IoBounds {
+    type Error = Error;
+
+    fn try_from(data: IoBoundsData) -> crate::Result<Self> {
+        Self::new(data.read_timeout, data.write_timeout, data.buffer_config)
+    }
+}
+
+/// Settings applied while opening a TCP connection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+pub struct TcpConnect {
+    /// Shared DNS and connection timeout.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "deserialize_connect_timeout")
+    )]
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number; nanos: number }"))]
+    connect_timeout: Duration,
+    /// TCP_NODELAY, with `None` retaining the operating system default.
+    nodelay: Option<bool>,
+    /// IP TTL or IPv6 hop limit.
+    #[cfg_attr(feature = "serde", serde(deserialize_with = "deserialize_ttl"))]
+    ttl: Option<u32>,
+    /// OS-level TCP keepalive probes.
+    #[cfg_attr(feature = "serde", serde(deserialize_with = "deserialize_keepalive"))]
+    keepalive: Option<TcpKeepaliveConfig>,
+}
+
+impl Default for TcpConnect {
+    fn default() -> Self {
+        Self {
+            connect_timeout: DEFAULT_TIMEOUT,
+            nodelay: Some(true),
+            ttl: None,
+            keepalive: Some(DEFAULT_TCP_KEEPALIVE),
+        }
+    }
+}
+
+impl TcpConnect {
+    // Test connector error mapping with a setting the OS will reject.
+    #[cfg(all(test, any(feature = "blocking", feature = "runtime-tokio")))]
+    pub(crate) const fn with_unchecked_ttl(mut self, ttl: Option<u32>) -> Self {
+        self.ttl = ttl;
         self
     }
 
-    /// Returns the TCP nodelay setting, or `None` for the OS default.
+    /// Returns the DNS and connection timeout.
     #[must_use]
-    pub const fn tcp_nodelay(&self) -> Option<bool> {
-        self.tcp_nodelay
+    pub const fn connect_timeout(&self) -> Duration {
+        self.connect_timeout
     }
 
-    /// Selects the TCP nodelay setting, or `None` for the OS default. Transport opening validates the configuration.
+    /// Selects a nonzero timeout for DNS and connection setup.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the timeout is zero or not representable.
+    pub fn with_connect_timeout(mut self, value: Duration) -> crate::Result<Self> {
+        validate_timeout("connect", "connect_timeout", value)?;
+        self.connect_timeout = value;
+        Ok(self)
+    }
+
+    /// Returns whether TCP_NODELAY is requested, or `None` for the OS default.
     #[must_use]
-    pub const fn with_tcp_nodelay(mut self, value: Option<bool>) -> Self {
-        self.tcp_nodelay = value;
+    pub const fn nodelay(&self) -> Option<bool> {
+        self.nodelay
+    }
+
+    /// Selects the TCP_NODELAY setting.
+    #[must_use]
+    pub const fn with_nodelay(mut self, value: Option<bool>) -> Self {
+        self.nodelay = value;
         self
     }
 
-    /// Returns the IPv4 TTL / IPv6 hop limit, or `None` for the OS default.
-    /// IPv4-mapped IPv6 endpoints use the IPv4 TTL.
+    /// Returns the IPv4 TTL or IPv6 hop limit, or `None` for the OS default.
     #[must_use]
     pub const fn ttl(&self) -> Option<u32> {
         self.ttl
     }
 
-    /// Selects the IPv4 TTL / IPv6 hop limit, or `None` for the OS default.
-    ///
-    /// The value applies from the first packet, including the TCP handshake.
-    /// IPv4-mapped IPv6 endpoints use the IPv4 TTL.
-    /// Transport opening validates the configuration.
-    #[must_use]
-    pub const fn with_ttl(mut self, value: Option<u32>) -> Self {
-        self.ttl = value;
-        self
-    }
-
-    /// Returns the TCP keepalive policy, or `None` for the OS default.
-    #[must_use]
-    pub const fn tcp_keepalive(&self) -> Option<TcpKeepaliveConfig> {
-        self.tcp_keepalive
-    }
-
-    /// Selects the TCP keepalive policy, or `None` for the OS default.
-    /// Transport opening validates the configuration.
-    #[must_use]
-    pub const fn with_tcp_keepalive(mut self, value: Option<TcpKeepaliveConfig>) -> Self {
-        self.tcp_keepalive = value;
-        self
-    }
-
-    /// The configuration every built-in TCP transport starts from.
-    ///
-    /// Raw VISCA over TCP: 256-byte frame limit, `TCP_NODELAY`
-    /// and the long-lived keepalive policy.
-    #[must_use]
-    pub fn for_tcp() -> Self {
-        Self {
-            buffer_config: BufferConfig::for_tcp(),
-            ..Self::default()
-        }
-    }
-
-    /// The configuration every built-in UDP transport starts from.
-    ///
-    /// One datagram per receive with a 1024-byte limit; no
-    /// TCP socket options.
-    #[must_use]
-    pub fn for_udp() -> Self {
-        Self {
-            buffer_config: BufferConfig::for_udp(),
-            tcp_nodelay: None,
-            tcp_keepalive: None,
-            ..Self::default()
-        }
-    }
-
-    /// The configuration every built-in serial transport starts from.
-    ///
-    /// A 256-byte frame limit and no TCP socket options.
-    #[must_use]
-    pub fn for_serial() -> Self {
-        Self {
-            buffer_config: BufferConfig::for_serial(),
-            tcp_nodelay: None,
-            ttl: None,
-            tcp_keepalive: None,
-            ..Self::default()
-        }
-    }
-
-    /// Check the connection settings and retain their validated I/O bounds.
-    ///
-    /// Caller-owned transports store this result and return it from
-    /// [`HasTransportConfig::transport_config`](crate::transport::HasTransportConfig::transport_config).
+    /// Selects the IP hop limit used from the first packet, including the SYN.
     ///
     /// # Errors
     ///
-    /// Returns [`Error::InvalidRequest`] for invalid timeouts, buffer bounds,
-    /// TTL or TCP keepalive settings.
-    pub fn validated(self) -> crate::Result<ValidatedTransportConfig> {
-        let now = Instant::now();
-        let timeout = |name, parameter, duration| -> crate::Result<_> {
-            let duration =
-                NonZeroDuration::checked(duration).ok_or_else(|| Error::InvalidRequest {
-                    reason: format!("transport {name} timeout must be non-zero").into(),
-                })?;
-            crate::timeout::instant_after(now, duration.get(), parameter)?;
-            Ok(duration)
-        };
-        let connect_timeout = timeout("connect", "connect_timeout", self.connect_timeout)?;
-        let read_timeout = timeout("read", "read_timeout", self.read_timeout)?;
-        let write_timeout = timeout("write", "write_timeout", self.write_timeout)?;
-        if self.ttl.is_some_and(|ttl| !(1..=255).contains(&ttl)) {
-            return Err(Error::InvalidRequest {
-                reason: "transport TTL must be in 1..=255".into(),
-            });
-        }
-        if let Some(keepalive) = self.tcp_keepalive {
-            for (name, duration) in std::iter::once(("idle", keepalive.idle))
-                .chain(keepalive.interval.map(|interval| ("interval", interval)))
-            {
-                if duration.subsec_nanos() != 0 || !(1..=32_767).contains(&duration.as_secs()) {
-                    return Err(Error::InvalidRequest {
-                        reason: format!("TCP keepalive {name} must be whole seconds in 1..=32767")
-                            .into(),
-                    });
-                }
-            }
-        }
-        let recv_buffer_size = NonZeroUsize::new(self.buffer_config.recv_buffer_size)
-            .filter(|size| size.get() >= BufferConfig::MIN_RECV_BUFFER_SIZE)
-            .ok_or_else(|| Error::InvalidRequest {
-                reason: format!(
-                    "transport receive buffer must hold the largest VISCA reply ({} bytes)",
-                    BufferConfig::MIN_RECV_BUFFER_SIZE
-                )
-                .into(),
-            })?;
-        let max_buffer_size =
-            NonZeroUsize::new(self.buffer_config.max_buffer_size).ok_or_else(|| {
-                Error::InvalidRequest {
-                    reason: "transport maximum buffer must be non-zero".into(),
-                }
-            })?;
-        if self.buffer_config.recv_buffer_size > self.buffer_config.max_buffer_size {
-            return Err(Error::InvalidRequest {
-                reason: "transport receive buffer cannot exceed maximum buffer".into(),
-            });
-        }
-        if self.buffer_config.recv_buffer_size > BufferConfig::MAX_RECV_BUFFER_SIZE {
-            return Err(Error::InvalidRequest {
-                reason: "transport receive buffer cannot exceed 65535 bytes".into(),
-            });
-        }
-        if self.buffer_config.max_buffer_size > BufferConfig::MAX_RETENTION_SIZE {
-            return Err(Error::InvalidRequest {
-                reason: "transport maximum buffer cannot exceed 1048576 bytes".into(),
-            });
-        }
-        Ok(ValidatedTransportConfig {
-            raw: self,
-            connect_timeout,
-            read_timeout,
-            write_timeout,
-            recv_buffer_size,
-            max_buffer_size,
-        })
+    /// Returns an error if a specified limit is outside `1..=255`.
+    pub fn with_ttl(mut self, value: Option<u32>) -> crate::Result<Self> {
+        validate_ttl(value)?;
+        self.ttl = value;
+        Ok(self)
     }
-}
 
-/// Transport settings checked by [`TransportConfig::validated`].
-///
-/// Use [`as_config`](Self::as_config) to inspect settings or copy them into a
-/// new configuration. The checked value has no in-place setters.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ValidatedTransportConfig {
-    raw: TransportConfig,
-    pub(crate) connect_timeout: NonZeroDuration,
-    pub(crate) read_timeout: NonZeroDuration,
-    pub(crate) write_timeout: NonZeroDuration,
-    pub(crate) recv_buffer_size: NonZeroUsize,
-    max_buffer_size: NonZeroUsize,
-}
-
-impl Default for ValidatedTransportConfig {
-    fn default() -> Self {
-        const RAW: TransportConfig = TransportConfig::DEFAULT;
-        const RECV: usize = RAW.buffer_config.recv_buffer_size;
-        const MAX: usize = RAW.buffer_config.max_buffer_size;
-        const {
-            assert!(RECV >= BufferConfig::MIN_RECV_BUFFER_SIZE);
-            assert!(RECV <= BufferConfig::MAX_RECV_BUFFER_SIZE);
-            assert!(RECV <= MAX && MAX <= BufferConfig::MAX_RETENTION_SIZE);
-        }
-        Self {
-            raw: RAW,
-            connect_timeout: DEFAULT_TRANSPORT_TIMEOUT,
-            read_timeout: DEFAULT_TRANSPORT_TIMEOUT,
-            write_timeout: DEFAULT_TRANSPORT_TIMEOUT,
-            recv_buffer_size: const { NonZeroUsize::new(RECV).unwrap() },
-            max_buffer_size: const { NonZeroUsize::new(MAX).unwrap() },
-        }
-    }
-}
-
-impl ValidatedTransportConfig {
-    /// Returns the original settings.
+    /// Returns the OS-level TCP keepalive policy.
     #[must_use]
-    pub const fn as_config(&self) -> &TransportConfig {
-        &self.raw
+    pub const fn keepalive(&self) -> Option<TcpKeepaliveConfig> {
+        self.keepalive
     }
 
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    pub(crate) const fn frame_bounds(self) -> BufferConfig {
-        BufferConfig {
-            recv_buffer_size: self.recv_buffer_size.get(),
-            max_buffer_size: self.max_buffer_size.get(),
+    /// Selects OS-level keepalive probes, or `None` for the OS default.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the idle time or interval is outside whole seconds
+    /// in `1..=32767`.
+    pub fn with_keepalive(mut self, value: Option<TcpKeepaliveConfig>) -> crate::Result<Self> {
+        validate_keepalive(value)?;
+        self.keepalive = value;
+        Ok(self)
+    }
+}
+
+/// Settings applied while opening a UDP connection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+pub struct UdpConnect {
+    /// Shared DNS and socket-setup timeout.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "deserialize_connect_timeout")
+    )]
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number; nanos: number }"))]
+    connect_timeout: Duration,
+    /// IP TTL or IPv6 hop limit.
+    #[cfg_attr(feature = "serde", serde(deserialize_with = "deserialize_ttl"))]
+    ttl: Option<u32>,
+}
+
+impl Default for UdpConnect {
+    fn default() -> Self {
+        Self {
+            connect_timeout: DEFAULT_TIMEOUT,
+            ttl: None,
         }
     }
+}
+
+impl UdpConnect {
+    // Test connector error mapping with a setting the OS will reject.
+    #[cfg(all(test, feature = "runtime-tokio"))]
+    pub(crate) const fn with_unchecked_ttl(mut self, ttl: Option<u32>) -> Self {
+        self.ttl = ttl;
+        self
+    }
+
+    /// Returns the DNS and socket-setup timeout.
+    #[must_use]
+    pub const fn connect_timeout(&self) -> Duration {
+        self.connect_timeout
+    }
+
+    /// Selects a nonzero timeout for DNS and socket setup.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the timeout is zero or not representable.
+    pub fn with_connect_timeout(mut self, value: Duration) -> crate::Result<Self> {
+        validate_timeout("connect", "connect_timeout", value)?;
+        self.connect_timeout = value;
+        Ok(self)
+    }
+
+    /// Returns the IPv4 TTL or IPv6 hop limit, or `None` for the OS default.
+    #[must_use]
+    pub const fn ttl(&self) -> Option<u32> {
+        self.ttl
+    }
+
+    /// Selects the IPv4 TTL or IPv6 hop limit.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a specified limit is outside `1..=255`.
+    pub fn with_ttl(mut self, value: Option<u32>) -> crate::Result<Self> {
+        validate_ttl(value)?;
+        self.ttl = value;
+        Ok(self)
+    }
+}
+
+#[cfg(feature = "serde")]
+fn deserialize_connect_timeout<'de, D: serde::Deserializer<'de>>(
+    de: D,
+) -> Result<Duration, D::Error> {
+    let value = serde::Deserialize::deserialize(de)?;
+    validate_timeout("connect", "connect_timeout", value).map_err(serde::de::Error::custom)?;
+    Ok(value)
+}
+
+#[cfg(feature = "serde")]
+fn deserialize_ttl<'de, D: serde::Deserializer<'de>>(de: D) -> Result<Option<u32>, D::Error> {
+    let value = serde::Deserialize::deserialize(de)?;
+    validate_ttl(value).map_err(serde::de::Error::custom)?;
+    Ok(value)
+}
+
+#[cfg(feature = "serde")]
+fn deserialize_keepalive<'de, D: serde::Deserializer<'de>>(
+    de: D,
+) -> Result<Option<TcpKeepaliveConfig>, D::Error> {
+    let value = serde::Deserialize::deserialize(de)?;
+    validate_keepalive(value).map_err(serde::de::Error::custom)?;
+    Ok(value)
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
 
     #[test]
-    fn transport_defaults_and_optional_overrides_keep_their_meanings() {
-        let tcp = TransportConfig::for_tcp();
-        assert_eq!(tcp.connect_timeout(), Duration::from_secs(5));
-        assert_eq!(tcp.buffer_config(), BufferConfig::for_tcp());
-        assert_eq!(tcp.tcp_nodelay(), Some(true));
-        assert_eq!(tcp.tcp_keepalive(), Some(TcpKeepaliveConfig::default()));
-        for config in [TransportConfig::for_udp(), TransportConfig::for_serial()] {
-            assert_eq!(config.tcp_nodelay(), None);
-            assert_eq!(config.tcp_keepalive(), None);
-            assert_eq!(config.ttl(), None);
-        }
-        let config = tcp
-            .with_tcp_keepalive(None)
-            .with_tcp_nodelay(None)
-            .with_ttl(Some(32));
-        assert_eq!(config.tcp_keepalive(), None);
-        assert_eq!(config.tcp_nodelay(), None);
-        assert_eq!(config.ttl(), Some(32));
-        assert!(config.validated().is_ok());
+    fn configuration_preserves_independent_socket_options_and_io_bounds() {
+        let keepalive = TcpKeepaliveConfig::new(Duration::from_secs(30))
+            .with_interval(Some(Duration::from_secs(7)));
+        let tcp = TcpConnect::default()
+            .with_keepalive(Some(keepalive))
+            .expect("keepalive")
+            .with_nodelay(None)
+            .with_ttl(Some(32))
+            .expect("TTL");
+        let udp = UdpConnect::default().with_ttl(Some(32)).expect("TTL");
+        assert_eq!(tcp.keepalive(), Some(keepalive));
+        assert_eq!(tcp.nodelay(), None);
+        assert_eq!(tcp.ttl(), udp.ttl());
         assert_eq!(
-            TcpKeepaliveConfig::new(Duration::from_secs(30))
-                .with_interval(Some(Duration::from_secs(7)))
-                .with_interval(None)
-                .interval(),
-            None
+            IoBounds::TCP_DEFAULT
+                .with_buffer_config(BufferConfig::default())
+                .expect("explicit buffer selection"),
+            IoBounds::default()
         );
     }
 
     #[test]
-    fn transport_config_rejects_invalid_timeouts() {
-        for (config, message) in [
-            (
-                TransportConfig {
-                    connect_timeout: Duration::ZERO,
-                    ..TransportConfig::default()
-                },
-                "transport connect timeout must be non-zero",
-            ),
-            (
-                TransportConfig {
-                    read_timeout: Duration::ZERO,
-                    ..TransportConfig::default()
-                },
-                "transport read timeout must be non-zero",
-            ),
-            (
-                TransportConfig {
-                    write_timeout: Duration::ZERO,
-                    ..TransportConfig::default()
-                },
-                "transport write timeout must be non-zero",
-            ),
-        ] {
-            assert!(matches!(
-                config.validated(),
-                Err(Error::InvalidRequest { reason: actual }) if actual.as_ref() == message
-            ));
+    fn settings_reject_invalid_budgets_and_buffer_bounds() {
+        for timeout in [Duration::ZERO, Duration::MAX] {
+            assert!(TcpConnect::default().with_connect_timeout(timeout).is_err());
+            assert!(UdpConnect::default().with_connect_timeout(timeout).is_err());
+            assert!(IoBounds::default().with_read_timeout(timeout).is_err());
+            assert!(IoBounds::default().with_write_timeout(timeout).is_err());
         }
-        // An unrepresentable timeout is the same error every runtime budget
-        // reports.
-        for (config, name) in [
-            (
-                TransportConfig {
-                    connect_timeout: Duration::MAX,
-                    ..TransportConfig::default()
-                },
-                "connect_timeout",
-            ),
-            (
-                TransportConfig {
-                    read_timeout: Duration::MAX,
-                    ..TransportConfig::default()
-                },
-                "read_timeout",
-            ),
-            (
-                TransportConfig {
-                    write_timeout: Duration::MAX,
-                    ..TransportConfig::default()
-                },
-                "write_timeout",
-            ),
-        ] {
-            assert!(matches!(
-                config.validated(),
-                Err(Error::InvalidParameter { parameter, .. }) if parameter == name
-            ));
+        for ttl in [0, 256, u32::MAX] {
+            assert!(TcpConnect::default().with_ttl(Some(ttl)).is_err());
+            assert!(UdpConnect::default().with_ttl(Some(ttl)).is_err());
         }
-    }
-
-    #[test]
-    fn transport_config_rejects_invalid_buffer_bounds() {
-        for (buffer_config, message) in [
-            (
-                BufferConfig {
-                    recv_buffer_size: 0,
-                    max_buffer_size: 64,
-                },
-                "transport receive buffer must hold the largest VISCA reply (24 bytes)",
-            ),
-            (
-                BufferConfig {
-                    recv_buffer_size: BufferConfig::MIN_RECV_BUFFER_SIZE - 1,
-                    max_buffer_size: 64,
-                },
-                "transport receive buffer must hold the largest VISCA reply (24 bytes)",
-            ),
-            (
-                BufferConfig {
-                    recv_buffer_size: 64,
-                    max_buffer_size: 0,
-                },
-                "transport maximum buffer must be non-zero",
-            ),
-            (
-                BufferConfig {
-                    recv_buffer_size: 65,
-                    max_buffer_size: 64,
-                },
-                "transport receive buffer cannot exceed maximum buffer",
-            ),
+        for duration in [
+            Duration::ZERO,
+            Duration::from_millis(500),
+            Duration::from_millis(1500),
+            Duration::from_secs(32_768),
+            Duration::MAX,
         ] {
-            for defaults in [
-                TransportConfig::for_tcp(),
-                TransportConfig::for_udp(),
-                TransportConfig::for_serial(),
-            ] {
-                let result = defaults.with_buffer_config(buffer_config).validated();
-                assert!(matches!(
-                    result,
-                    Err(Error::InvalidRequest { reason }) if reason == message
-                ));
-            }
+            assert!(TcpConnect::default()
+                .with_keepalive(Some(TcpKeepaliveConfig::new(duration)))
+                .is_err());
+            assert!(TcpConnect::default()
+                .with_keepalive(Some(
+                    TcpKeepaliveConfig::default().with_interval(Some(duration))
+                ))
+                .is_err());
         }
+        for (receive, retention) in [
+            (0, 64),
+            (BufferConfig::MIN_RECV_BUFFER_SIZE - 1, 64),
+            (64, 0),
+            (65, 64),
+            (
+                BufferConfig::MAX_RECV_BUFFER_SIZE + 1,
+                BufferConfig::MAX_RETENTION_SIZE,
+            ),
+            (64, BufferConfig::MAX_RETENTION_SIZE + 1),
+            (usize::MAX, usize::MAX),
+        ] {
+            let buffers = BufferConfig::default()
+                .with_recv_buffer_size(receive)
+                .with_max_buffer_size(retention);
+            assert!(IoBounds::default().with_buffer_config(buffers).is_err());
+        }
+        let buffers = BufferConfig::default()
+            .with_recv_buffer_size(BufferConfig::MAX_RECV_BUFFER_SIZE)
+            .with_max_buffer_size(BufferConfig::MAX_RETENTION_SIZE);
+        assert!(IoBounds::default().with_buffer_config(buffers).is_ok());
     }
 
     #[cfg(feature = "serde")]
     #[test]
-    fn serde_preserves_policy_values_and_rejects_unknown_nested_fields(
-    ) -> Result<(), serde_json::Error> {
-        let config = TransportConfig::for_tcp()
+    fn serde_validates_bounds_and_kind_specific_settings() -> Result<(), serde_json::Error> {
+        let bounds = IoBounds::default()
             .with_read_timeout(Duration::from_millis(37))
-            .with_tcp_nodelay(None)
-            .with_tcp_keepalive(Some(
-                TcpKeepaliveConfig::new(Duration::from_secs(30))
-                    .with_interval(Some(Duration::from_secs(7))),
-            ))
-            .with_buffer_config(
-                BufferConfig::for_tcp()
-                    .with_recv_buffer_size(64)
-                    .with_max_buffer_size(256),
-            );
-        let value = serde_json::to_value(config)?;
+            .expect("valid timeout");
+        let value = serde_json::to_value(bounds)?;
         assert_eq!(
             value["read_timeout"],
             serde_json::json!({"secs": 0, "nanos": 37_000_000})
         );
-        assert_eq!(value["tcp_nodelay"], serde_json::Value::Null);
-        assert_eq!(
-            serde_json::from_value::<TransportConfig>(value.clone())?,
-            config
-        );
-        for path in [None, Some("buffer_config"), Some("tcp_keepalive")] {
-            let mut unknown = value.clone();
-            let object = match path {
-                None => &mut unknown,
-                Some(field) => &mut unknown[field],
-            };
-            object["misspelled_option"] = serde_json::json!(true);
-            assert!(serde_json::from_value::<TransportConfig>(unknown).is_err());
-        }
-        // Deserialization preserves selected data; opening still enforces the
-        // exact existing timeout and receive-buffer preflight rules.
-        let invalid = config.with_read_timeout(Duration::ZERO);
-        let restored: TransportConfig = serde_json::from_value(serde_json::to_value(invalid)?)?;
-        assert_eq!(restored, invalid);
-        assert!(restored.validated().is_err());
+        assert_eq!(serde_json::from_value::<IoBounds>(value.clone())?, bounds);
+        let mut invalid = value.clone();
+        invalid["read_timeout"] = serde_json::json!({"secs": 0, "nanos": 0});
+        assert!(serde_json::from_value::<IoBounds>(invalid).is_err());
+        let mut invalid = value.clone();
+        invalid["buffer_config"]["recv_buffer_size"] = 0.into();
+        assert!(serde_json::from_value::<IoBounds>(invalid).is_err());
+        let mut invalid = value;
+        invalid["connect_timeout"] = serde_json::json!({"secs": 1, "nanos": 0});
+        assert!(serde_json::from_value::<IoBounds>(invalid).is_err());
+
+        let tcp = TcpConnect::default().with_nodelay(None);
+        let value = serde_json::to_value(tcp)?;
+        assert_eq!(value["nodelay"], serde_json::Value::Null);
+        assert_eq!(serde_json::from_value::<TcpConnect>(value.clone())?, tcp);
+        let mut invalid = value;
+        invalid["keepalive"]["idle"] = serde_json::json!({"secs": 0, "nanos": 0});
+        assert!(serde_json::from_value::<TcpConnect>(invalid).is_err());
+
+        let udp = UdpConnect::default();
+        let value = serde_json::to_value(udp)?;
+        assert_eq!(serde_json::from_value::<UdpConnect>(value.clone())?, udp);
+        let mut invalid = value.clone();
+        invalid["ttl"] = 256.into();
+        assert!(serde_json::from_value::<UdpConnect>(invalid).is_err());
+        let mut invalid = value;
+        invalid["nodelay"] = true.into();
+        assert!(serde_json::from_value::<UdpConnect>(invalid).is_err());
         Ok(())
     }
 
     #[cfg(all(feature = "schemars", feature = "ts-rs"))]
     #[test]
-    fn schemas_and_bindings_describe_the_serialized_duration_shape() {
-        let schema = schemars::schema_for!(TransportConfig);
+    fn schema_and_typescript_describe_each_checked_settings_type() {
+        use ts_rs::TS;
+
+        let schema = schemars::schema_for!(IoBounds);
         assert_eq!(
             schema.get("additionalProperties"),
             Some(&serde_json::json!(false))
         );
-        let binding = <TransportConfig as ts_rs::TS>::decl(&ts_rs::Config::default());
-        assert!(binding.contains("secs: number"));
-        assert!(binding.contains("nanos: number"));
-        let keepalive = <TcpKeepaliveConfig as ts_rs::TS>::decl(&ts_rs::Config::default());
-        assert!(keepalive.contains("| null"));
+        assert!(schema
+            .get("properties")
+            .and_then(|props| props.get("read_timeout"))
+            .is_some());
+        let ts = ts_rs::Config::default();
+        for binding in [
+            IoBounds::decl(&ts),
+            TcpConnect::decl(&ts),
+            UdpConnect::decl(&ts),
+        ] {
+            assert!(binding.contains("secs: number"));
+            assert!(binding.contains("nanos: number"));
+        }
+        assert!(TcpConnect::decl(&ts).contains("nodelay"));
+        assert!(TcpConnect::decl(&ts).contains("keepalive"));
+        assert!(!UdpConnect::decl(&ts).contains("nodelay"));
+        assert!(!UdpConnect::decl(&ts).contains("keepalive"));
+        assert!(TcpKeepaliveConfig::decl(&ts).contains("| null"));
     }
 }

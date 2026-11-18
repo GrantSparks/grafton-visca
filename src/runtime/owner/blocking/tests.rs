@@ -12,6 +12,7 @@
 //! blocked, so those deadlines pass without a real sleep.
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
+use crate::observability::DiagnosticCapacity;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use std::ops::ControlFlow;
@@ -38,9 +39,7 @@ use crate::{
     runtime::engine::{
         CommandReply, ControlPolicy, EncodedMessage, RequestContext, RetryPolicy, TimeoutPolicy,
     },
-    transport::{
-        BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
-    },
+    transport::{BlockingTransport, HasTransportConfig, IoBounds, ReceiveOutcome, SendSemantics},
     OperationalTuning,
 };
 
@@ -97,7 +96,7 @@ fn recv_within<T>(
 /// the trait requires, unless the transport is deliberately eager.
 struct ChannelTransport {
     clock: Clock,
-    config: crate::transport::ValidatedTransportConfig,
+    config: IoBounds,
     semantics: SendSemantics,
     reads: flume::Receiver<Read>,
     writes: flume::Sender<Vec<u8>>,
@@ -124,7 +123,7 @@ impl HasTransportConfig for ChannelTransport {
         }
     }
 
-    fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
+    fn io_bounds(&self) -> &IoBounds {
         &self.config
     }
 }
@@ -297,12 +296,9 @@ impl Setup {
         let write_callback = Arc::new(Mutex::new(None));
         let transport = ChannelTransport {
             clock: self.clock.clone(),
-            config: TransportConfig {
-                read_timeout: self.read_timeout,
-                ..TransportConfig::default()
-            }
-            .validated()
-            .unwrap(),
+            config: IoBounds::default()
+                .with_read_timeout(self.read_timeout)
+                .unwrap(),
             semantics: self.semantics,
             reads,
             writes,
@@ -422,6 +418,7 @@ fn zoom_stop() -> crate::prepared::PreparedOperation<AppliedOnly> {
 /// A raw inquiry whose own reply deadline is `inquiry`.
 fn raw_inquiry(inquiry: Duration) -> RuntimeRequest {
     RuntimeRequest::Inquiry {
+        syntax: false,
         payload_shape: crate::PayloadShape::Unknown,
         wire: Arc::new(EncodedMessage::new(&[0x81, 0x09, 0x04, 0x47, 0xff]).unwrap()),
         context: RequestContext {
@@ -569,7 +566,7 @@ fn terminal_metrics_stay_identical_while_a_blocking_caller_races_cancellations_w
             Err(Error::RuntimeShutdown)
         ));
         assert!(matches!(
-            owner.subscribe_diagnostics(1),
+            owner.subscribe_diagnostics(DiagnosticCapacity::MIN),
             Err(Error::RuntimeShutdown)
         ));
         assert!(owner.core.cancellations.is_empty());
@@ -583,7 +580,9 @@ fn terminal_metrics_stay_identical_while_a_blocking_caller_races_cancellations_w
 #[test]
 fn blocking_owner_matches_canonical_lifecycle_trace() {
     let (owner, peer) = Setup::datagram_for(generic_profile()).spawn();
-    let diagnostics = owner.subscribe_diagnostics(128).unwrap();
+    let diagnostics = owner
+        .subscribe_diagnostics(DiagnosticCapacity::MAX)
+        .unwrap();
     let receipt = owner.submit_command(focus_manual()).unwrap();
     peer.next_write();
     peer.reply(ACK);
@@ -605,7 +604,9 @@ fn diagnostic_receive_timeout_uses_the_session_clock() {
     let clock = ManualClock::new();
     let _participant = clock.enter();
     let (owner, _peer) = Setup::datagram().on(&clock).spawn();
-    let diagnostics = owner.subscribe_diagnostics(128).unwrap();
+    let diagnostics = owner
+        .subscribe_diagnostics(DiagnosticCapacity::MAX)
+        .unwrap();
     while diagnostics.try_recv().is_some() {}
     let start = clock.now();
     // This registered thread keeps virtual time still during an untracked
@@ -628,7 +629,9 @@ fn diagnostic_receive_observes_an_owner_deadline_without_wall_time() {
     let receipt = owner.submit_command(focus_manual()).unwrap();
     peer.next_write();
     let ack_deadline = clock.now() + generic_profile().timing().ack_timeout();
-    let diagnostics = owner.subscribe_diagnostics(128).unwrap();
+    let diagnostics = owner
+        .subscribe_diagnostics(DiagnosticCapacity::MAX)
+        .unwrap();
     while diagnostics.try_recv().is_some() {}
     let start = clock.now();
     let event = diagnostics
@@ -655,7 +658,9 @@ fn diagnostic_blocking_receive_observes_an_owner_deadline_without_wall_time() {
     let receipt = owner.submit_command(focus_manual()).unwrap();
     peer.next_write();
     let ack_deadline = clock.now() + generic_profile().timing().ack_timeout();
-    let diagnostics = owner.subscribe_diagnostics(128).unwrap();
+    let diagnostics = owner
+        .subscribe_diagnostics(DiagnosticCapacity::MAX)
+        .unwrap();
     while diagnostics.try_recv().is_some() {}
 
     let event = diagnostics.recv_blocking().unwrap();
@@ -825,7 +830,7 @@ fn an_overreported_stream_read_ends_the_session_with_typed_counts() {
     peer.next_write();
     peer.send(Read::Overreported);
     let error = receipt.wait().expect_err("invalid read ends the stream");
-    let capacity = TransportConfig::default().buffer_config.recv_buffer_size;
+    let capacity = IoBounds::default().buffer_config().recv_buffer_size();
     assert!(
         matches!(&error, Error::StreamPoisoned { source } if matches!(source.as_ref(), Error::BufferTooSmall { required, actual } if *required == capacity + 1 && *actual == capacity))
     );
@@ -929,12 +934,10 @@ fn one_millisecond_reads_keep_boundary_lanes_and_deadlines_live() {
 #[test]
 fn one_millisecond_native_udp_reads_allow_admission_and_close() {
     let silent_peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
-    let config = TransportConfig {
-        read_timeout: READY_PROBE,
-        ..TransportConfig::default()
-    };
+    let config = IoBounds::default().with_read_timeout(READY_PROBE).unwrap();
     let transport = crate::transport::blocking::Udp::connect_with_config(
         &silent_peer.local_addr().unwrap().to_string(),
+        crate::transport::UdpConnect::default(),
         config,
     )
     .unwrap();
@@ -985,6 +988,7 @@ fn buffered_no_progress_reaches_deadline_and_close_on_manual_clock() {
         context.timeout.ack =
             crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(50)).unwrap();
         let request = RuntimeRequest::Command {
+            not_executable: false,
             reply_shape: CommandReply::AckThenCompletion,
             wire: Arc::new(EncodedMessage::new(ZOOM_STOP).unwrap()),
             context,
@@ -1088,14 +1092,14 @@ fn fractional_serial_idle_reads_do_not_escalate_receive_pauses() {
     }
     struct IdleSerial {
         device: TruncatingDevice,
-        config: crate::transport::ValidatedTransportConfig,
+        config: IoBounds,
         read_starts: Arc<Mutex<Vec<Instant>>>,
     }
     impl HasTransportConfig for IdleSerial {
         fn identity(&self) -> crate::transport::TransportIdentity<'_> {
             crate::transport::TransportIdentity::Serial { bus: None }
         }
-        fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
+        fn io_bounds(&self) -> &IoBounds {
             &self.config
         }
     }
@@ -1136,9 +1140,8 @@ fn fractional_serial_idle_reads_do_not_escalate_receive_pauses() {
             clock: Clock::Manual(clock.clone()),
             timeout: Duration::ZERO,
         },
-        config: TransportConfig::for_serial()
+        config: IoBounds::SERIAL_DEFAULT
             .with_read_timeout(read_timeout)
-            .validated()
             .unwrap(),
         read_starts: Arc::clone(&starts),
     };
@@ -1524,7 +1527,9 @@ fn diagnostic_subscriptions_keep_the_blocking_owners_terminal_cause() {
             Setup::datagram()
         };
         let (owner, peer) = setup.spawn();
-        let subscription = owner.subscribe_diagnostics(1).unwrap();
+        let subscription = owner
+            .subscribe_diagnostics(DiagnosticCapacity::MIN)
+            .unwrap();
         let receipt = owner.submit_command(focus_manual()).unwrap();
         if failure != 2 {
             peer.next_write();
@@ -1563,9 +1568,15 @@ fn diagnostic_subscriber_capacity_has_its_own_nonretryable_error() {
     let (owner, _peer) = Setup::datagram().spawn();
     let mut subscriptions = Vec::new();
     for _ in 0..4 {
-        subscriptions.push(owner.subscribe_diagnostics(1).unwrap());
+        subscriptions.push(
+            owner
+                .subscribe_diagnostics(DiagnosticCapacity::MIN)
+                .unwrap(),
+        );
     }
-    let error = owner.subscribe_diagnostics(1).unwrap_err();
+    let error = owner
+        .subscribe_diagnostics(DiagnosticCapacity::MIN)
+        .unwrap_err();
     assert!(matches!(
         error,
         Error::DiagnosticSubscriberLimit { capacity: 4 }
@@ -1575,7 +1586,11 @@ fn diagnostic_subscriber_capacity_has_its_own_nonretryable_error() {
         crate::Recovery::Resubmit { .. }
     ));
     subscriptions.pop();
-    subscriptions.push(owner.subscribe_diagnostics(1).unwrap());
+    subscriptions.push(
+        owner
+            .subscribe_diagnostics(DiagnosticCapacity::MIN)
+            .unwrap(),
+    );
     owner.close().unwrap();
 }
 
@@ -1588,9 +1603,7 @@ fn a_stream_completion_after_a_long_idle_read_wins_before_its_deadline() {
     let (mut transport, peer, profile, _) = Setup::stream().on(&clock).transport();
     transport.config = transport
         .config
-        .as_config()
         .with_read_timeout(Duration::from_secs(5))
-        .validated()
         .unwrap();
     let (adapter, adapter_policy) =
         BlockingTransportAdapter::new(transport, &profile, crate::target::TargetSlot::CAMERA_1)
@@ -1605,6 +1618,7 @@ fn a_stream_completion_after_a_long_idle_read_wins_before_its_deadline() {
     context.timeout.completion =
         crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(6)).unwrap();
     let request = RuntimeRequest::Command {
+        not_executable: false,
         reply_shape: CommandReply::AckThenCompletion,
         wire: Arc::new(EncodedMessage::new(ZOOM_STOP).unwrap()),
         context,
@@ -1651,7 +1665,7 @@ fn caller_halt_timeouts_record_each_stop_before_enqueue_or_owner_claim() {
         let profile = generic_profile();
         let policy = super::super::adapter::owner_policy_for_targets(
             &[(crate::target::TargetSlot::CAMERA_1, &profile)],
-            &TransportConfig::default(),
+            &IoBounds::default(),
             SendSemantics::Stream,
         )
         .unwrap();

@@ -14,6 +14,7 @@ use crate::common::profile_encodings;
 use grafton_visca_test_support::patterns;
 
 use grafton_visca::{
+    config::TargetRegistration,
     profiles::ProfileSpec,
     request::Request,
     types::{
@@ -39,11 +40,37 @@ fn wire<R: Request + ?Sized>(request: &R) -> Vec<u8> {
 /// failure so a single wrong nibble is readable.
 #[track_caller]
 fn assert_golden<R: Request + ?Sized>(label: &str, request: &R, golden: &[u8]) {
-    let actual = wire(request);
+    assert_golden_frame(label, &wire(request), golden);
+}
+
+#[track_caller]
+fn assert_golden_frame(label: &str, actual: &[u8], golden: &[u8]) {
     assert_eq!(
         actual, golden,
         "{label} wire bytes drifted\n  expected: {golden:02X?}\n  actual:   {actual:02X?}"
     );
+}
+
+fn target(profile: ProfileSpec) -> TargetRegistration {
+    TargetRegistration::new(grafton_visca::types::IndividualCameraId::CAMERA_1, profile)
+}
+
+fn target_wire(request: &impl Request, target: &TargetRegistration) -> Vec<u8> {
+    let mut buffer = [0_u8; 32];
+    let written = target
+        .encode(request, &mut buffer)
+        .expect("golden fixture requests must encode");
+    buffer[..written].to_vec()
+}
+
+#[track_caller]
+fn assert_target_golden(
+    label: &str,
+    target: &TargetRegistration,
+    request: &impl Request,
+    golden: &[u8],
+) {
+    assert_golden_frame(label, &target_wire(request, target), golden);
 }
 
 fn ptz_optics_profile() -> ProfileSpec {
@@ -60,21 +87,13 @@ fn tilt_speed(value: u8) -> TiltSpeed {
 }
 
 fn drive(direction: PanTiltDirection) -> grafton_visca::command::pan_tilt::Drive {
-    grafton_visca::command::pan_tilt::Drive::for_target(
-        &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::IndividualCameraId::CAMERA_1,
-            grafton_visca::profiles::ProfileSpec::from_compile_time::<
-                grafton_visca::profiles::PtzOpticsG2,
-            >()
-            .expect("source profile"),
-        ),
+    grafton_visca::command::pan_tilt::Drive::new(
         direction,
         grafton_visca::types::PanTiltSpeed {
             pan: pan_speed(PAN_SPEED_MAX),
             tilt: tilt_speed(TILT_SPEED_MAX),
         },
     )
-    .expect("valid directional drive")
 }
 
 /// The four cardinal directions, pinned to absolute frames.
@@ -84,23 +103,27 @@ fn drive(direction: PanTiltDirection) -> grafton_visca::command::pan_tilt::Drive
 /// table that produces them.
 #[test]
 fn cardinal_pan_tilt_directions_match_golden_frames() {
-    assert_golden(
+    assert_target_golden(
         "pan/tilt up",
+        &target(ptz_optics_profile()),
         &drive(PanTiltDirection::Up),
         patterns::pan_tilt::UP,
     );
-    assert_golden(
+    assert_target_golden(
         "pan/tilt down",
+        &target(ptz_optics_profile()),
         &drive(PanTiltDirection::Down),
         patterns::pan_tilt::DOWN,
     );
-    assert_golden(
+    assert_target_golden(
         "pan/tilt left",
+        &target(ptz_optics_profile()),
         &drive(PanTiltDirection::Left),
         patterns::pan_tilt::LEFT,
     );
-    assert_golden(
+    assert_target_golden(
         "pan/tilt right",
+        &target(ptz_optics_profile()),
         &drive(PanTiltDirection::Right),
         patterns::pan_tilt::RIGHT,
     );
@@ -109,23 +132,27 @@ fn cardinal_pan_tilt_directions_match_golden_frames() {
 /// The four diagonals, pinned to absolute frames.
 #[test]
 fn diagonal_pan_tilt_directions_match_golden_frames() {
-    assert_golden(
+    assert_target_golden(
         "pan/tilt up-left",
+        &target(ptz_optics_profile()),
         &drive(PanTiltDirection::UpLeft),
         patterns::pan_tilt::UP_LEFT,
     );
-    assert_golden(
+    assert_target_golden(
         "pan/tilt up-right",
+        &target(ptz_optics_profile()),
         &drive(PanTiltDirection::UpRight),
         patterns::pan_tilt::UP_RIGHT,
     );
-    assert_golden(
+    assert_target_golden(
         "pan/tilt down-left",
+        &target(ptz_optics_profile()),
         &drive(PanTiltDirection::DownLeft),
         patterns::pan_tilt::DOWN_LEFT,
     );
-    assert_golden(
+    assert_target_golden(
         "pan/tilt down-right",
+        &target(ptz_optics_profile()),
         &drive(PanTiltDirection::DownRight),
         patterns::pan_tilt::DOWN_RIGHT,
     );
@@ -148,7 +175,7 @@ fn every_pan_tilt_direction_encodes_to_a_distinct_frame() {
         PanTiltDirection::DownRight,
     ]
     .into_iter()
-    .map(|direction| wire(&drive(direction)))
+    .map(|direction| target_wire(&drive(direction), &target(ptz_optics_profile())))
     .collect();
 
     for (index, frame) in frames.iter().enumerate() {
@@ -163,18 +190,10 @@ fn every_pan_tilt_direction_encodes_to_a_distinct_frame() {
 
 #[test]
 fn pan_tilt_stop_home_and_reset_match_golden_frames() {
-    assert_golden(
+    assert_target_golden(
         "pan/tilt stop",
-        &grafton_visca::command::pan_tilt::Stop::for_target(
-            &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-                grafton_visca::profiles::ProfileSpec::from_compile_time::<
-                    grafton_visca::profiles::PtzOpticsG2,
-                >()
-                .expect("source profile"),
-            ),
-        )
-        .expect("profile-safe stop"),
+        &target(ptz_optics_profile()),
+        &grafton_visca::command::pan_tilt::Stop,
         patterns::pan_tilt::STOP,
     );
     assert_golden(
@@ -201,6 +220,7 @@ fn absolute_and_relative_pan_tilt_positions_match_golden_frames() {
     use grafton_visca::types::Degrees;
 
     let profile = ptz_optics_profile();
+    let registration = target(profile.clone());
     let conversion = profile
         .pan_tilt_coordinates()
         .expect("PtzOptics G2 declares a pan/tilt coordinate conversion");
@@ -218,11 +238,7 @@ fn absolute_and_relative_pan_tilt_positions_match_golden_frames() {
         "fixture assumption: signed-centered wire coordinates"
     );
 
-    let absolute = grafton_visca::command::pan_tilt::Absolute::for_target(
-        &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::IndividualCameraId::CAMERA_1,
-            profile.clone(),
-        ),
+    let absolute = grafton_visca::command::pan_tilt::Absolute::new(
         grafton_visca::types::PanTiltPosition {
             pan: Degrees::new(10.0).expect("valid degrees"),
             tilt: Degrees::new(-5.0).expect("valid degrees"),
@@ -231,19 +247,15 @@ fn absolute_and_relative_pan_tilt_positions_match_golden_frames() {
             pan: pan_speed(0x0A),
             tilt: tilt_speed(0x05),
         },
-    )
-    .expect("absolute pan/tilt target inside the profile range");
-    assert_golden(
+    );
+    assert_target_golden(
         "absolute pan/tilt",
+        &registration,
         &absolute,
         patterns::pan_tilt::ABSOLUTE_PAN_144_TILT_NEG_72,
     );
 
-    let relative = grafton_visca::command::pan_tilt::Relative::for_target(
-        &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::IndividualCameraId::CAMERA_1,
-            profile.clone(),
-        ),
+    let relative = grafton_visca::command::pan_tilt::Relative::new(
         grafton_visca::types::PanTiltPosition {
             pan: Degrees::new(10.0).expect("valid degrees"),
             tilt: Degrees::new(-5.0).expect("valid degrees"),
@@ -252,10 +264,10 @@ fn absolute_and_relative_pan_tilt_positions_match_golden_frames() {
             pan: pan_speed(0x0A),
             tilt: tilt_speed(0x05),
         },
-    )
-    .expect("relative pan/tilt offset inside the profile range");
-    assert_golden(
+    );
+    assert_target_golden(
         "relative pan/tilt",
+        &registration,
         &relative,
         patterns::pan_tilt::RELATIVE_PAN_144_TILT_NEG_72,
     );
@@ -270,8 +282,7 @@ fn g2_relative_negative_45_degrees_matches_the_signed_offset_literal() {
         grafton_visca::types::IndividualCameraId::CAMERA_1,
         ptz_optics_profile(),
     );
-    let relative = grafton_visca::command::pan_tilt::Relative::for_target(
-        &target,
+    let relative = grafton_visca::command::pan_tilt::Relative::new(
         grafton_visca::types::PanTiltPosition {
             pan: Degrees::new(0.0).expect("valid degrees"),
             tilt: Degrees::new(-45.0).expect("valid degrees"),
@@ -280,24 +291,26 @@ fn g2_relative_negative_45_degrees_matches_the_signed_offset_literal() {
             pan: pan_speed(9),
             tilt: tilt_speed(7),
         },
-    )
-    .expect("reachable G2 displacement");
-    assert_golden(
+    );
+    assert_target_golden(
         "G2 relative (0, -45)",
+        &target,
         &relative,
         &[0x81, 1, 6, 3, 9, 7, 0, 0, 0, 0, 15, 13, 7, 8, 0xff],
     );
     assert!(matches!(
-        grafton_visca::command::pan_tilt::Absolute::for_target(
-            &target,
-            grafton_visca::types::PanTiltPosition {
-                pan: Degrees::new(0.0).expect("valid degrees"),
-                tilt: Degrees::new(-45.0).expect("valid degrees")
-            },
-            grafton_visca::types::PanTiltSpeed {
-                pan: pan_speed(9),
-                tilt: tilt_speed(7)
-            }
+        target.encode(
+            &grafton_visca::command::pan_tilt::Absolute::new(
+                grafton_visca::types::PanTiltPosition {
+                    pan: Degrees::new(0.0).expect("valid degrees"),
+                    tilt: Degrees::new(-45.0).expect("valid degrees")
+                },
+                grafton_visca::types::PanTiltSpeed {
+                    pan: pan_speed(9),
+                    tilt: tilt_speed(7)
+                }
+            ),
+            &mut [0; 17]
         ),
         Err(Error::InvalidParameter { .. })
     ));
@@ -311,6 +324,7 @@ fn standard_visca_pan_tilt_limit_corners_match_golden_frames() {
     use grafton_visca::{capabilities::PanTiltWireCodec, types::Degrees};
 
     let profile = ptz_optics_profile();
+    let registration = target(profile.clone());
     let conversion = profile
         .pan_tilt_coordinates()
         .expect("PtzOptics G2 declares a pan/tilt coordinate conversion");
@@ -342,29 +356,22 @@ fn standard_visca_pan_tilt_limit_corners_match_golden_frames() {
             ][..],
         ),
     ] {
-        let set = grafton_visca::command::pan_tilt::SetLimit::for_target(
-            &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-                profile.clone(),
-            ),
+        let set = grafton_visca::command::pan_tilt::SetLimit::new(
             corner,
             grafton_visca::types::PanTiltPosition {
                 pan: Degrees::new(10.0).expect("valid degrees"),
                 tilt: Degrees::new(-5.0).expect("valid degrees"),
             },
-        )
-        .expect("standard VISCA limit position");
-        assert_golden(&format!("{label} set"), &set, set_golden);
+        );
+        assert_target_golden(&format!("{label} set"), &registration, &set, set_golden);
 
-        let clear = grafton_visca::command::pan_tilt::ClearLimit::for_target(
-            &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-                profile.clone(),
-            ),
-            corner,
-        )
-        .expect("standard VISCA limit clear");
-        assert_golden(&format!("{label} clear"), &clear, clear_golden);
+        let clear = grafton_visca::command::pan_tilt::ClearLimit::new(corner);
+        assert_target_golden(
+            &format!("{label} clear"),
+            &registration,
+            &clear,
+            clear_golden,
+        );
     }
 }
 
@@ -379,6 +386,7 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
     use grafton_visca::{capabilities::PanTiltWireCodec, profiles::SonyBrc300, types::Degrees};
 
     let profile = ProfileSpec::from_compile_time::<SonyBrc300>().expect("Sony BRC-300 profile");
+    let registration = target(profile.clone());
     let conversion = profile
         .pan_tilt_coordinates()
         .expect("Sony BRC-300 pan/tilt conversion");
@@ -386,51 +394,47 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
     assert_eq!(conversion.pan_degrees_to_units(), -208.0);
     assert_eq!(conversion.tilt_degrees_to_units(), 208.0);
 
-    let absolute_error = grafton_visca::command::pan_tilt::Absolute::for_target(
-        &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::IndividualCameraId::CAMERA_1,
-            profile.clone(),
-        ),
-        grafton_visca::types::PanTiltPosition {
-            pan: Degrees::new(45.0).expect("valid degrees"),
-            tilt: Degrees::new(15.0).expect("valid degrees"),
-        },
-        grafton_visca::types::PanTiltSpeed {
-            pan: pan_speed(0x18),
-            tilt: tilt_speed(0x14),
-        },
-    )
-    .expect_err("BRC-300 absolute position must reject unequal paired speeds");
+    let absolute_error = registration
+        .encode(
+            &grafton_visca::command::pan_tilt::Absolute::new(
+                grafton_visca::types::PanTiltPosition {
+                    pan: Degrees::new(45.0).expect("valid degrees"),
+                    tilt: Degrees::new(15.0).expect("valid degrees"),
+                },
+                grafton_visca::types::PanTiltSpeed {
+                    pan: pan_speed(0x18),
+                    tilt: tilt_speed(0x14),
+                },
+            ),
+            &mut [0; 17],
+        )
+        .expect_err("BRC-300 absolute position must reject unequal paired speeds");
     assert!(matches!(
         absolute_error,
         Error::InvalidRequest { reason: message } if message.contains("pan and tilt speeds must match")
     ));
 
-    let relative_error = grafton_visca::command::pan_tilt::Relative::for_target(
-        &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::IndividualCameraId::CAMERA_1,
-            profile.clone(),
-        ),
-        grafton_visca::types::PanTiltPosition {
-            pan: Degrees::new(45.0).expect("valid degrees"),
-            tilt: Degrees::new(15.0).expect("valid degrees"),
-        },
-        grafton_visca::types::PanTiltSpeed {
-            pan: pan_speed(0x18),
-            tilt: tilt_speed(0x14),
-        },
-    )
-    .expect_err("BRC-300 relative position must reject unequal paired speeds");
+    let relative_error = registration
+        .encode(
+            &grafton_visca::command::pan_tilt::Relative::new(
+                grafton_visca::types::PanTiltPosition {
+                    pan: Degrees::new(45.0).expect("valid degrees"),
+                    tilt: Degrees::new(15.0).expect("valid degrees"),
+                },
+                grafton_visca::types::PanTiltSpeed {
+                    pan: pan_speed(0x18),
+                    tilt: tilt_speed(0x14),
+                },
+            ),
+            &mut [0; 17],
+        )
+        .expect_err("BRC-300 relative position must reject unequal paired speeds");
     assert!(matches!(
         relative_error,
         Error::InvalidRequest { reason: message } if message.contains("pan and tilt speeds must match")
     ));
 
-    let absolute = grafton_visca::command::pan_tilt::Absolute::for_target(
-        &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::IndividualCameraId::CAMERA_1,
-            profile.clone(),
-        ),
+    let absolute = grafton_visca::command::pan_tilt::Absolute::new(
         grafton_visca::types::PanTiltPosition {
             pan: Degrees::new(45.0).expect("valid degrees"),
             tilt: Degrees::new(15.0).expect("valid degrees"),
@@ -439,10 +443,10 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
             pan: pan_speed(0x09),
             tilt: tilt_speed(0x09),
         },
-    )
-    .expect("BRC-300 absolute position");
-    assert_golden(
+    );
+    assert_target_golden(
         "Sony BRC-300 absolute position",
+        &registration,
         &absolute,
         &[
             0x81, 0x01, 0x06, 0x02, 0x09, 0x00, 0x0F, 0x0D, 0x0B, 0x07, 0x00, 0x00, 0x0C, 0x03,
@@ -450,11 +454,7 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
         ],
     );
 
-    let relative = grafton_visca::command::pan_tilt::Relative::for_target(
-        &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::IndividualCameraId::CAMERA_1,
-            profile.clone(),
-        ),
+    let relative = grafton_visca::command::pan_tilt::Relative::new(
         grafton_visca::types::PanTiltPosition {
             pan: Degrees::new(45.0).expect("valid degrees"),
             tilt: Degrees::new(15.0).expect("valid degrees"),
@@ -463,10 +463,10 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
             pan: pan_speed(0x09),
             tilt: tilt_speed(0x09),
         },
-    )
-    .expect("BRC-300 relative position");
-    assert_golden(
+    );
+    assert_target_golden(
         "Sony BRC-300 relative position",
+        &registration,
         &relative,
         &[
             0x81, 0x01, 0x06, 0x03, 0x09, 0x00, 0x0F, 0x0D, 0x0B, 0x07, 0x00, 0x00, 0x0C, 0x03,
@@ -474,11 +474,7 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
         ],
     );
 
-    let fastest = grafton_visca::command::pan_tilt::Absolute::for_target(
-        &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::IndividualCameraId::CAMERA_1,
-            profile.clone(),
-        ),
+    let fastest = grafton_visca::command::pan_tilt::Absolute::new(
         grafton_visca::types::PanTiltPosition {
             pan: Degrees::new(45.0).expect("valid degrees"),
             tilt: Degrees::new(15.0).expect("valid degrees"),
@@ -487,10 +483,10 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
             pan: pan_speed(0x18),
             tilt: tilt_speed(0x18),
         },
-    )
-    .expect("BRC-300 highest documented paired speed");
-    assert_golden(
+    );
+    assert_target_golden(
         "Sony BRC-300 absolute position at speed 0x18",
+        &registration,
         &fastest,
         &[
             0x81, 0x01, 0x06, 0x02, 0x18, 0x00, 0x0F, 0x0D, 0x0B, 0x07, 0x00, 0x00, 0x0C, 0x03,
@@ -498,20 +494,16 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
         ],
     );
 
-    let limit = grafton_visca::command::pan_tilt::SetLimit::for_target(
-        &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::IndividualCameraId::CAMERA_1,
-            profile.clone(),
-        ),
+    let limit = grafton_visca::command::pan_tilt::SetLimit::new(
         PanTiltLimitCorner::UpRight,
         grafton_visca::types::PanTiltPosition {
             pan: Degrees::new(45.0).expect("valid degrees"),
             tilt: Degrees::new(15.0).expect("valid degrees"),
         },
-    )
-    .expect("BRC-300 limit position");
-    assert_golden(
+    );
+    assert_target_golden(
         "Sony BRC-300 limit set",
+        &registration,
         &limit,
         &[
             0x81, 0x01, 0x06, 0x07, 0x00, 0x01, 0x0F, 0x0D, 0x0B, 0x07, 0x00, 0x00, 0x0C, 0x03,
@@ -519,16 +511,10 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
         ],
     );
 
-    let clear = grafton_visca::command::pan_tilt::ClearLimit::for_target(
-        &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::IndividualCameraId::CAMERA_1,
-            profile.clone(),
-        ),
-        PanTiltLimitCorner::UpRight,
-    )
-    .expect("BRC-300 limit clear");
-    assert_golden(
+    let clear = grafton_visca::command::pan_tilt::ClearLimit::new(PanTiltLimitCorner::UpRight);
+    assert_target_golden(
         "Sony BRC-300 limit clear",
+        &registration,
         &clear,
         &[
             0x81, 0x01, 0x06, 0x07, 0x01, 0x01, 0x07, 0x0F, 0x0F, 0x0F, 0x0F, 0x07, 0x0F, 0x0F,
@@ -576,34 +562,16 @@ fn zoom_drive_and_direct_target_match_golden_frames() {
     );
 
     let speed = ZoomSpeed::new(5).expect("valid zoom speed");
-    assert_golden(
+    assert_target_golden(
         "zoom tele variable",
-        &grafton_visca::command::zoom::TeleVariable::for_target(
-            &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-                grafton_visca::profiles::ProfileSpec::from_compile_time::<
-                    grafton_visca::profiles::PtzOpticsG2,
-                >()
-                .expect("source profile"),
-            ),
-            speed,
-        )
-        .expect("profile-aware request"),
+        &target(ptz_optics_profile()),
+        &grafton_visca::command::zoom::TeleVariable::new(speed),
         patterns::zoom::TELE_VARIABLE_5,
     );
-    assert_golden(
+    assert_target_golden(
         "zoom wide variable",
-        &grafton_visca::command::zoom::WideVariable::for_target(
-            &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-                grafton_visca::profiles::ProfileSpec::from_compile_time::<
-                    grafton_visca::profiles::PtzOpticsG2,
-                >()
-                .expect("source profile"),
-            ),
-            speed,
-        )
-        .expect("profile-aware request"),
+        &target(ptz_optics_profile()),
+        &grafton_visca::command::zoom::WideVariable::new(speed),
         patterns::zoom::WIDE_VARIABLE_5,
     );
 
@@ -635,34 +603,16 @@ fn focus_drive_and_direct_target_match_golden_frames() {
     );
 
     let speed = FocusSpeed::new(5).expect("valid focus speed");
-    assert_golden(
+    assert_target_golden(
         "focus far variable",
-        &grafton_visca::command::focus::FarVariable::for_target(
-            &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-                grafton_visca::profiles::ProfileSpec::from_compile_time::<
-                    grafton_visca::profiles::PtzOpticsG2,
-                >()
-                .expect("source profile"),
-            ),
-            speed,
-        )
-        .expect("profile-aware request"),
+        &target(ptz_optics_profile()),
+        &grafton_visca::command::focus::FarVariable::new(speed),
         patterns::focus::FAR_VARIABLE_5,
     );
-    assert_golden(
+    assert_target_golden(
         "focus near variable",
-        &grafton_visca::command::focus::NearVariable::for_target(
-            &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-                grafton_visca::profiles::ProfileSpec::from_compile_time::<
-                    grafton_visca::profiles::PtzOpticsG2,
-                >()
-                .expect("source profile"),
-            ),
-            speed,
-        )
-        .expect("profile-aware request"),
+        &target(ptz_optics_profile()),
+        &grafton_visca::command::focus::NearVariable::new(speed),
         patterns::focus::NEAR_VARIABLE_5,
     );
 

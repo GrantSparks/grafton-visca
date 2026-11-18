@@ -1,25 +1,21 @@
 //! Generic async UDP transport, written once for every async runtime.
 //!
-//! A runtime supplies a socket type implementing [`NetDatagram`]; connecting
-//! and the datagram receive policy of [`crate::transport::datagram`] are
-//! implemented here.
+//! A runtime supplies its connected socket. This module applies the shared
+//! datagram receive policy from [`crate::transport::datagram`].
 
-#[cfg(test)]
-use std::future::Future;
+#[cfg(feature = "runtime-smol")]
+use crate::transport::async_connect::AsyncNet;
 
 use crate::{
     transport::{
-        async_connect::{self, AsyncNet},
-        async_io::AsyncDatagram,
-        builder::{TransportConfig, ValidatedTransportConfig},
-        connect::preflight,
-        datagram::deliverable,
-        AsyncTransport, HasTransportConfig, NetworkEndpoint, ReceiveOutcome,
+        async_io::AsyncDatagram, builder::IoBounds, datagram::deliverable, AsyncTransport,
+        HasTransportConfig, ReceiveOutcome,
     },
     Error,
 };
 
 /// A runtime's UDP socket as used by [`Udp`].
+#[cfg(feature = "runtime-smol")]
 pub trait NetDatagram: AsyncDatagram + Sized {
     /// The runtime providing the connect primitives.
     type Net: AsyncNet<UdpSocket = Self>;
@@ -32,7 +28,7 @@ pub trait NetDatagram: AsyncDatagram + Sized {
 #[derive(Debug)]
 pub struct Udp<S: AsyncDatagram> {
     socket: S,
-    config: ValidatedTransportConfig,
+    config: IoBounds,
 }
 
 /// Yield once to the current executor without depending on a runtime.
@@ -54,60 +50,21 @@ impl<S: AsyncDatagram> Udp<S> {
     /// Create a new UDP transport from a connected socket.
     ///
     /// The socket should already be connected to the remote endpoint.
-    pub fn new(socket: S, config: ValidatedTransportConfig) -> Self {
+    pub(crate) fn new(socket: S, config: IoBounds) -> Self {
         Self { socket, config }
-    }
-
-    /// Get the transport configuration.
-    pub fn config(&self) -> &TransportConfig {
-        self.config.as_config()
     }
 }
 
+#[cfg(feature = "runtime-smol")]
 impl<S: NetDatagram> Udp<S> {
-    /// Connect to a UDP endpoint with [`TransportConfig::for_udp`].
-    ///
-    /// The socket binds the unspecified address of the target's family. The
-    /// address must include an explicit port; IPv6 literals must be bracketed.
-    pub async fn connect(address: &str) -> Result<Self, Error> {
-        Self::connect_with_config(address, TransportConfig::for_udp()).await
-    }
-
-    /// Connect with a full configuration.
-    ///
-    /// Name resolution and socket setup share `config.connect_timeout`. See
-    /// [`crate::transport::connect`] for the error contract shared with the
-    /// blocking connector.
-    pub async fn connect_with_config(
-        address: &str,
-        config: TransportConfig,
-    ) -> Result<Self, Error> {
-        let (endpoint, config) = preflight(address, config)?;
-        Self::connect_endpoint(&endpoint, config).await
-    }
-
     pub(crate) async fn connect_endpoint(
-        endpoint: &NetworkEndpoint,
-        config: ValidatedTransportConfig,
+        endpoint: &crate::transport::NetworkEndpoint,
+        options: crate::transport::UdpConnect,
+        io_bounds: IoBounds,
     ) -> Result<Self, Error> {
-        let socket = async_connect::connect_udp::<S::Net>(endpoint, config.into()).await?;
-        Ok(Self::new(socket, config))
-    }
-
-    /// Run endpoint parsing and connector setup only after configuration
-    /// preflight.
-    #[cfg(test)]
-    pub(crate) async fn preflight_udp_setup<T, F, Fut>(
-        address: &str,
-        config: TransportConfig,
-        setup: F,
-    ) -> Result<T, Error>
-    where
-        F: FnOnce(NetworkEndpoint, crate::transport::socket_options::UdpSocketConfig) -> Fut,
-        Fut: Future<Output = Result<T, Error>>,
-    {
-        let (endpoint, config) = preflight(address, config)?;
-        setup(endpoint, config.into()).await
+        let socket =
+            crate::transport::async_connect::connect_udp::<S::Net>(endpoint, options).await?;
+        Ok(Self::new(socket, io_bounds))
     }
 }
 
@@ -138,7 +95,7 @@ impl<S: AsyncDatagram> HasTransportConfig for Udp<S> {
         crate::transport::TransportIdentity::Udp
     }
 
-    fn transport_config(&self) -> &ValidatedTransportConfig {
+    fn io_bounds(&self) -> &IoBounds {
         &self.config
     }
 }
@@ -225,7 +182,7 @@ mod tests {
     #[test]
     fn recv_discards_empty_datagram_before_valid_datagram() {
         let socket = ScriptedDatagram::new([Ok(Vec::new()), Ok(b"valid".to_vec())]);
-        let mut transport = Udp::new(socket, ValidatedTransportConfig::default());
+        let mut transport = Udp::new(socket, IoBounds::default());
         let mut dst = [0; 16];
 
         let received = block_on(transport.recv_into(&mut dst)).expect("valid datagram");
@@ -234,30 +191,10 @@ mod tests {
         assert_eq!(&dst[..5], b"valid");
     }
 
-    #[cfg(feature = "runtime-tokio")]
-    #[test]
-    fn rejected_numeric_hosts_never_enter_async_connector_setup() {
-        use std::sync::atomic::Ordering;
-
-        let setups = AtomicUsize::new(0);
-        for address in ["192.168.1.010:1259", "127.1:1259", "0x7f000001:1259"] {
-            let result = block_on(Udp::<tokio::net::UdpSocket>::preflight_udp_setup(
-                address,
-                TransportConfig::for_udp(),
-                |_, _| async {
-                    setups.fetch_add(1, Ordering::Relaxed);
-                    Ok(())
-                },
-            ));
-            assert!(matches!(result, Err(Error::InvalidAddress { .. })));
-        }
-        assert_eq!(setups.load(Ordering::Relaxed), 0);
-    }
-
     #[test]
     fn recv_yields_before_polling_after_empty_datagram() {
         let socket = ScriptedDatagram::new([Ok(Vec::new()), Ok(b"valid".to_vec())]);
-        let mut transport = Udp::new(socket, ValidatedTransportConfig::default());
+        let mut transport = Udp::new(socket, IoBounds::default());
         let mut dst = [0; 16];
         let counting_waker = Arc::new(CountingWaker::default());
         let waker = Waker::from(Arc::clone(&counting_waker));
@@ -280,7 +217,7 @@ mod tests {
     #[test]
     fn recv_yields_after_each_empty_datagram() {
         let socket = ScriptedDatagram::new([Ok(Vec::new()), Ok(Vec::new()), Ok(b"valid".to_vec())]);
-        let mut transport = Udp::new(socket, ValidatedTransportConfig::default());
+        let mut transport = Udp::new(socket, IoBounds::default());
         let mut dst = [0; 16];
         let counting_waker = Arc::new(CountingWaker::default());
         let waker = Waker::from(Arc::clone(&counting_waker));
@@ -304,7 +241,7 @@ mod tests {
     #[test]
     fn recv_rejects_a_truncated_valid_frame_prefix() {
         let socket = ScriptedDatagram::new([Ok(vec![0x90, 0x41, 0xff, 0x00])]);
-        let mut transport = Udp::new(socket, ValidatedTransportConfig::default());
+        let mut transport = Udp::new(socket, IoBounds::default());
         let mut dst = [0; 3];
 
         let truncated = block_on(transport.recv_into(&mut dst)).expect("consumed datagram");
@@ -316,7 +253,7 @@ mod tests {
     #[test]
     fn recv_accepts_a_valid_datagram_at_the_buffer_limit() {
         let socket = ScriptedDatagram::new([Ok(vec![0x90, 0x41, 0xff])]);
-        let mut transport = Udp::new(socket, ValidatedTransportConfig::default());
+        let mut transport = Udp::new(socket, IoBounds::default());
         let mut dst = [0; 3];
 
         let received = block_on(transport.recv_into(&mut dst)).expect("exact-fit datagram");

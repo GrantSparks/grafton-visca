@@ -11,7 +11,7 @@ Caller-visible differences from 1.x are recorded in
 
 ## Profiles, envelopes, and transports
 
-Standard transport support is checked by `TransportCompatibility::supports`, shared by configurations, profile groups and owner preflight.
+Standard transport support is checked by `TransportCompatibility::supports`, shared by configurations and owner preflight.
 
 The built-in profiles are `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`,
 `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, and
@@ -38,13 +38,13 @@ the profile registry against `camera_profile_support.md`.
 
 The transport contract includes TCP, UDP, blocking serial, Tokio serial,
 `RawVisca`, `SonyEncapsulated`, `BlockingTransport`, `AsyncTransport`,
-`BlockingTransportHandle`, `TransportHandle`, and the required
+`runtime::TransportHandle`, and the required
 `HasTransportConfig::identity() -> TransportIdentity<'_>` descriptor. Its
 `Tcp`, `Udp`, and `Serial { bus }` variants determine kind, send semantics, and
 addressing together; `Custom { semantics, addressing }` declares those facts
 for a caller-owned transport. Wrappers forward the identity, including the
 serial Address Set report. One adapter topology check reads this addressing
-source; `TransportConfig` holds I/O settings only. Transport writes accept the
+source. `IoBounds` holds timeouts and buffer limits. Transport writes accept the
 owner's complete framed bytes, and blocking `send_with_timeout` takes only the
 bytes and timeout. Custom transports retain the same framing/correlation
 behavior as built-in transports.
@@ -143,7 +143,6 @@ The supported downstream value attributes are `value` and `value_enum`;
 | Public module | Utility | Export condition |
 | --- | --- | --- |
 | `testing` | `CommandType` | `all(feature = "runtime-tokio", any(test, feature = "test-utils"))` |
-| `testing` | `SimulatorBuilder` | `all(feature = "runtime-tokio", any(test, feature = "test-utils"))` |
 | `testing` | `SimulatorConfig` | `all(feature = "runtime-tokio", any(test, feature = "test-utils"))` |
 | `testing` | `ViscaCameraSimulator` | `all(feature = "runtime-tokio", any(test, feature = "test-utils"))` |
 | `testing::testkit` | `Immediate` | `all(feature = "test-utils", feature = "async")` |
@@ -155,7 +154,6 @@ The supported downstream value attributes are `value` and `value_enum`;
 | `testing::testkit` | `LocalExecutor` | `all(feature = "test-utils", feature = "async")` |
 | `testing::testkit` | `ManualClockExecutor` | `all(feature = "test-utils", feature = "async")` |
 | `testing::testkit` | `ManualClockTimer` | `all(feature = "test-utils", feature = "async")` |
-| `testing::testkit` | `TaskJoin` | `all(feature = "test-utils", feature = "async")` |
 | `testing::testkit` | `helpers` | `feature = "test-utils"` |
 | `testing::testkit` | `DynamicResponseFn` | `feature = "test-utils"` |
 | `testing::testkit` | `ScriptedTransportIdentity` | `feature = "test-utils"` |
@@ -207,7 +205,8 @@ infallible; raw request constructors validate wire bytes.
 Allocation behavior is characterized at the narrowest stable boundary:
 
 - `tests/allocation/issue_548_allocation_baselines.rs` checks zero-allocation built-in
-  `Request::write_into` encoding and warmed raw/Sony framing-buffer reuse.
+  encoding through `Request::write_into` and `TargetRegistration::encode`,
+  plus warmed raw/Sony framing-buffer reuse.
 - `command::encode` keeps built-in encoded bytes inline for the current hot
   path; the runtime engine unit test
   `runtime::engine::inert_wire_is_inline_and_reused_across_retry_without_reallocation`

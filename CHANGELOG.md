@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [2.0.0] - 2026-11-18
-
 2.0 is a breaking upgrade from 1.x, with owner-backed sessions, matching
 blocking and async camera APIs, checked values and source-backed profiles.
 See [the migration guide](docs/migration_2_0.md) for caller changes.
@@ -87,15 +85,101 @@ verification.
   overflowing advances end pending finite waits, and diagnostic subscription
   timeouts use the session's clock. `ManualClockExecutor::local` drives async
   tests without a runtime; `run_until` returns when its future completes without
-  draining periodic background tasks, and panicked task joins return an error.
+  draining periodic background tasks.
 
 ### Changed
+
+- **BREAKING**: `Error::UnsupportedTransport` describes mismatches for both
+  built-in and custom profiles. It carries the model name, an optional
+  `ProfileId`, and a `StandardTransport`. Use `CameraConfig::validate()` in
+  place of `TransportOptions::validate_for_profile` (#1086).
+
+- **BREAKING**: `ProfileSpec` drops unenforced pan/tilt, preset, power and
+  image facts. `PowerCaps::standby` is a boolean, and
+  `Capabilities::inquiries` replaces `InquirySupport`. Regenerate saved
+  profile specs (#1093).
+
+- **BREAKING**: `Runtime` has one checked connection hook per transport kind.
+  TCP and UDP take a parsed `NetworkEndpoint`, `TcpConnect` or `UdpConnect`,
+  and `IoBounds`. Serial takes `SerialConfig` and `IoBounds`. String hooks
+  and direct async transport constructors are removed. `TransportConfig`
+  and its presets are removed. Set the network address on the selected TCP or
+  UDP options. Caller-owned transports report bounds through
+  `HasTransportConfig::io_bounds()` (#1089, #1090).
+
+- **BREAKING**: `subscribe_diagnostics` takes a checked `DiagnosticCapacity` and
+  `OperationalTuning::with_retry_limit` takes a checked `RetryLimit`. Values
+  outside the declared bounds are refused at construction and deserialization.
+  Diagnostic facade handles replace the forwarding subscription wrapper (#1098).
+
+- **BREAKING**: `runtime::Executor` requires only `Timer`/`timer`,
+  `spawn_detached`, `sleep` and `now`. This removes `Join`, `Detach`,
+  `spawn_with_detach`, `spawn`, `spawn_bg`, `block_on`, `ExecError` and the
+  testkit's `TaskJoin` (#1091).
+
+- **BREAKING**: PTZOptics profiles accept the full byte for the documented
+  iris, shutter, gain and bright registers. `ExposureCaps::shutter_codes`
+  defines raw positioning independently of the `shutter_speeds` time table,
+  which PTZOptics profiles leave empty (#1092).
+
+- **BREAKING**: `DiagnosticEvent::SessionEnded { status, reason }` replaces
+  `SessionChanged` and carries a terminal `observability::SessionEndStatus`.
+  `DiagnosticPhase::Displaced` reports a Sony command whose socket the camera
+  reassigned (#1075).
+
+- **BREAKING**: `MotionQuery` and `MovementTolerance` use private fields with
+  getters and `with_*` setters. Tolerance magnitudes are unsigned, and
+  deserialization rejects a zero `MotionQuery` window (#1076).
+
+- **BREAKING**: `WhiteBalanceCaps::color_temperature_range()` derives its
+  endpoints from the accepted Kelvin steps. Saved profile specs omit the
+  former `color_temp_range` key (#1087).
+
+- **BREAKING**: Removed `profiles::ProfileGroup`, the `ProfileId` fact
+  accessors already available through `ProfileId::spec()`, `ProfileId`'s
+  `Default` implementation and the unused `types::FStop` (#1094).
+
+- A movement or preset command with a zero retry limit reports its own
+  timeout or rejection, as a `Never` request does. A halt fence or cancellation
+  intent can no longer replace that result during a retry decision with zero
+  retries available (#1079).
+
+- Target-bound noun constructors capture intent. Preparation validates and
+  encodes drives, degree positions, pan/tilt STOP and limits, and preset
+  recall speed using the receiving camera's profile and mount.
+  `TargetRegistration::encode` uses the same path for byte inspection
+  (#893, #1039, #1072).
+- **BREAKING**: Raw request constructors refuse the broadcast address `0x88`
+  and frames without a message body. Preparation also refuses downstream
+  requests that encode a frame without a message body (#1085).
+
+- **BREAKING**: `SubmissionClass` is the public request priority type.
+  Removed `request::ControlClass`, its conversion from `SubmissionClass`
+  and the `control_class()` accessors on submission classes, policies and
+  raw requests. Read the ordinary class with `submission_class()`.
+  Typed STOPs and owner-issued cancellation use the urgent lane (#1077).
+
+- **BREAKING**: Targeted noun methods require settlement for every affected
+  axis. `GenericVisca` no longer offers `pan_tilt().home()`,
+  `pan_tilt().reset()` or `presets().recall()` (#1038, #1071).
+
+- **BREAKING**: `ViscaCameraSimulator::new` takes a checked `SimulatorConfig`.
+  `SimulatorBuilder` is removed. Use `ViscaCameraSimulator::default()` for the
+  default configuration (#1099).
+
+- Builds link only the dependencies their features use; `async-lock` is no
+  longer a direct dependency (#1102).
+
+- **BREAKING**: `Error::MotionSuperseded.axes` reports the request's declared
+  axes that a halt fence covers, whether the engine suppresses a queued
+  request, refuses admission, or suppresses a retry (#1073).
 
 - Published library packages include their self-contained unit tests and fixture
   data. Repository integration suites and compile contracts stay in the source
   checkout (#1064).
 - **BREAKING**: `PanTiltLimitUpdate::set` and `position` use `PanTiltPosition`
-  in applied degrees. Serialized limit positions also use degrees (#1049).
+  in applied degrees. The serialized `position` key is required and holds
+  either the position in degrees or `null` for a cleared limit (#1049, #1088).
 
 - **BREAKING**: Per-target `Error` variants and constructors and
   `DiagnosticEvent` target fields use `IndividualCameraId`. Their debug and
@@ -108,31 +192,24 @@ verification.
 
 - **BREAKING**: `DiagnosticEvent::AppliedState` and `cache_updates` report
   exact cache commits. Invalidations emit `DiagnosticEvent::StateInvalidated`
-  and increment `cache_invalidations` (#1043).
+  and increment `cache_invalidations`, which every serialized metrics snapshot
+  must include (#1043, #1088).
 
 - **BREAKING**: The `ImageFlipMode` state-cache key and `ImageState::flip_mode`
   are removed. Read the combined orientation with `image().flip_mode()` (#1053).
 - **BREAKING**: Removed the `Stop` variant of `types::PanTiltDirection`.
   End a continuous drive with `pan_tilt().stop()` (#1058).
-- Variable zoom and focus drives and pan/tilt movement requests resolve speed
-  against the receiving camera during preparation. Their `new` constructors
-  capture the movement intent before choosing a camera (#1039).
-
 - **BREAKING**: `PanTiltCaps::geometry` now contains optional
   `PanTiltGeometry` facts for degree positioning. Generic VISCA withholds
-  degree positioning, limits, pan/tilt readback and settlement. Select a
-  camera-specific profile for `home`, `reset` and preset recall. Generic
-  VISCA focus positions are limited to the shared `0x1000..=0xC000` interval.
+  degree positioning, limits, pan/tilt readback and settlement. Generic VISCA
+  focus positions are limited to the shared `0x1000..=0xC000` interval.
   Regenerate saved profile specs for the new geometry field (#1038).
 
 - **BREAKING**: Downstream `CompileTimeProfile` implementations declare
   `DOMAINS` and `TRANSPORTS` to match their specifications. Typed noun access
   and transport construction require the corresponding declaration (#1051).
-- **BREAKING**: `HasTransportConfig::transport_config` returns a
-  `&ValidatedTransportConfig` built with `TransportConfig::validated`. Use
-  the checked value when wrapping an existing TCP stream, UDP socket or
-  serial stream with an async transport. IPv4-mapped endpoints use their
-  configured IPv4 TTL from the first packet (#1044).
+
+- IPv4-mapped endpoints use the configured IPv4 TTL from the first packet (#1044).
 - **BREAKING**: Scripted testkit transports require a
   `ScriptedTransportIdentity` at construction. Scripted streams preserve
   unread bytes across reads, datagrams report truncation, and
@@ -388,8 +465,9 @@ verification.
   `WhiteBalanceOffset`, `WideDynamicRangeLevel`, `NdFilterDensity` and
   `PanTiltSpeedMode` use concept names. Preset durations use
   `std::time::Duration` with exact 100 ms steps. `Degrees` is a checked finite
-  `f32`, `ExposureTime` is a checked rational shutter time, and camera IDs use
-  fallible constructors and `value()` getters. `BrightnessLevel`,
+  `f32`. `ExposureTime` accepts a rational shutter time as two unsigned decimal
+  `u32` values separated by `/`, with a nonzero denominator and no whitespace
+  (#1088). Camera IDs use fallible constructors and `value()` getters. `BrightnessLevel`,
   `ShutterSpeed` and `FocusPosition` now have fallible constructors and typed
   bounds. `UnitInterval` exposes `MIN`/`MAX`. Physical pan/tilt positions use
   `PanTiltPosition`; raw inquiry values use `PanTiltUnits`. New `Speed<T>` and
@@ -599,8 +677,8 @@ verification.
   twenty-bit positions at 235.9 units per degree. The public API remains
   right-positive: pan `+170°` encodes `F6359`, and `−170°` encodes `09CA7`.
   This explicitly corrects the original #893 vendor-angle examples; raw codec
-  signs are unchanged (`+40103` is `09CA7`). Typed position constructors take
-  `TargetRegistration`; requests use `validate_for_target`. FR7 speeds extend
+  signs are unchanged (`+40103` is `09CA7`). Position constructors capture intent.
+  Preparation validates and encodes it against the selected target. FR7 speeds extend
   to 50; above 24, an immutable dispatch prerequisite requires session-confirmed
   Extended step mode. The owner rechecks that cache before every attempt;
   unknown, normal or invalidated mode refuses the write while STOP remains
@@ -695,9 +773,8 @@ verification.
 - **BREAKING** (#830): With no facade feature (`--no-default-features`, or only
   `serde`, `schemars`, `ts-rs` or `test-utils`) the crate now compiles only the domain vocabulary:
   the protocol engine, the owner and request preparation are no longer built.
-  `StateCache` and `DiagnosticSubscription`, which only a running session can
-  produce, are now available only with `blocking` or `async`, alongside the
-  sessions that return them. Builds with a facade are unchanged.
+  `StateCache` is available with `blocking` or `async`, alongside the
+  sessions that expose it.
 
 - **BREAKING** (#839): `menu().navigate()` returns an applied-only pan/tilt
   operation handle on blocking, async and dynamic cameras. Navigation is now
@@ -715,9 +792,8 @@ verification.
 - **BREAKING** (#844): Typed image inquiries separate sourced vertical
   `image().flip()` (`09 04 66`, returning a boolean) from combined
   `image().flip_mode()` (`09 04 A4`, returning `ImageFlipMode` and requiring
-  `HasCombinedImageFlip`). Ten
-  unsourced typed inquiry families and guessed profile-less `FStop` wire
-  conversions are removed. FR7 ND readback uses `09 7E 04 42` and returns
+  `HasCombinedImageFlip`). Ten unsourced typed inquiry families are removed.
+  FR7 ND readback uses `09 7E 04 42` and returns
   `NdFilterDensity` variable density, replacing a discrete preset position.
 
 - **BREAKING** (#845): Indexed `Nibbles::{byte, u16_quad, i16_quad}` accessors
@@ -753,6 +829,9 @@ verification.
   receipts directly without per-STOP reply channels (#854, #902).
 
 ### Removed
+
+- The `validate_ae_commands` lab example, which sent hand-framed VISCA bytes
+  to hard-coded lab addresses without using the crate (#1082).
 
 - **BREAKING** (#992): Remove the unreachable `Error::ParseError` variant and
   `From<nom::Err<nom::error::Error<&[u8]>>>` conversion, and drop the unused
@@ -795,6 +874,21 @@ verification.
   helpers. Use `ManualClockExecutor::local` and its `run_until` driver instead.
 
 ### Fixed
+
+- Raw stream correlation keeps a waiting command's possible rejection out of
+  another command's disputed ACK follow when the camera may omit completion
+  sockets (#1069).
+- Raw streams release stale socket holds once the camera provably owes no
+  terminal, allowing later commands to recover even when the camera omits
+  socket nibbles from both ACKs and completions (#1070).
+
+- Serial startup reserves the I/F Clear settle before writing. A successful
+  broadcast always settles, while a write failure retains its original
+  certainty and recovery advice (#1084).
+
+- A cancelling command moving into cancellation resolution no longer emits a
+  completion deadline expiry or increments `completion_timeouts` for that
+  transition (#1074).
 
 - Raw streams keep a tracked rejection dispute intact when a socket-naming
   camera sends an older command's late error. Once a command's own

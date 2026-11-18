@@ -18,7 +18,7 @@
 //!     config::TargetRegistration,
 //!     profiles::{ProfileSpec, PtzOpticsG2},
 //!     request::Request,
-//!     types::{CameraId, IndividualCameraId},
+//!     types::IndividualCameraId,
 //! };
 //! use grafton_visca::{types::PanSpeed, types::TiltSpeed};
 //! use grafton_visca::{types::PanTiltDirection, types::PanTiltSpeed};
@@ -28,14 +28,12 @@
 //!     IndividualCameraId::CAMERA_1,
 //!     ProfileSpec::from_compile_time::<PtzOpticsG2>().unwrap(),
 //! );
-//! let request = Drive::for_target(
-//!     &target,
+//! let request = Drive::new(
 //!     PanTiltDirection::UpRight,
 //!     PanTiltSpeed::new(PanSpeed::new(0x10).unwrap(), TiltSpeed::new(0x10).unwrap()),
-//! )
-//! .unwrap();
+//! );
 //! let mut bytes = [0_u8; Drive::MAX_SIZE];
-//! let written = request.write_into(CameraId::CAMERA_1, &mut bytes).unwrap();
+//! let written = target.encode(&request, &mut bytes).unwrap();
 //! assert_eq!(bytes[0], 0x81);
 //! assert_eq!(bytes[written - 1], 0xFF);
 //! ```
@@ -598,8 +596,6 @@ mod tests {
                 }),
                 pan_speed: CapabilityRange::<u8>::new(1, 8).expect("valid capability bounds"),
                 tilt_speed: CapabilityRange::<u8>::new(1, 8).expect("valid capability bounds"),
-                simultaneous: true,
-                preset_recovery_time: std::time::Duration::ZERO,
                 variable_speed: false,
                 motion_sync_speed_range: None,
             });

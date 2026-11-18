@@ -1,7 +1,7 @@
 //! Production engine and owner turns without device or executor I/O.
 
 use crate::{
-    transport::{SendSemantics, TransportConfig},
+    transport::{IoBounds, SendSemantics},
     ProfileSpec, Result,
 };
 
@@ -18,11 +18,11 @@ use crate::{
 /// use grafton_visca::{
 ///     profiles::{GenericVisca, ProfileSpec},
 ///     testing::turns::TurnProbe,
-///     transport::{SendSemantics, TransportConfig},
+///     transport::{SendSemantics, IoBounds},
 /// };
 ///
 /// let profile = ProfileSpec::from_compile_time::<GenericVisca>()?;
-/// let mut probe = TurnProbe::new(&profile, TransportConfig::default(), SendSemantics::Stream)?;
+/// let mut probe = TurnProbe::new(&profile, IoBounds::default(), SendSemantics::Stream)?;
 /// probe.stage_command()?;
 /// probe.command_turn()?;
 /// probe.frame_turn()?;
@@ -35,11 +35,7 @@ pub struct TurnProbe {
 
 impl TurnProbe {
     /// Build the same wire authority, policy and bounded buffers as an owner.
-    pub fn new(
-        profile: &ProfileSpec,
-        config: TransportConfig,
-        semantics: SendSemantics,
-    ) -> Result<Self> {
+    pub fn new(profile: &ProfileSpec, config: IoBounds, semantics: SendSemantics) -> Result<Self> {
         Ok(Self {
             inner: crate::runtime::owner::TurnProbe::new(profile, config, semantics)?,
         })

@@ -52,8 +52,8 @@ pub(crate) mod builtin_contract;
 pub(crate) mod builtin_policy;
 
 pub use crate::requests::{
-    CommandRetryClass, ControlClass, Inquiry, InquiryRetryClass, OperationCommand, PayloadShape,
-    PlainCommand, Request, ResponseDecoder, SubmissionClass,
+    CommandRetryClass, Inquiry, InquiryRetryClass, OperationCommand, PayloadShape, PlainCommand,
+    Request, ResponseDecoder, SubmissionClass,
 };
 
 pub(crate) mod policy;

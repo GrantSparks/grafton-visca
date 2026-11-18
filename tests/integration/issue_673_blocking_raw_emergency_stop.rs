@@ -31,7 +31,7 @@ use grafton_visca::{
     operation::{AppliedOnly, Targeted},
     raw,
     request::CommandRetryClass,
-    transport::{AddressingMode, TransportConfig},
+    transport::{AddressingMode, IoBounds},
     types::{AffectedAxes, CameraId},
     Error,
 };
@@ -67,7 +67,7 @@ fn session_with_config(steps: Vec<Vec<Vec<u8>>>, config: SessionConfig) -> (Sess
     let camera = scripted_camera(steps);
     let wire = camera
         .blocking_wire()
-        .with_config(TransportConfig::default())
+        .with_config(IoBounds::default())
         .with_addressing(AddressingMode::Serial);
     let session = Session::open(wire, &config).expect("owner session");
     (session, camera)

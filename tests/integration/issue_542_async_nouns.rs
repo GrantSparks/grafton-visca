@@ -50,7 +50,8 @@ fn baseline_surface<
         + grafton_visca::capabilities::HasPower
         + grafton_visca::capabilities::HasZoom
         + grafton_visca::capabilities::HasFocus
-        + grafton_visca::capabilities::HasPanTilt,
+        + grafton_visca::capabilities::HasPanTilt
+        + grafton_visca::capabilities::HasPanTiltSettlement,
 >(
     camera: &Camera<P>,
 ) {

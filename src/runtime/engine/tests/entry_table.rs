@@ -130,12 +130,7 @@ fn admission_and_transitions_never_duplicate_a_ready_position() {
     let now = Instant::now();
     let mut table = EntryTable::new();
     let id = RequestId::from_nonzero(NonZeroU64::new(1).unwrap());
-    let facts = AdmissionFacts {
-        submitted_at: now,
-        slot: AdmissionSlot::Ordinary,
-    };
-    assert!(table.admit(id, inquiry(1), facts));
-    assert!(!table.admit(id, inquiry(1), facts));
+    table.admit(id, inquiry(1), now);
     for _ in 0..3 {
         table
             .transition(
@@ -170,12 +165,8 @@ fn stop_class_alone_selects_the_highest_priority_ready_index() {
     // Even a lowest-priority context cannot demote the immutable STOP class.
     stop.context_mut().control.class = ControlClass::Background;
     let turn = engine.begin_input_turn(now);
-    let user = engine
-        .admit_in_turn(&turn, ordinary, AdmissionSlot::Ordinary)
-        .unwrap();
-    let safety = engine
-        .admit_in_turn(&turn, stop, AdmissionSlot::Ordinary)
-        .unwrap();
+    let user = engine.admit_in_turn(&turn, ordinary).unwrap();
+    let safety = engine.admit_in_turn(&turn, stop).unwrap();
     assert_eq!(
         engine.entries.ready(Lane::Command, 3),
         &VecDeque::from([safety])

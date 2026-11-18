@@ -20,31 +20,26 @@ fn every_camera_code_preserves_routing_evidence_and_retry_permissions() {
                 matches!(code, 1 | 2 | 3 | 0x41) || (!named && code == 5)
             );
         }
-        for flags in 0..8 {
-            let retry = RetryPolicy {
-                buffer_full: flags & 1 != 0,
-                movement_not_executable: flags & 2 != 0,
-                builtin_inquiry_syntax: flags & 4 != 0,
-                ..RetryPolicy::NEVER
-            };
-            for family in [
-                SendingReply::Inquiry,
-                SendingReply::Stop,
-                SendingReply::AckThenCompletion,
-                SendingReply::CompletionOnly,
-                SendingReply::NoReply,
-            ] {
-                let actual = decoded.retry_permission(&retry, family);
-                let expected = match code {
-                    3 | 5 => flags & 1 != 0,
-                    0x41 => flags & 2 != 0,
-                    2 => family == SendingReply::Inquiry && flags & 4 != 0,
-                    _ => false,
-                };
-                assert_eq!(
-                    actual, expected,
-                    "code {code:02x}, flags {flags}, {family:?}"
-                );
+        for max_retries in [0, 1] {
+            for allowed in [false, true] {
+                let mut command = command(1);
+                let mut inquiry = inquiry(1);
+                for request in [&mut command, &mut inquiry] {
+                    request.context_mut().retry.max_retries = max_retries;
+                    match request {
+                        RuntimeRequest::Command { not_executable, .. } => *not_executable = allowed,
+                        RuntimeRequest::Inquiry { syntax, .. } => *syntax = allowed,
+                    }
+                    let restricted_code = if request.is_inquiry() { 2 } else { 0x41 };
+                    let expected = max_retries > 0
+                        && (matches!(code, 3 | 5) || (code == restricted_code && allowed));
+                    assert_eq!(
+                        decoded.retry_permission(request),
+                        expected,
+                        "code {code:02x}, lane {:?}, count {max_retries}, lane permission {allowed}",
+                        request.lane()
+                    );
+                }
             }
         }
     }

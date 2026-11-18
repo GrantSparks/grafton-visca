@@ -48,9 +48,9 @@ fn formerly_infallible_values_expose_checked_union_bounds() {
 #[test]
 fn checked_identity_wire_values_revalidate_their_domains() {
     assert_eq!(GainLevel::from_wire(0).unwrap(), GainLevel::MIN);
-    assert_eq!(GainLevel::from_wire(25).unwrap(), GainLevel::MAX);
-    assert_eq!(GainLevel::MAX.to_wire(), 25);
-    assert!(GainLevel::from_wire(26).is_err());
+    assert_eq!(GainLevel::from_wire(255).unwrap(), GainLevel::MAX);
+    assert_eq!(GainLevel::MAX.to_wire(), 255);
+    assert!(grafton_visca::types::GainLimit::from_wire(16).is_err());
 }
 
 #[test]

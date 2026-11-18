@@ -13,13 +13,13 @@
 //! `set_submission_class` default applies to it on the same terms.
 //!
 //! Raw constructors validate and own the complete VISCA frame. The first byte
-//! must be a valid VISCA camera address and the final byte must be `0xff`.
+//! must be an individual VISCA address (`0x81..=0x87`), followed by at least
+//! one message byte and a final `0xff` terminator.
 //! Owner-only wire primitives are refused at construction: a socket cancel
 //! (`8x 2y ff`) or a per-camera interface clear (`8x 01 00 01 ff`) would let a
 //! target-scoped `execute` cancel another operation's socket or reset the
-//! shared command buffer, so both are rejected. The broadcast address-set form
-//! is likewise owner-only and is rejected by raw validation; preparation still
-//! checks the first address against its target as a separate defense.
+//! shared command buffer, so both are rejected. Broadcast frames also fail
+//! construction. Preparation checks the same grammar and the target address.
 //! The camera view supplies the authoritative target during preparation, so a
 //! frame addressed to another target is rejected rather than being silently
 //! rewritten or inspected to infer target identity. Frames up to
@@ -56,7 +56,7 @@ use crate::{
     request::{
         CommandPolicy, CommandRetryClass, InquiryPolicy, InquiryRetryClass, OperationPolicy,
     },
-    AffectedAxes, CommandTimeoutClass, ControlClass, ResponseDecoder, SubmissionClass,
+    AffectedAxes, CommandTimeoutClass, ResponseDecoder, SubmissionClass,
 };
 
 use crate::{
@@ -228,7 +228,8 @@ impl fmt::Debug for Wire {
     }
 }
 
-fn validate_wire(bytes: &[u8]) -> Result<()> {
+/// Checks one complete, individually addressed VISCA request frame.
+pub(crate) fn validate_wire(bytes: &[u8]) -> Result<()> {
     if bytes.len() > MAX_BYTES {
         return Err(Error::InvalidRequest {
             reason: format!(
@@ -238,14 +239,15 @@ fn validate_wire(bytes: &[u8]) -> Result<()> {
             .into(),
         });
     }
-    if bytes.len() < 2 {
+    if bytes.len() < 3 {
         return Err(Error::InvalidRequest {
-            reason: "raw VISCA frame must contain an address and terminator".into(),
+            reason: "raw VISCA frame must contain an address, a message body, and a terminator"
+                .into(),
         });
     }
-    if !(0x81..=0x88).contains(&bytes[0]) {
+    if !(0x81..=0x87).contains(&bytes[0]) {
         return Err(Error::InvalidRequest {
-            reason: "raw VISCA frame must begin with an address byte in 0x81..=0x88".into(),
+            reason: "raw VISCA frame must begin with an individual address in 0x81..=0x87".into(),
         });
     }
     if bytes.last().copied() != Some(VISCA_TERMINATOR) {
@@ -253,8 +255,7 @@ fn validate_wire(bytes: &[u8]) -> Result<()> {
             reason: "raw VISCA frame must end with the 0xff terminator".into(),
         });
     }
-    reject_owner_only_primitive(bytes)?;
-    Ok(())
+    reject_owner_only_primitive(bytes)
 }
 
 /// Rejects the owner-only wire primitives a target-scoped `execute` must never
@@ -263,24 +264,15 @@ fn validate_wire(bytes: &[u8]) -> Result<()> {
 /// A socket cancel (`8x 2y ff`) could cancel an *unrelated* operation's socket,
 /// and a per-camera interface clear (`8x 01 00 01 ff`) resets the shared
 /// command buffer; both are legitimate only from the owner, which correlates
-/// the exact camera-assigned socket first. Address assignment (`88 30 0y ff`)
-/// is a broadcast primitive and is owner-only as well; raw validation rejects it
-/// at the start of a frame, while preparation still checks the first address
-/// against its target.
-///
-/// The socket-cancel guard is deliberately length-bounded to the exact 3-byte
-/// cancel subframe: a longer frame whose command byte falls in `0x20..=0x2f`
-/// (for example USB audio, `81 2a 02 a0 04 02 ff`) is an ordinary command and
-/// stays admissible.  A raw value can still contain a vendor payload byte equal
-/// to `0xff`; only a valid VISCA address immediately following a terminator is
-/// treated as an apparent second subframe, which raw requests do not model.
-pub(crate) fn reject_owner_only_primitive(bytes: &[u8]) -> Result<()> {
-    // Caller guarantees `bytes.len() >= 2`, `bytes[0]` is a VISCA address, and
-    // `bytes.last() == Some(0xff)`.
-    // The first primitive prefix is consumed by the camera's framer at its
-    // first terminator even when arbitrary bytes trail it, so owner-only
-    // prefixes cannot be hidden behind a custom suffix.
-    reject_owner_only_at_boundary(bytes, 0)?;
+/// the exact camera-assigned socket first. Prefix checks keep the owner-only
+/// primitives from being hidden behind a custom suffix.
+fn reject_owner_only_primitive(bytes: &[u8]) -> Result<()> {
+    if bytes[1] & 0xf0 == system::COMMAND_CANCEL && bytes[2] == VISCA_TERMINATOR {
+        return Err(Error::InvalidRequest { reason: "raw VISCA frame must not be a socket cancel (8x 2y ff); the owner cancels a correlated operation through its handle, not through execute()".into() });
+    }
+    if bytes.len() >= 5 && bytes[1..4] == system::INTERFACE_CLEAR && bytes[4] == VISCA_TERMINATOR {
+        return Err(Error::InvalidRequest { reason: "raw VISCA frame must not be an interface clear (8x 01 00 01 ff); it resets the shared command buffer and is owner-only".into() });
+    }
 
     // VISCA's stream boundary is the terminator.  Do not reject every second
     // `0xff`: values such as a preset number of 0xff are legal payload data.
@@ -290,51 +282,11 @@ pub(crate) fn reject_owner_only_primitive(bytes: &[u8]) -> Result<()> {
     // tracking only the first one.
     if bytes
         .windows(2)
-        .any(|pair| pair[0] == VISCA_TERMINATOR && is_visca_address(pair[1]))
+        .any(|pair| pair[0] == VISCA_TERMINATOR && (0x81..=0x88).contains(&pair[1]))
     {
         return Err(Error::InvalidRequest { reason: "raw VISCA frame must contain exactly one subframe; a terminator followed by another VISCA address is not supported".into() });
     }
     Ok(())
-}
-
-/// Reject an owner-only primitive whose first byte is at `start`.
-///
-/// The bounds checks intentionally inspect only the primitive prefix. A longer
-/// ordinary command beginning with a `0x2y` command byte is not mistaken for a
-/// socket cancel unless its third byte is the terminator.
-fn reject_owner_only_at_boundary(bytes: &[u8], start: usize) -> Result<()> {
-    let remaining = &bytes[start..];
-    if remaining.len() >= 3
-        && (remaining[0] & 0xf0) == 0x80
-        && (remaining[1] & 0xf0) == system::COMMAND_CANCEL
-        && remaining[2] == VISCA_TERMINATOR
-    {
-        return Err(Error::InvalidRequest { reason: "raw VISCA frame must not be a socket cancel (8x 2y ff); the owner cancels a correlated operation through its handle, not through execute()".into() });
-    }
-    if remaining.len() >= 5
-        && (remaining[0] & 0xf0) == 0x80
-        && remaining[1..4] == system::INTERFACE_CLEAR
-        && remaining[4] == VISCA_TERMINATOR
-    {
-        return Err(Error::InvalidRequest { reason: "raw VISCA frame must not be an interface clear (8x 01 00 01 ff); it resets the shared command buffer and is owner-only".into() });
-    }
-    // Address assignment is also owner-only. The first address is still
-    // checked against the prepared target, and this rejects the broadcast
-    // setup primitive before a target-scoped request can emit it.
-    if remaining.len() >= 4
-        && remaining[0] == CameraId::BROADCAST.to_address_byte()
-        && remaining[1] == system::ADDRESS_SET_REGISTER
-        && (remaining[2] & 0xf0) == 0x00
-        && remaining[3] == VISCA_TERMINATOR
-    {
-        return Err(Error::InvalidRequest { reason: "raw VISCA frame must not contain an address-set subframe (88 30 0y ff); serial setup is owner-only".into() });
-    }
-    Ok(())
-}
-
-#[inline]
-fn is_visca_address(byte: u8) -> bool {
-    (0x81..=0x88).contains(&byte)
 }
 
 /// The policy accessors every raw request value exposes, written once for
@@ -355,10 +307,10 @@ macro_rules! raw_policy_accessors {
             self.policy.retry_class()
         }
 
-        #[doc = concat!("Returns ", $subject, "'s explicit control class.")]
+        #[doc = concat!("Returns ", $subject, "'s ordinary submission class.")]
         #[must_use]
-        pub const fn control_class(&self) -> ControlClass {
-            self.policy.control_class()
+        pub const fn submission_class(&self) -> SubmissionClass {
+            self.policy.submission_class()
         }
     };
     ($policy:ident, $retry:ty, $subject:literal) => {
@@ -1201,39 +1153,56 @@ mod tests {
         )
         .expect("valid applied-only operation");
         assert_eq!(applied.affected_axes(), AffectedAxes::ZOOM);
-        assert_eq!(applied.control_class(), ControlClass::User);
+        assert_eq!(applied.submission_class(), SubmissionClass::User);
     }
 
     #[test]
     fn construction_rejects_invalid_wire_and_axes() {
+        for frame in [
+            &[][..],
+            &[0x81, 0xff],
+            &[0x80, 0x01, 0xff],
+            &[0x81, 0x01, 0x00],
+            &[0x88, 0x01, 0x04, 0x07, 0x02, 0xff],
+        ] {
+            assert!(PlainRequest::new(
+                frame,
+                CommandTimeoutClass::Quick,
+                CommandRetryClass::Never,
+                SubmissionClass::Normal,
+            )
+            .is_err());
+            assert!(InquiryRequest::from_fn(
+                frame,
+                decode_first,
+                InquiryRetryClass::Never,
+                SubmissionClass::Normal,
+            )
+            .is_err());
+            assert!(TargetedRequest::new(
+                frame,
+                AffectedAxes::PAN_TILT,
+                CommandTimeoutClass::Movement,
+                CommandRetryClass::Movement,
+                SubmissionClass::User,
+            )
+            .is_err());
+            assert!(AppliedOnlyRequest::new(
+                frame,
+                AffectedAxes::ZOOM,
+                CommandTimeoutClass::Quick,
+                CommandRetryClass::Never,
+                SubmissionClass::User,
+            )
+            .is_err());
+        }
         assert!(PlainRequest::new(
-            [],
+            [0x87, 0x01, 0xff],
             CommandTimeoutClass::Quick,
             CommandRetryClass::Never,
             SubmissionClass::Normal,
         )
-        .is_err());
-        assert!(PlainRequest::new(
-            [0x80, 0x01, 0xff],
-            CommandTimeoutClass::Quick,
-            CommandRetryClass::Never,
-            SubmissionClass::Normal,
-        )
-        .is_err());
-        assert!(PlainRequest::new(
-            [0x81, 0x01, 0x00],
-            CommandTimeoutClass::Quick,
-            CommandRetryClass::Never,
-            SubmissionClass::Normal,
-        )
-        .is_err());
-        assert!(PlainRequest::new(
-            vec![0x81; MAX_BYTES + 1],
-            CommandTimeoutClass::Quick,
-            CommandRetryClass::Never,
-            SubmissionClass::Normal,
-        )
-        .is_err());
+        .is_ok());
         assert!(AffectedAxes::from_bits(0).is_err());
     }
 
@@ -1385,7 +1354,7 @@ mod tests {
     #[test]
     fn construction_rejects_owner_only_wire_primitives() {
         // Socket cancel, every socket nibble, for every camera address.
-        for address in 0x81_u8..=0x88 {
+        for address in 0x81_u8..=0x87 {
             for socket in 0x0_u8..=0xf {
                 let cancel: [u8; 3] = [address, 0x20 | socket, 0xff];
                 assert!(
@@ -1401,8 +1370,8 @@ mod tests {
             }
         }
 
-        // Per-camera and broadcast interface clear.
-        for address in [0x81_u8, 0x82, 0x88] {
+        // Per-camera interface clear.
+        for address in [0x81_u8, 0x82, 0x87] {
             let clear: [u8; 5] = [address, 0x01, 0x00, 0x01, 0xff];
             assert!(
                 PlainRequest::new(
@@ -1488,7 +1457,7 @@ mod tests {
                         .expect("cancel frame fits");
                 let frame = &frame[..len];
                 assert!(
-                    reject_owner_only_primitive(frame).is_err(),
+                    validate_wire(frame).is_err(),
                     "encoded cancel {frame:x?} must be refused by raw admission"
                 );
             }
@@ -1502,7 +1471,6 @@ mod tests {
             // trail the owner-only primitive.
             &[0x81, 0x21, 0xff, 0x00, 0xff][..],
             &[0x81, 0x01, 0x00, 0x01, 0xff, 0x00, 0xff][..],
-            &[0x88, 0x30, 0x01, 0xff, 0x00, 0xff][..],
             // A raw request has one frame/lifecycle, not two commands.
             &[
                 0x81, 0x01, 0x04, 0x00, 0x02, 0xff, 0x81, 0x01, 0x04, 0x00, 0x03, 0xff,
@@ -1573,7 +1541,7 @@ mod tests {
             assert_eq!(policy.reply_shape(), shape);
             assert_eq!(policy.timeout_class(), CommandTimeoutClass::Quick);
             assert_eq!(policy.retry_class(), CommandRetryClass::Never);
-            assert_eq!(policy.control_class(), ControlClass::Normal);
+            assert_eq!(policy.submission_class(), SubmissionClass::Normal);
 
             // Each command reports the shape through its inherent accessor and
             // the typed `Request::policy` preparation reads.

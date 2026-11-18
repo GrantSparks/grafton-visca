@@ -56,28 +56,17 @@ pub(crate) enum DueAction {
     CancellationObservation {
         terminal_at: Instant,
     },
-    RetryBudget {
-        certainty: crate::Certainty,
-    },
+    RetryBudget,
     RetryReady {
         previous_attempt: AttemptFacts,
         budget_at: Option<Instant>,
-        certainty: crate::Certainty,
     },
 }
 
-impl DueAction {
-    pub(crate) const fn priority(self) -> u8 {
-        match self {
-            Self::Ack { .. }
-            | Self::Completion(_)
-            | Self::InquiryReply { .. }
-            | Self::CancellationResolution { .. }
-            | Self::CancellationObservation { .. }
-            | Self::RetryBudget { .. } => 1,
-            Self::RetryReady { .. } => 2,
-        }
-    }
+/// Proof that a request still carries a recorded cancellation and its window.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CancellationAmbiguity {
+    deadline: Instant,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -432,12 +421,8 @@ impl Lifecycle {
     }
 
     /// The earliest expiry selected from this lifecycle and the enclosing
-    /// entry's retry budget and prior-attempt certainty.
-    pub(crate) fn due_action(
-        self,
-        budget_at: Option<Instant>,
-        certainty: crate::Certainty,
-    ) -> Option<(Instant, DueAction)> {
+    /// entry's retry budget.
+    pub(crate) fn due_action(self, budget_at: Option<Instant>) -> Option<(Instant, DueAction)> {
         let mut due = match self {
             Self::Ready { .. } | Self::Sending { .. } => None,
             Self::Backoff {
@@ -449,7 +434,6 @@ impl Lifecycle {
                 DueAction::RetryReady {
                     previous_attempt,
                     budget_at,
-                    certainty,
                 },
             )),
             Self::AwaitingAck {
@@ -522,7 +506,7 @@ impl Lifecycle {
         };
         if let Some(budget) = budget_at {
             if due.is_none_or(|(at, _)| budget <= at) {
-                due = Some((budget, DueAction::RetryBudget { certainty }));
+                due = Some((budget, DueAction::RetryBudget));
             }
         }
         due
@@ -734,8 +718,8 @@ impl Lifecycle {
         }
     }
 
-    pub(crate) const fn cancellation_ambiguity(self) -> Option<Instant> {
-        match self {
+    pub(crate) const fn cancellation_ambiguity(self) -> Option<CancellationAmbiguity> {
+        let deadline = match self {
             Self::AwaitingAck { cancellation, .. } => match cancellation {
                 Some(request) => Some(request.ambiguity_deadline),
                 None => None,
@@ -764,6 +748,10 @@ impl Lifecycle {
             | Self::Backoff { .. }
             | Self::AwaitingCompletion { .. }
             | Self::AwaitingReply { .. } => None,
+        };
+        match deadline {
+            Some(deadline) => Some(CancellationAmbiguity { deadline }),
+            None => None,
         }
     }
 
@@ -808,7 +796,7 @@ impl Lifecycle {
             // A requested but not yet emitted cancellation first crosses
             // into resolution at the response window; only its ambiguity
             // deadline can release the identity.
-            at: self.response_window_end()?.max(ambiguity),
+            at: self.response_window_end()?.max(ambiguity.deadline),
             scope,
         })
     }
@@ -1084,7 +1072,7 @@ impl Lifecycle {
             return None;
         }
         match (self.socket(), self.cancellation_ambiguity()) {
-            (Some(socket), Some(deadline)) => Some((socket, deadline)),
+            (Some(socket), Some(ambiguity)) => Some((socket, ambiguity.deadline)),
             _ => None,
         }
     }

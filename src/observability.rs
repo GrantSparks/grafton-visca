@@ -5,11 +5,14 @@
 //! authority, sequence numbers, or arbitrary strings. Request identities
 //! correlate observations. The owner bounds each queue. The
 //! pre-admission staging retains at most 128 events and an owner retains at
-//! most four diagnostic subscribers, each with capacity at most 128.
+//! most four diagnostic subscribers. Each queue is bounded by
+//! [`DiagnosticCapacity::MAX`](crate::observability::DiagnosticCapacity::MAX).
 
-#[cfg(any(feature = "async", feature = "blocking"))]
-use crate::Error;
 use crate::{state_cache::StateKey, ErrorKind, IndividualCameraId, OperationId};
+
+/// The checked event capacity of one diagnostic subscription, from 1 to 128.
+#[crate::value(min = 1, max = 128)]
+pub struct DiagnosticCapacity(u8);
 
 /// The externally observable state of one owner session.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -31,6 +34,35 @@ pub enum SessionStatus {
     Shutdown,
     /// A stream or framing failure made the session unusable.
     Poisoned,
+}
+
+/// The terminal status reported when an owner session ends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[non_exhaustive]
+pub enum SessionEndStatus {
+    /// The transport reported a terminal connection closure.
+    Closed,
+    /// The owner was explicitly shut down.
+    Shutdown,
+    /// A stream or framing failure made the session unusable.
+    Poisoned,
+}
+
+impl From<SessionEndStatus> for SessionStatus {
+    fn from(status: SessionEndStatus) -> Self {
+        match status {
+            SessionEndStatus::Closed => Self::Closed,
+            SessionEndStatus::Shutdown => Self::Shutdown,
+            SessionEndStatus::Poisoned => Self::Poisoned,
+        }
+    }
 }
 
 /// A stable copy of the bounded owner counters and current queue state.
@@ -66,18 +98,20 @@ pub struct MetricsSnapshot {
     pub write_failures: u64,
     /// Requests reaching a terminal outcome.
     pub terminal: u64,
-    /// Cancellation requests observed by the owner.
+    /// Cancellation intents the engine recorded.
+    ///
+    /// Excludes repeated cancellation calls from one handle and refused cancellations.
     pub cancellations: u64,
     /// Exact applied-state effects committed to the target cache.
     pub cache_updates: u64,
     /// Applied-state keys made unknown by unconfirmed writes.
-    #[cfg_attr(feature = "serde", serde(default))]
     pub cache_invalidations: u64,
     /// Acknowledgement deadlines that expired on a sent command. A disputed
     /// ACK deadline extended for more evidence counts if that extension expires.
     pub ack_timeouts: u64,
     /// Completion deadlines that expired while an acknowledged command or
-    /// completion-only raw command awaited completion.
+    /// completion-only raw command awaited completion. For a cancelling command,
+    /// the completion window counts only if it ends the request there.
     pub completion_timeouts: u64,
     /// Reply deadlines that expired on a sent inquiry.
     pub inquiry_timeouts: u64,
@@ -182,6 +216,12 @@ pub enum DiagnosticPhase {
     AwaitingCompletion,
     /// Waiting for command completion.
     Executing,
+    /// The Sony camera reassigned this command's socket to a later command.
+    ///
+    /// The command still receives replies by its Sony sequence until its
+    /// original completion deadline. Cancellation returns
+    /// [`crate::Error::CancellationUnconfirmed`].
+    Displaced,
     /// Waiting for an inquiry reply.
     AwaitingReply,
     /// Waiting before a retry.
@@ -399,7 +439,8 @@ pub enum DiagnosticEvent {
         attempt: u32,
     },
     /// A request's own protocol deadline expired. Extending a disputed ACK
-    /// deadline only emits a [`crate::observability::DiagnosticEvent::Transition`].
+    /// deadline or entering cancellation resolution emits only a
+    /// [`crate::observability::DiagnosticEvent::Transition`].
     ///
     /// `will_retry` is the scheduler's decision for this exact expiry, so a
     /// subscriber never has to infer it from a [`crate::observability::DiagnosticEvent::Transition`]
@@ -463,13 +504,11 @@ pub enum DiagnosticEvent {
         /// Sanitized outcome.
         outcome: DiagnosticOutcome,
     },
-    /// Session state changed.
+    /// The session reached a terminal state.
     #[non_exhaustive]
-    SessionChanged {
-        /// Previous session state.
-        from: SessionStatus,
-        /// New session state.
-        to: SessionStatus,
+    SessionEnded {
+        /// Terminal session status.
+        status: SessionEndStatus,
         /// Bounded reason category.
         reason: ErrorKind,
     },
@@ -479,57 +518,6 @@ pub enum DiagnosticEvent {
         /// Bounded reason.
         reason: DiagnosticIgnoreReason,
     },
-}
-
-/// A bounded diagnostic subscription owned by the owner actor.
-///
-/// Dropping a subscription removes its receiver; the owner never awaits or
-/// invokes user callbacks.  A full subscriber queue causes only that
-/// subscriber's event to be dropped and increments the owner's dropped-event
-/// counter.
-#[cfg(any(feature = "blocking", feature = "async"))]
-#[derive(Debug)]
-pub(crate) struct DiagnosticSubscription {
-    pub(crate) inner: crate::runtime::owner::DiagnosticSubscription,
-}
-
-#[cfg(any(feature = "blocking", feature = "async"))]
-impl DiagnosticSubscription {
-    pub(crate) fn from_owner(inner: crate::runtime::owner::DiagnosticSubscription) -> Self {
-        Self { inner }
-    }
-
-    /// Receives one event without waiting.  Empty and disconnected queues both
-    /// return `None`.
-    pub(crate) fn try_recv(&self) -> Option<DiagnosticEvent> {
-        self.inner.try_recv()
-    }
-
-    /// Receives one event asynchronously under the selected executor.
-    #[cfg(feature = "async")]
-    pub(crate) async fn recv(&self) -> Result<DiagnosticEvent, Error> {
-        self.inner.recv_async().await
-    }
-
-    #[cfg(feature = "blocking")]
-    pub(crate) fn recv_blocking(&self) -> Result<DiagnosticEvent, Error> {
-        self.inner.recv_blocking()
-    }
-
-    /// Waits up to `timeout` for one event on the calling thread.
-    ///
-    /// Returns `Ok(None)` when no event arrived in time, and
-    /// the owner's published terminal error once it has ended and every
-    /// queued event has been received. Deliberate shutdown returns
-    /// [`Error::RuntimeShutdown`]; peer closure, poison and owner failure keep
-    /// their original cause.
-    #[cfg(feature = "blocking")]
-    pub(crate) fn recv_timeout(
-        &self,
-        timeout: std::time::Duration,
-    ) -> Result<Option<DiagnosticEvent>, Error> {
-        self.inner.recv_timeout(timeout)
-    }
 }
 
 /// One reusable diagnostic deadline, bound to the session's selected executor.
@@ -553,7 +541,7 @@ impl DiagnosticWait {
 
     pub(crate) async fn recv_with_timeout(
         &mut self,
-        subscription: &DiagnosticSubscription,
+        subscription: &crate::runtime::owner::DiagnosticSubscription,
         timeout: std::time::Duration,
     ) -> crate::Result<Option<DiagnosticEvent>> {
         use std::{
@@ -562,7 +550,7 @@ impl DiagnosticWait {
             task::Poll,
         };
         let Some(deadline) = self.clock.now().checked_add(timeout) else {
-            return subscription.recv().await.map(Some);
+            return subscription.recv_async().await.map(Some);
         };
         let timer = self
             .timer
@@ -573,7 +561,7 @@ impl DiagnosticWait {
             timer,
             clock: &self.clock,
         };
-        let mut receive = pin!(subscription.recv());
+        let mut receive = pin!(subscription.recv_async());
         poll_fn(|context| {
             if let Poll::Ready(event) = receive.as_mut().poll(context) {
                 return Poll::Ready(event.map(Some));
@@ -663,6 +651,21 @@ pub(crate) fn metrics_snapshot(
     }
 }
 
+#[cfg(test)]
+#[test]
+fn diagnostic_capacity_checks_its_fixed_domain() {
+    assert_eq!(
+        DiagnosticCapacity::new(1).ok(),
+        Some(DiagnosticCapacity::MIN)
+    );
+    assert_eq!(
+        DiagnosticCapacity::new(128).ok(),
+        Some(DiagnosticCapacity::MAX)
+    );
+    assert!(DiagnosticCapacity::new(0).is_err());
+    assert!(DiagnosticCapacity::new(129).is_err());
+}
+
 #[cfg(all(test, target_pointer_width = "64"))]
 mod diagnostic_size_tests {
     #[test]
@@ -674,6 +677,15 @@ mod diagnostic_size_tests {
 #[cfg(all(test, feature = "serde"))]
 mod portable_data_tests {
     use super::*;
+
+    #[test]
+    fn diagnostic_capacity_rejects_out_of_range_json() {
+        for capacity in [0, 129] {
+            assert!(
+                serde_json::from_value::<DiagnosticCapacity>(serde_json::json!(capacity)).is_err()
+            );
+        }
+    }
 
     #[test]
     fn diagnostic_events_round_trip_as_closed_sanitized_records() -> Result<(), serde_json::Error> {
@@ -721,6 +733,34 @@ mod portable_data_tests {
             serde_json::from_value::<DiagnosticEvent>(json)?,
             invalidation
         );
+        let displacement = DiagnosticEvent::Transition {
+            id: OperationId::from_raw(42),
+            target: IndividualCameraId::CAMERA_3,
+            from: DiagnosticPhase::Executing,
+            to: DiagnosticPhase::Displaced,
+        };
+        let json = serde_json::json!({
+            "transition": {"id": 42, "target": 3, "from": "executing", "to": "displaced"}
+        });
+        assert_eq!(serde_json::to_value(displacement)?, json);
+        assert_eq!(
+            serde_json::from_value::<DiagnosticEvent>(json)?,
+            displacement
+        );
+        let ended = DiagnosticEvent::SessionEnded {
+            status: SessionEndStatus::Closed,
+            reason: ErrorKind::IoClosed,
+        };
+        let json =
+            serde_json::json!({"session_ended": {"status": "closed", "reason": "io_closed"}});
+        assert_eq!(serde_json::to_value(ended)?, json);
+        assert_eq!(serde_json::from_value::<DiagnosticEvent>(json)?, ended);
+        assert!(
+            serde_json::from_value::<DiagnosticEvent>(serde_json::json!({
+                "session_ended": {"status": "running", "reason": "io_closed"}
+            }))
+            .is_err()
+        );
         let terminal = DiagnosticOutcome::Failed(ErrorKind::Unconfirmed);
         assert_eq!(
             serde_json::to_value(terminal)?,
@@ -747,16 +787,12 @@ mod portable_data_tests {
             serde_json::from_value::<MetricsSnapshot>(json.clone())?,
             snapshot
         );
-        assert_eq!(
-            json.as_object_mut()
-                .and_then(|object| object.remove("cache_invalidations")),
-            Some(serde_json::json!(2))
-        );
-        assert_eq!(
-            serde_json::from_value::<MetricsSnapshot>(json.clone())?.cache_invalidations,
-            0
-        );
         json["private_queue"] = serde_json::json!([]);
+        assert!(serde_json::from_value::<MetricsSnapshot>(json.clone()).is_err());
+        if let Some(object) = json.as_object_mut() {
+            object.remove("private_queue");
+            object.remove("cache_invalidations");
+        }
         assert!(serde_json::from_value::<MetricsSnapshot>(json).is_err());
         Ok(())
     }
@@ -771,6 +807,11 @@ mod portable_data_tests {
             "integer"
         );
         let config = ts_rs::Config::default();
+        let metrics = <MetricsSnapshot as ts_rs::TS>::decl(&config);
+        assert!(metrics.contains("cache_invalidations: bigint"));
+        assert!(schema.as_value()["required"]
+            .as_array()
+            .is_some_and(|required| required.contains(&serde_json::json!("cache_invalidations"))));
         let event = <DiagnosticEvent as ts_rs::TS>::decl(&config)
             .lines()
             .filter(|line| {
@@ -799,6 +840,27 @@ mod portable_data_tests {
         assert!(event.contains(
             "\"state_invalidated\": { id: OperationId, target: IndividualCameraId, key: StateKey,"
         ));
+        assert!(event.contains("\"session_ended\": { status: SessionEndStatus, reason: ErrorKind,"));
+        let definitions = &event_schema.as_value()["$defs"];
+        let statuses: Vec<_> = definitions["SessionEndStatus"]["oneOf"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|variant| variant["const"].as_str())
+            .collect();
+        assert_eq!(statuses, ["closed", "shutdown", "poisoned"]);
+        assert!(definitions["DiagnosticPhase"]["oneOf"]
+            .as_array()
+            .is_some_and(|variants| variants
+                .iter()
+                .any(|variant| variant["const"] == "displaced")));
+        let end_status = <SessionEndStatus as ts_rs::TS>::decl(&config);
+        assert!(
+            end_status.contains("\"closed\" | \"shutdown\" | \"poisoned\""),
+            "{end_status}"
+        );
+        let phase = <DiagnosticPhase as ts_rs::TS>::decl(&config);
+        assert!(phase.contains("\"displaced\""), "{phase}");
         assert!(!event.contains("socket"));
         assert!(!event.contains("timestamp"));
     }

@@ -11,16 +11,18 @@ fn blocked_engine(
 ) -> ProtocolEngine {
     let mut configured = policy(envelope, transport);
     configured.capacity = std::num::NonZeroUsize::new(ENTRIES).unwrap();
-    let mut engine = ProtocolEngine::new(configured, now).unwrap();
-    engine
-        .register_target(
-            camera(1),
+    let mut engine = ProtocolEngine::new(
+        configured,
+        target_policies(
+            &[camera(1)],
             TargetPolicy {
                 command_sockets: CommandSocketCount::ONE,
                 ..TargetPolicy::test_default()
             },
-        )
-        .unwrap();
+        ),
+        now,
+    )
+    .unwrap();
     for index in 0..ENTRIES {
         let mut request = command(1);
         if index == ENTRIES - 1 {
@@ -33,7 +35,6 @@ fn blocked_engine(
             Input::Admit {
                 ticket: AdmissionTicket(index as u64 + 1),
                 request,
-                slot: AdmissionSlot::Ordinary,
             },
             now,
             EngineTurn::InputOnly,

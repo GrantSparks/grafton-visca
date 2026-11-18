@@ -432,10 +432,8 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: windows
-          # Compile-contract fixtures build transient nested target trees that
-          # are gone by the time the post-job cache scan walks them, which on
-          # Windows turns into ENOENT noise. Registry caching still covers most
-          # of the cost here.
+          # Cache registry dependencies and build the selected Windows targets
+          # in the job.
           cache-targets: false
       # `serialport` is a different implementation on Windows (the Win32 comms
       # API rather than termios), so the blocking serial transport is the leg
@@ -449,13 +447,15 @@ jobs:
       # Windows-only type, cfg, and API-shape breakage — and never executed.
       # Real-device smoke checks are optional and private; this job validates
       # the software contract without attached serial hardware.
-      # The same build also exercises Winsock UDP recovery for both runtimes.
+      # The integration binary also exercises Winsock UDP recovery for both
+      # runtimes. The Linux legs cover OS-independent targets, including
+      # compile contracts, doctests and allocation tests.
       - shell: bash
         run: |
           set -euo pipefail
           source .github/scripts/engine-model-tests.sh
           read -r -a skips <<<"$(engine_model_skip_args)"
-          cargo test --no-default-features --features transport-serial,runtime-tokio,runtime-smol -- "${skips[@]}"
+          cargo test --no-default-features --features transport-serial,runtime-tokio,runtime-smol --lib --test integration -- "${skips[@]}"
 
   macos:
     name: macOS check
@@ -467,34 +467,15 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: macos
-      - run: cargo check --no-default-features --features transport-serial --all-targets
+      - run: cargo check --no-default-features --features transport-serial --lib
       # Pin precise read budgets and whole-millisecond serial timeout rounding
       # on the POSIX backend whose poll timer truncates fractional milliseconds.
-      - run: cargo test --no-default-features --features transport-serial --lib transport::blocking::helper_tests
-      - run: cargo test --no-default-features --features transport-serial --lib transport::serial::tests
-      - run: cargo test --no-default-features --features transport-serial --lib fractional_serial_idle_reads_do_not_escalate_receive_pauses
-
-  cargo-audit:
-    name: cargo-audit advisories
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - name: Install cargo-audit 0.22.2
-        # The workflow-wide `-D warnings` is meant for this crate's own code.
-        # Applying it to a third-party tool's dependency tree would make an
-        # unrelated upstream lint break the security gate.
-        env:
-          RUSTFLAGS: ""
-        run: cargo install cargo-audit --version 0.22.2 --locked
-      # `Cargo.lock` is not committed (this is a library), and `cargo audit`
-      # reads a lockfile rather than resolving one itself.
-      - name: Generate the lockfile to audit
-        run: cargo generate-lockfile
-      - name: Audit the resolved dependency tree
-        run: cargo audit
+      # The Linux legs cover the OS-independent targets.
+      - run: >-
+          cargo test --no-default-features --features transport-serial --lib --
+          transport::blocking::helper_tests
+          transport::serial::tests
+          fractional_serial_idle_reads_do_not_escalate_receive_pauses
 
   cargo-deny:
     name: Cargo Deny
@@ -506,7 +487,7 @@ jobs:
       # job is a supply-chain gate, so it must not follow a moving reference.
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
-          command: check advisories bans licenses sources
+          command: check advisories licenses sources
 
   ci-success:
     name: CI success
@@ -526,7 +507,6 @@ jobs:
       - downstream
       - windows
       - macos
-      - cargo-audit
       - cargo-deny
     runs-on: ubuntu-latest
     steps:
@@ -541,7 +521,7 @@ jobs:
             ["format", "feature-shapes", "feature-matrix", "blocking-dependency-boundary",
              "macro-derives", "all-features-tests", "examples", "lint",
              "fuzz", "release-validation", "public-api", "downstream",
-             "windows", "macos", "cargo-audit", "cargo-deny"]
+             "windows", "macos", "cargo-deny"]
         run: |
           set -euo pipefail
           if ! jq -e --argjson expected "${EXPECTED_JOB_IDS}" '

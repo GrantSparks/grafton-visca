@@ -33,7 +33,6 @@ crate::command::nouns::forward_request!(Reset, builtin::PanTiltReset, Targeted, 
 /// Keep the movement area clear; dropping the operation handle does not stop motion.
 #[derive(Debug, Clone, Copy)]
 pub struct Drive {
-    preview: Option<builtin::PanTiltDrive>,
     direction: PanTiltDirection,
     speed: Speed<PanTiltSpeed>,
 }
@@ -41,21 +40,9 @@ impl Drive {
     /// Captures a movement intent to resolve against the receiving camera.
     pub fn new(direction: PanTiltDirection, speed: impl Into<Speed<PanTiltSpeed>>) -> Self {
         Self {
-            preview: None,
             direction,
             speed: speed.into(),
         }
-    }
-
-    /// Creates a movement intent with a preview for direct encoding.
-    pub fn for_target(
-        target: &TargetRegistration,
-        direction: PanTiltDirection,
-        speed: impl Into<Speed<PanTiltSpeed>>,
-    ) -> crate::Result<Self> {
-        let mut request = Self::new(direction, speed);
-        request.preview = Some(request.lower(target)?);
-        Ok(request)
     }
 
     fn lower(&self, target: &TargetRegistration) -> crate::Result<builtin::PanTiltDrive> {
@@ -83,30 +70,23 @@ impl Drive {
 }
 crate::command::nouns::movement_intent!(Drive, builtin::PanTiltDrive, AppliedOnly, PanTiltDrive);
 
-/// Stops pan/tilt movement using speed fields accepted by the registered target.
-#[derive(Debug, Clone, Copy)]
-pub struct Stop {
-    inner: builtin::PanTiltStop,
-}
+/// Stops pan/tilt movement with speed fields selected by the receiving target.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Stop;
+
 impl Stop {
-    /// Selects profile-safe stop speed fields without sending a command.
-    pub fn for_target(target: &TargetRegistration) -> crate::Result<Self> {
-        Ok(Self {
-            inner: crate::stop_request::pan_tilt_stop_request(target.profile())?,
-        })
+    fn lower(&self, target: &TargetRegistration) -> crate::Result<builtin::PanTiltStop> {
+        #[cfg(test)]
+        builtin::record_request_value_validation();
+        crate::stop_request::pan_tilt_stop_request(target.profile())
     }
 }
-crate::command::nouns::forward_request!(
-    Stop,
-    builtin::PanTiltStop,
-    AppliedOnly,
-    rows = [PanTiltStop]
-);
+
+crate::command::nouns::movement_intent!(Stop, builtin::PanTiltStop, AppliedOnly, PanTiltStop);
 
 /// Moves to an absolute position in degrees. Keep the movement area clear.
 #[derive(Debug, Clone, Copy)]
 pub struct Absolute {
-    preview: Option<builtin::PanTiltAbsolute>,
     position: PanTiltPosition,
     speed: Speed<PanTiltSpeed>,
 }
@@ -114,21 +94,9 @@ impl Absolute {
     /// Captures a movement intent to resolve against the receiving camera.
     pub fn new(position: PanTiltPosition, speed: impl Into<Speed<PanTiltSpeed>>) -> Self {
         Self {
-            preview: None,
             position,
             speed: speed.into(),
         }
-    }
-
-    /// Creates a movement intent with a preview for direct encoding.
-    pub fn for_target(
-        target: &TargetRegistration,
-        position: PanTiltPosition,
-        speed: impl Into<Speed<PanTiltSpeed>>,
-    ) -> crate::Result<Self> {
-        let mut request = Self::new(position, speed);
-        request.preview = Some(request.lower(target)?);
-        Ok(request)
     }
 
     fn lower(&self, target: &TargetRegistration) -> crate::Result<builtin::PanTiltAbsolute> {
@@ -167,7 +135,6 @@ crate::command::nouns::movement_intent!(
 /// Moves by a relative offset in degrees. Keep the movement area clear.
 #[derive(Debug, Clone, Copy)]
 pub struct Relative {
-    preview: Option<builtin::PanTiltRelative>,
     offset: PanTiltPosition,
     speed: Speed<PanTiltSpeed>,
 }
@@ -175,21 +142,9 @@ impl Relative {
     /// Captures a movement intent to resolve against the receiving camera.
     pub fn new(offset: PanTiltPosition, speed: impl Into<Speed<PanTiltSpeed>>) -> Self {
         Self {
-            preview: None,
             offset,
             speed: speed.into(),
         }
-    }
-
-    /// Creates a movement intent with a preview for direct encoding.
-    pub fn for_target(
-        target: &TargetRegistration,
-        offset: PanTiltPosition,
-        speed: impl Into<Speed<PanTiltSpeed>>,
-    ) -> crate::Result<Self> {
-        let mut request = Self::new(offset, speed);
-        request.preview = Some(request.lower(target)?);
-        Ok(request)
     }
 
     fn lower(&self, target: &TargetRegistration) -> crate::Result<builtin::PanTiltRelative> {
@@ -228,28 +183,25 @@ crate::command::nouns::movement_intent!(
 /// Sets one movement-limit corner from an absolute position in degrees.
 #[derive(Debug, Clone, Copy)]
 pub struct SetLimit {
-    inner: builtin::PanTiltLimitSet,
     corner: PanTiltLimitCorner,
     position: PanTiltPosition,
 }
 impl SetLimit {
-    /// Converts and validates a corner using the registered target's mount and limits.
-    pub fn for_target(
-        target: &TargetRegistration,
-        corner: PanTiltLimitCorner,
-        position: PanTiltPosition,
-    ) -> crate::Result<Self> {
-        Ok(Self {
-            inner: builtin::PanTiltLimitSet::for_target(
-                corner,
-                position.pan,
-                position.tilt,
-                target,
-            )?,
-            corner,
-            position,
-        })
+    /// Captures a movement limit in degrees for the receiving target.
+    #[must_use]
+    pub const fn new(corner: PanTiltLimitCorner, position: PanTiltPosition) -> Self {
+        Self { corner, position }
     }
+
+    fn lower(&self, target: &TargetRegistration) -> crate::Result<builtin::PanTiltLimitSet> {
+        builtin::PanTiltLimitSet::for_target(
+            self.corner,
+            self.position.pan,
+            self.position.tilt,
+            target,
+        )
+    }
+
     /// Returns the selected movement-limit corner.
     #[must_use]
     pub const fn corner(self) -> PanTiltLimitCorner {
@@ -261,41 +213,35 @@ impl SetLimit {
         self.position
     }
 }
-crate::command::nouns::forward_request!(
-    SetLimit,
-    builtin::PanTiltLimitSet,
-    Plain,
-    rows = [PanTiltLimitSet]
-);
+crate::command::nouns::movement_intent!(SetLimit, builtin::PanTiltLimitSet, Plain, PanTiltLimitSet);
 
 /// Clears one movement-limit corner using the registered target's wire format.
 #[derive(Debug, Clone, Copy)]
 pub struct ClearLimit {
-    inner: builtin::PanTiltLimitClear,
     corner: PanTiltLimitCorner,
 }
 impl ClearLimit {
-    /// Selects the target's limit-clear encoding without sending a command.
-    pub fn for_target(
-        target: &TargetRegistration,
-        corner: PanTiltLimitCorner,
-    ) -> crate::Result<Self> {
-        Ok(Self {
-            inner: builtin::PanTiltLimitClear::for_profile(corner, target.profile())?,
-            corner,
-        })
+    /// Captures the corner to clear on the receiving target.
+    #[must_use]
+    pub const fn new(corner: PanTiltLimitCorner) -> Self {
+        Self { corner }
     }
+
+    fn lower(&self, target: &TargetRegistration) -> crate::Result<builtin::PanTiltLimitClear> {
+        builtin::PanTiltLimitClear::for_profile(self.corner, target.profile())
+    }
+
     /// Returns the selected movement-limit corner.
     #[must_use]
     pub const fn corner(self) -> PanTiltLimitCorner {
         self.corner
     }
 }
-crate::command::nouns::forward_request!(
+crate::command::nouns::movement_intent!(
     ClearLimit,
     builtin::PanTiltLimitClear,
     Plain,
-    rows = [PanTiltLimitClear]
+    PanTiltLimitClear
 );
 
 /// Selects the documented pan/tilt speed-step mode.
@@ -377,7 +323,7 @@ mod tests {
     use crate::{
         profiles::ProfileId,
         types::{PanSpeed, SpeedLevel, TiltSpeed},
-        CameraId, Request,
+        Request,
     };
 
     fn target(id: ProfileId) -> TargetRegistration {
@@ -387,12 +333,10 @@ mod tests {
         )
     }
 
-    fn wire(request: &impl Request) -> Vec<u8> {
+    fn wire(request: &impl Request, target: &TargetRegistration) -> crate::Result<Vec<u8>> {
         let mut buffer = [0; 32];
-        let len = request
-            .write_into(CameraId::CAMERA_1, &mut buffer)
-            .expect("encoded request");
-        buffer[..len].to_vec()
+        let len = target.encode(request, &mut buffer)?;
+        Ok(buffer[..len].to_vec())
     }
 
     #[test]
@@ -400,50 +344,77 @@ mod tests {
         let position = PanTiltPosition::from_degrees(45.0, 15.0).expect("finite position");
         let brc = target(ProfileId::SonyBrc300);
         assert_eq!(
-            wire(&Absolute::for_target(&brc, position, SpeedLevel::Fastest).expect("BRC absolute")),
+            wire(&Absolute::new(position, SpeedLevel::Fastest), &brc).expect("BRC absolute"),
             [0x81, 1, 6, 2, 0x18, 0, 0x0f, 0x0d, 0x0b, 7, 0, 0, 0x0c, 3, 0, 0xff]
         );
         assert_eq!(
-            wire(&Relative::for_target(&brc, position, SpeedLevel::Fastest).expect("BRC relative")),
+            wire(&Relative::new(position, SpeedLevel::Fastest), &brc).expect("BRC relative"),
             [0x81, 1, 6, 3, 0x18, 0, 0x0f, 0x0d, 0x0b, 7, 0, 0, 0x0c, 3, 0, 0xff]
         );
-        // BRC directional drive still has separate speed fields.
         assert_eq!(
-            wire(
-                &Drive::for_target(&brc, PanTiltDirection::Up, SpeedLevel::Medium)
-                    .expect("BRC drive")
-            ),
+            wire(&Drive::new(PanTiltDirection::Up, SpeedLevel::Medium), &brc)
+                .expect("BRC independent drive speeds"),
             [0x81, 1, 6, 1, 12, 10, 3, 1, 0xff]
         );
         let g2 = target(ProfileId::PtzOpticsG2);
         let position = PanTiltPosition::from_degrees(10.0, -5.0).expect("finite position");
         assert_eq!(
-            wire(
-                &Absolute::for_target(&g2, position, SpeedLevel::Medium)
-                    .expect("standard absolute")
-            ),
+            wire(&Absolute::new(position, SpeedLevel::Medium), &g2).expect("standard absolute"),
             [0x81, 1, 6, 2, 12, 10, 0, 0, 9, 0, 0x0f, 0x0f, 0x0b, 8, 0xff]
         );
     }
 
-    #[cfg(any(feature = "blocking", feature = "async"))]
     #[test]
-    fn position_intent_uses_the_receiver_even_with_a_different_wire_preview() {
-        let preview_target = target(ProfileId::SonyBrc300);
-        let receiving_target = TargetRegistration::new(
+    fn position_intent_uses_each_receiving_targets_wire_grammar() {
+        let shared_speed_target = target(ProfileId::SonyBrc300);
+        let paired_speed_target = TargetRegistration::new(
             crate::IndividualCameraId::CAMERA_2,
             ProfileId::SonyEviH100.spec().expect("EVI profile"),
         );
         let origin = PanTiltPosition::from_degrees(0.0, 0.0).expect("zero degrees");
-        let request = Absolute::for_target(&preview_target, origin, SpeedLevel::Fastest)
-            .expect("BRC one-speed preview");
-        assert_eq!(&wire(&request)[..6], &[0x81, 1, 6, 2, 0x18, 0]);
-        let mut frame = [0; Absolute::MAX_SIZE];
-        let len = crate::requests::write_for_target(&request, &receiving_target, &mut frame)
-            .expect("EVI paired-speed frame");
+        let request = Absolute::new(origin, SpeedLevel::Fastest);
         assert_eq!(
-            &frame[..len],
+            &wire(&request, &shared_speed_target).expect("one-speed frame")[..6],
+            &[0x81, 1, 6, 2, 0x18, 0]
+        );
+        assert_eq!(
+            wire(&request, &paired_speed_target).expect("paired-speed frame"),
             &[0x82, 1, 6, 2, 0x18, 0x14, 0, 0, 0, 0, 0, 0, 0, 0, 0xff]
+        );
+    }
+
+    #[test]
+    fn limit_intents_lower_against_each_receiving_mount_and_codec() {
+        let desktop = target(ProfileId::SonyFr7);
+        let ceiling = desktop
+            .clone()
+            .with_mount(crate::MountPosition::Ceiling)
+            .expect("ceiling");
+        let position = PanTiltPosition::from_degrees(10.0, 5.0).expect("checked coordinates");
+        let set = SetLimit::new(PanTiltLimitCorner::UpRight, position);
+        for registration in [&desktop, &ceiling] {
+            assert_eq!(
+                wire(&set, registration).expect("FR7 positioned limit"),
+                [
+                    0x81, 0x01, 0x06, 0x07, 0x00, 0x01, 0x0f, 0x0f, 0x06, 0x0c, 0x09, 0x00, 0x00,
+                    0x04, 0x09, 0x0c, 0xff
+                ]
+            );
+        }
+        let clear = ClearLimit::new(PanTiltLimitCorner::UpRight);
+        assert_eq!(
+            wire(&clear, &target(ProfileId::PtzOpticsG2)).expect("G2 clear"),
+            [
+                0x81, 0x01, 0x06, 0x07, 0x01, 0x01, 0x07, 0x0f, 0x0f, 0x0f, 0x07, 0x0f, 0x0f, 0x0f,
+                0xff
+            ]
+        );
+        assert_eq!(
+            wire(&clear, &target(ProfileId::SonyBrc300)).expect("BRC clear"),
+            [
+                0x81, 0x01, 0x06, 0x07, 0x01, 0x01, 0x07, 0x0f, 0x0f, 0x0f, 0x0f, 0x07, 0x0f, 0x0f,
+                0x0f, 0xff
+            ]
         );
     }
 
@@ -463,15 +434,21 @@ mod tests {
         ] {
             let target = target(id);
             if target.profile().pan_tilt_coordinates().is_some() {
-                Absolute::for_target(&target, zero, SpeedLevel::Fastest).expect("coarse absolute");
-                Relative::for_target(&target, zero, SpeedLevel::Fastest).expect("coarse relative");
+                wire(&Absolute::new(zero, SpeedLevel::Fastest), &target).expect("coarse absolute");
+                wire(&Relative::new(zero, SpeedLevel::Fastest), &target).expect("coarse relative");
             }
-            Drive::for_target(&target, PanTiltDirection::Up, SpeedLevel::Fastest)
-                .expect("coarse drive");
+            wire(
+                &Drive::new(PanTiltDirection::Up, SpeedLevel::Fastest),
+                &target,
+            )
+            .expect("coarse drive");
         }
         let evi = target(ProfileId::SonyEviH100);
         assert!(matches!(
-            Absolute::for_target(&evi, zero, PanTiltSpeed::new(PanSpeed::MAX, TiltSpeed::MAX)),
+            wire(
+                &Absolute::new(zero, PanTiltSpeed::new(PanSpeed::MAX, TiltSpeed::MAX)),
+                &evi
+            ),
             Err(Error::ParameterOutOfRange { .. })
         ));
         let brc = target(ProfileId::SonyBrc300);
@@ -479,13 +456,12 @@ mod tests {
             PanSpeed::new(12).expect("pan"),
             TiltSpeed::new(10).expect("tilt"),
         );
-        assert!(Absolute::for_target(&brc, zero, unequal).is_err());
-        Drive::for_target(&brc, PanTiltDirection::Up, unequal)
+        assert!(wire(&Absolute::new(zero, unequal), &brc).is_err());
+        wire(&Drive::new(PanTiltDirection::Up, unequal), &brc)
             .expect("drive permits independent speeds");
-        let stop = Stop::for_target(&brc).expect("safe stop");
         assert_eq!(
-            stop.admission_control_class(crate::requests::RequestContractAuthority::new()),
-            crate::ControlClass::Urgent
+            Stop.admission(crate::requests::RequestContractAuthority::new()),
+            crate::request::policy::CommandAdmission::Stop
         );
     }
 }

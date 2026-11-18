@@ -13,10 +13,10 @@ use grafton_visca::{
         HasExposureCompensation, HasExposureMode, HasFocus, HasFocusNearLimit, HasFocusZone,
         HasFocusZoneInquiry, HasGamma, HasHue, HasImage, HasImageFlip, HasIris, HasLuminance,
         HasMotionSync, HasMulticastStreaming, HasNdFilter, HasNdiQuality, HasNoiseReduction2D,
-        HasNoiseReduction2DMode, HasNoiseReduction3D, HasPanTilt, HasPictureEffect, HasPower,
-        HasPresetRecallSpeed, HasPresets, HasRgbGain, HasRgbTuning, HasSaturation, HasSettingsSave,
-        HasSharpness, HasSharpnessMode, HasSpotlight, HasTally, HasUsbAudio, HasVersionInquiry,
-        HasWhiteBalance, HasWideDynamicRange, HasZoom,
+        HasNoiseReduction2DMode, HasNoiseReduction3D, HasPanTilt, HasPanTiltSettlement,
+        HasPictureEffect, HasPower, HasPresetRecallSpeed, HasPresets, HasRgbGain, HasRgbTuning,
+        HasSaturation, HasSettingsSave, HasSharpness, HasSharpnessMode, HasSpotlight, HasTally,
+        HasUsbAudio, HasVersionInquiry, HasWhiteBalance, HasWideDynamicRange, HasZoom,
     },
     operation::{AppliedOnly, Targeted},
     profiles::{
@@ -116,6 +116,7 @@ where
         + HasPower
         + HasZoom
         + HasPanTilt
+        + HasPanTiltSettlement
         + HasFocus
         + HasExposure
         + HasWhiteBalance

@@ -23,9 +23,10 @@ is preserved. An owner that panicked is reported as [`crate::Error::OwnerTermina
     (diagnostics) => {
         r#"Subscribes to the owner's bounded, best-effort diagnostic stream.
 
-`capacity` must be in `1..=128`; at most four live subscriptions are retained
-by one owner. A slow subscriber never stalls command or transport processing;
-its dropped events are visible in [`Self::metrics`].
+Use [`crate::observability::DiagnosticCapacity`] to select a queue size from
+1 to 128 events. One owner retains up to four live subscriptions. A slow
+subscriber never stalls command or transport processing.
+Its dropped events are visible in [`Self::metrics`].
 
 Delivery is not ordered against receipt resolution: a wait on an operation can
 complete before that operation's terminal event is queued here. Once

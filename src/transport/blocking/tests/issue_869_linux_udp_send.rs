@@ -16,7 +16,7 @@ use crate::{
     error::ErrorKind,
     observability::SessionStatus,
     operation::AppliedOnly,
-    transport::{BlockingTransport, HasTransportConfig, ReceiveOutcome, TransportConfig},
+    transport::{BlockingTransport, HasTransportConfig, IoBounds, ReceiveOutcome, UdpConnect},
     Error,
 };
 
@@ -25,10 +25,10 @@ use crate::{
 use crate::{
     capabilities::{
         self, Capabilities, CapabilityDomain, CapabilityRange, CoordinateSystem,
-        EndpointQuantization, ExposureCaps, FocusCaps, FocusNearEnd, ImageCaps, InquirySupport,
-        MenuCaps, PanTiltCaps, PanTiltWireCodec, PowerCaps, PresetCaps, RgbGainRanges,
-        RgbTuningRanges, ShutterSpeedEntry, TiltRanges, TypedSupportSet, TypedSupportSurface,
-        WhiteBalanceCaps, ZoomCaps,
+        EndpointQuantization, ExposureCaps, FocusCaps, FocusNearEnd, ImageCaps, MenuCaps,
+        PanTiltCaps, PanTiltWireCodec, PowerCaps, PresetCaps, RgbGainRanges, RgbTuningRanges,
+        ShutterSpeedEntry, TiltRanges, TypedSupportSet, TypedSupportSurface, WhiteBalanceCaps,
+        ZoomCaps,
     },
     config::SessionConfig,
     profiles::{
@@ -116,8 +116,8 @@ impl HasTransportConfig for PrimeSend {
         self.inner.identity()
     }
 
-    fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
-        self.inner.transport_config()
+    fn io_bounds(&self) -> &IoBounds {
+        self.inner.io_bounds()
     }
 }
 
@@ -180,7 +180,8 @@ fn a_real_udp_send_preserves_econnrefused_and_later_work_applies() {
     });
     let inner = crate::transport::blocking::Udp::connect_with_config(
         &endpoint.to_string(),
-        TransportConfig::for_udp(),
+        UdpConnect::default(),
+        IoBounds::UDP_DEFAULT,
     )
     .expect("native connected UDP transport");
     drop(reservation);
@@ -267,7 +268,7 @@ fn synthetic_spec(
     use TypedSupportSurface as S;
     let mut caps = Capabilities::runtime_baseline(model, 1)?;
     caps.typed_support = typed_support.union(TypedSupportSet::from_surface(S::PanTiltPositioning));
-    caps.inquiry_support = InquirySupport::Full;
+    caps.inquiries = true;
     caps.pan_tilt = Some(PanTiltCaps {
         geometry: Some(capabilities::PanTiltGeometry {
             pan_range: CapabilityRange::<i32>::new(-1700, 1700).expect("valid capability bounds"),
@@ -284,8 +285,6 @@ fn synthetic_spec(
         }),
         pan_speed: CapabilityRange::<u8>::new(1, 24).expect("valid capability bounds"),
         tilt_speed: CapabilityRange::<u8>::new(1, 20).expect("valid capability bounds"),
-        simultaneous: true,
-        preset_recovery_time: Duration::ZERO,
         variable_speed: false,
         motion_sync_speed_range: typed_support
             .contains(S::MotionSync)
@@ -327,6 +326,7 @@ fn synthetic_spec(
             CapabilityDomain::<u16>::new(0, 30, &[][..]).expect("valid capability bounds")
         }),
         gain_range: Some(CapabilityRange::<u8>::new(0, 15).expect("valid capability bounds")),
+        shutter_codes: Some(CapabilityDomain::<u8>::new(1, 1, &[][..])?),
         shutter_speeds: vec![ShutterSpeedEntry::new(
             crate::types::ExposureTime::new(1, 60)?,
             0x01,
@@ -344,8 +344,6 @@ fn synthetic_spec(
     caps.white_balance = Some(WhiteBalanceCaps {
         modes: white_modes,
         one_push: typed_support.contains(S::OnePushWhiteBalance),
-        color_temp_range: color_temperature
-            .then(|| CapabilityRange::<u16>::new(2500, 8000).expect("valid capability bounds")),
         color_temperature_steps: if color_temperature {
             (0..=55)
                 .map(|step| 2500 + 100 * step)
@@ -385,7 +383,6 @@ fn synthetic_spec(
             gamma_range: Some(CapabilityRange::<u8>::new(0, 4).expect("valid capability bounds")),
             flip: true,
             mirror: true,
-            requires_settings_save_for_flip: false,
             picture_effects: vec![
                 crate::types::PictureEffectMode::Off,
                 crate::types::PictureEffectMode::BlackAndWhite,
@@ -400,20 +397,10 @@ fn synthetic_spec(
         recall_speed_range: Some(
             CapabilityRange::<u8>::new(1, 23).expect("valid capability bounds"),
         ),
-        tour: false,
-        thumbnail: false,
-        recall_delay: Duration::ZERO,
-        names: None,
     });
     caps.power = Some(PowerCaps {
         status_query: capabilities::PowerStatusQuery::Standard,
-        on_time: Duration::from_secs(5),
-        standby: typed_support
-            .contains(S::PowerStandby)
-            .then_some(Duration::from_secs(5)),
-        wake_on_lan: false,
-        retains_settings: true,
-        home_on_up: false,
+        standby: typed_support.contains(S::PowerStandby),
     });
     if typed_support.contains(S::MenuDisplay) {
         caps.menu = Some(MenuCaps {});

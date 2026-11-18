@@ -24,6 +24,24 @@ fn assert_request_encoding_does_not_allocate<R: Request>(label: &str, request: &
     assert_eq!(allocations, 0, "{label} Request::write_into allocated");
 }
 
+fn assert_target_encoding_does_not_allocate(
+    label: &str,
+    target: &grafton_visca::config::TargetRegistration,
+    request: &impl Request,
+) {
+    let mut buffer = [0_u8; 64];
+    let allocations = allocations_during(|| {
+        let len = target
+            .encode(request, &mut buffer)
+            .expect("typed request must encode");
+        std::hint::black_box(&buffer[..len]);
+    });
+    assert_eq!(
+        allocations, 0,
+        "{label} TargetRegistration::encode allocated"
+    );
+}
+
 macro_rules! assert_generated_inquiry_inventory {
     ($(($label:literal, $inquiry:expr)),+ $(,)?) => {
         #[test]
@@ -322,44 +340,24 @@ fn zoom_speed() -> ZoomSpeed {
 
 #[test]
 fn representative_typed_requests_encode_without_heap_allocation() {
-    let drive = grafton_visca::command::pan_tilt::Drive::for_target(
-        &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::IndividualCameraId::CAMERA_1,
-            grafton_visca::profiles::ProfileSpec::from_compile_time::<
-                grafton_visca::profiles::PtzOpticsG2,
-            >()
-            .expect("source profile"),
-        ),
+    let target = grafton_visca::config::TargetRegistration::new(
+        grafton_visca::types::IndividualCameraId::CAMERA_1,
+        grafton_visca::profiles::ProfileSpec::from_compile_time::<
+            grafton_visca::profiles::PtzOpticsG2,
+        >()
+        .expect("source profile"),
+    );
+    let drive = grafton_visca::command::pan_tilt::Drive::new(
         PanTiltDirection::Up,
         grafton_visca::types::PanTiltSpeed {
             pan: speed(),
             tilt: tilt(),
         },
-    )
-    .expect("drive");
-    let zoom = grafton_visca::command::zoom::TeleVariable::for_target(
-        &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::IndividualCameraId::CAMERA_1,
-            grafton_visca::profiles::ProfileSpec::from_compile_time::<
-                grafton_visca::profiles::PtzOpticsG2,
-            >()
-            .expect("source profile"),
-        ),
-        zoom_speed(),
-    )
-    .expect("profile-aware request");
+    );
+    let zoom = grafton_visca::command::zoom::TeleVariable::new(zoom_speed());
     let preset = grafton_visca::command::presets::Store::new(PresetNumber::new(1).expect("preset"));
     let reset = grafton_visca::command::presets::Clear::new(PresetNumber::new(1).expect("preset"));
-    let pan_stop = grafton_visca::command::pan_tilt::Stop::for_target(
-        &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::IndividualCameraId::CAMERA_1,
-            grafton_visca::profiles::ProfileSpec::from_compile_time::<
-                grafton_visca::profiles::PtzOpticsG2,
-            >()
-            .expect("source profile"),
-        ),
-    )
-    .expect("profile-safe stop");
+    let pan_stop = grafton_visca::command::pan_tilt::Stop;
 
     assert_request_encoding_does_not_allocate(
         "pan/tilt home",
@@ -369,10 +367,10 @@ fn representative_typed_requests_encode_without_heap_allocation() {
         "pan/tilt reset",
         &grafton_visca::command::pan_tilt::Reset,
     );
-    assert_request_encoding_does_not_allocate("pan/tilt stop", &pan_stop);
-    assert_request_encoding_does_not_allocate("pan/tilt drive", &drive);
+    assert_target_encoding_does_not_allocate("pan/tilt stop", &target, &pan_stop);
+    assert_target_encoding_does_not_allocate("pan/tilt drive", &target, &drive);
     assert_request_encoding_does_not_allocate("zoom stop", &grafton_visca::command::zoom::Stop);
-    assert_request_encoding_does_not_allocate("zoom drive", &zoom);
+    assert_target_encoding_does_not_allocate("zoom drive", &target, &zoom);
     assert_request_encoding_does_not_allocate(
         "focus infinity",
         &grafton_visca::command::focus::Infinity,
@@ -692,7 +690,7 @@ fn warmed_receive_decoding_and_batch_recycling_do_not_allocate() {
     use grafton_visca::{
         profiles::{GenericVisca, ProfileSpec, SonyFr7},
         testing::receive::ReceiveProbe,
-        transport::{SendSemantics, TransportConfig},
+        transport::{IoBounds, SendSemantics},
     };
     const RAW: &[u8] = &[0x90, 0x41, 0xff, 0x90, 0x51, 0xff];
     const SONY: &[u8] = &[
@@ -707,8 +705,7 @@ fn warmed_receive_decoding_and_batch_recycling_do_not_allocate() {
         (ProfileSpec::from_compile_time::<SonyFr7>().unwrap(), SONY),
     ] {
         for semantics in [SendSemantics::Stream, SendSemantics::Datagram] {
-            let mut probe =
-                ReceiveProbe::new(&profile, TransportConfig::default(), semantics).unwrap();
+            let mut probe = ReceiveProbe::new(&profile, IoBounds::default(), semantics).unwrap();
             assert_eq!(probe.receive(chunk).unwrap(), 2);
             let mut observed = 0;
             let allocations = allocations_during(|| {
@@ -728,7 +725,7 @@ fn warmed_malformed_receive_decoding_does_not_allocate() {
     use grafton_visca::{
         profiles::{GenericVisca, ProfileSpec, SonyFr7},
         testing::receive::ReceiveProbe,
-        transport::{SendSemantics, TransportConfig},
+        transport::{IoBounds, SendSemantics},
     };
     const RAW_ECHO_AND_ACK: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x00, 0xff, 0x90, 0x41, 0xff];
     const RAW_MALFORMED_AND_ACK: &[u8] = &[0x90, 0x61, 0xff, 0x90, 0x41, 0xff];
@@ -793,7 +790,7 @@ fn warmed_malformed_receive_decoding_does_not_allocate() {
             0,
         ),
     ] {
-        let mut probe = ReceiveProbe::new(&profile, TransportConfig::default(), semantics).unwrap();
+        let mut probe = ReceiveProbe::new(&profile, IoBounds::default(), semantics).unwrap();
         assert_eq!(probe.receive(chunk).unwrap(), expected);
         let mut observed = 0;
         let allocations = allocations_during(|| {
@@ -812,7 +809,7 @@ fn warmed_owner_command_and_frame_turns_do_not_allocate() {
     use grafton_visca::{
         profiles::{GenericVisca, ProfileSpec, PtzOpticsG2, SonyFr7},
         testing::turns::TurnProbe,
-        transport::{SendSemantics, TransportConfig},
+        transport::{IoBounds, SendSemantics},
     };
 
     for (label, profile) in [
@@ -827,8 +824,7 @@ fn warmed_owner_command_and_frame_turns_do_not_allocate() {
         ),
     ] {
         for semantics in [SendSemantics::Stream, SendSemantics::Datagram] {
-            let mut probe =
-                TurnProbe::new(&profile, TransportConfig::default(), semantics).unwrap();
+            let mut probe = TurnProbe::new(&profile, IoBounds::default(), semantics).unwrap();
             probe.stage_command().unwrap();
             probe.command_turn().unwrap();
             probe.frame_turn().unwrap();
@@ -953,7 +949,7 @@ fn warmed_raw_and_sony_retries_reuse_owner_buffers() {
     use grafton_visca::{
         profiles::{GenericVisca, ProfileSpec, SonyFr7},
         testing::turns::TurnProbe,
-        transport::{SendSemantics, TransportConfig},
+        transport::{IoBounds, SendSemantics},
     };
 
     for profile in [
@@ -961,8 +957,7 @@ fn warmed_raw_and_sony_retries_reuse_owner_buffers() {
         ProfileSpec::from_compile_time::<SonyFr7>().unwrap(),
     ] {
         for semantics in [SendSemantics::Stream, SendSemantics::Datagram] {
-            let mut probe =
-                TurnProbe::new(&profile, TransportConfig::default(), semantics).unwrap();
+            let mut probe = TurnProbe::new(&profile, IoBounds::default(), semantics).unwrap();
             probe.stage_retry().unwrap();
             probe.retry_turn().unwrap();
             for _ in 0..8 {

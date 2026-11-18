@@ -243,6 +243,13 @@ fn sony_socket_reuse_resolves_an_open_cancellation_without_losing_the_request_se
     let (second, second_id) = admit(&mut engine, 2, command(1), start);
     send_ok(&mut engine, &second, Some(SECOND), start);
     let reused = engine.handle(ack(SECOND, ViscaSocket::S1), start);
+    assert!(reused.iter().any(|effect| matches!(
+        effect,
+        Effect::Transition { id, from, to }
+            if *id == first_id
+                && matches!(from.phase(), Phase::AwaitingCancellationResolution { .. })
+                && matches!(to.phase(), Phase::ExecutingDisplaced { .. })
+    )));
     assert!(reused.iter().any(|effect| matches!(effect,
         Effect::CancellationObservation { id, observation: CancellationObservation::AttemptFailed(Error::CancellationUnconfirmed) } if *id == first_id
     )));

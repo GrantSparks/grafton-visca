@@ -10,9 +10,7 @@ use grafton_visca_test_support::{fake_camera, runtime_matrix};
 use std::time::Duration;
 
 use grafton_visca::{
-    capabilities::{
-        Capabilities, InquirySupport, ShutterSpeedEntry, TypedSupportSet, TypedSupportSurface,
-    },
+    capabilities::{Capabilities, ShutterSpeedEntry, TypedSupportSet, TypedSupportSurface},
     config::SessionConfig,
     profiles::{
         CommandTimeouts, ProfileEnvelope, ProfileSpec, ProfileTiming, SonyBrc300, SonyFr7,
@@ -90,7 +88,7 @@ fn documented_digital_zoom_profile(digital_range_permission: bool) -> ProfileSpe
         variable: false,
         optical_ratio: None,
     });
-    capabilities.inquiry_support = InquirySupport::None;
+    capabilities.inquiries = false;
     capabilities.typed_support = if digital_range_permission {
         TypedSupportSet::from_surfaces(&[
             TypedSupportSurface::DirectZoom,
@@ -141,13 +139,17 @@ fn documented_exposure_mode_profile_without_typed_permission() -> ProfileSpec {
             grafton_visca::capabilities::CapabilityRange::<u8>::new(0, 1)
                 .expect("valid capability bounds"),
         ),
+        shutter_codes: Some(
+            grafton_visca::capabilities::CapabilityDomain::<u8>::new(1, 1, &[][..])
+                .expect("valid shutter domain"),
+        ),
         shutter_speeds: vec![ShutterSpeedEntry {
             exposure: grafton_visca::types::ExposureTime::new(1, 60).expect("nonzero denominator"),
             value: 1,
         }],
         brightness_range: None,
     });
-    capabilities.inquiry_support = InquirySupport::Partial;
+    capabilities.inquiries = true;
     capabilities.typed_support = TypedSupportSet::empty();
 
     ProfileSpec::builder(capabilities)

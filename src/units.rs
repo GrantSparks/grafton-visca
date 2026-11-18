@@ -33,6 +33,8 @@ pub struct Kelvin(u16);
 /// A nonzero denominator and lowest terms make equality and hashing value
 /// based: `1/60 == 2/120`. Ordering compares exposure times numerically.
 /// `Display`, `FromStr` and serde use `numerator/denominator` seconds.
+/// Each component has one to ten ASCII digits and fits in a `u32`. The
+/// denominator must be nonzero.
 /// A profile's shutter table maps the physical time to its camera-specific code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(
@@ -135,15 +137,27 @@ impl FromStr for ExposureTime {
     type Err = Error;
 
     fn from_str(text: &str) -> Result<Self> {
-        let invalid = || Error::InvalidParameter {
+        const MALFORMED: &str = "expected two unsigned decimal integers separated by '/'";
+        const OUT_OF_RANGE: &str = "numerator or denominator out of range for a ten-digit u32";
+
+        let invalid = |reason| Error::InvalidParameter {
             parameter: "exposure_time",
             value: Cow::Owned(text.to_owned()),
-            reason: Cow::Borrowed("expected `numerator/denominator` with a nonzero denominator"),
+            reason: Cow::Borrowed(reason),
         };
-        let (numerator, denominator) = text.split_once('/').ok_or_else(invalid)?;
-        let numerator = numerator.trim().parse().map_err(|_| invalid())?;
-        let denominator = denominator.trim().parse().map_err(|_| invalid())?;
-        Self::new(numerator, denominator).map_err(|_| invalid())
+        let (numerator, denominator) = text.split_once('/').ok_or_else(|| invalid(MALFORMED))?;
+        let is_decimal =
+            |part: &str| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit());
+        if !is_decimal(numerator) || !is_decimal(denominator) {
+            return Err(invalid(MALFORMED));
+        }
+        if numerator.len() > 10 || denominator.len() > 10 {
+            return Err(invalid(OUT_OF_RANGE));
+        }
+
+        let numerator = numerator.parse().map_err(|_| invalid(OUT_OF_RANGE))?;
+        let denominator = denominator.parse().map_err(|_| invalid(OUT_OF_RANGE))?;
+        Self::new(numerator, denominator)
     }
 }
 
@@ -168,10 +182,17 @@ impl schemars::JsonSchema for ExposureTime {
     }
 
     fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        // Ten-digit branches stop at each successive digit of 4294967295.
+        const DECIMAL_U32: &str = concat!(
+            r"(?:[0-9]{1,9}|[0-3][0-9]{9}|4[01][0-9]{8}|42[0-8][0-9]{7}|429[0-3][0-9]{6}",
+            r"|4294[0-8][0-9]{5}|42949[0-5][0-9]{4}|429496[0-6][0-9]{3}|4294967[01][0-9]{2}",
+            r"|42949672[0-8][0-9]|429496729[0-5])",
+        );
         schemars::json_schema!({
             "type": "string",
-            "pattern": "^[0-9]+/[0-9]*[1-9][0-9]*$",
-            "description": "Exposure time as `numerator/denominator` seconds, such as `1/60`.",
+            "pattern": format!("^{DECIMAL_U32}/{DECIMAL_U32}$"),
+            "not": { "pattern": "[^0-9/]|/0+$" },
+            "description": "Exposure time as `numerator/denominator` seconds, such as `1/60`. Each component has one to ten ASCII digits and is at most 4294967295 (u32::MAX). The denominator is nonzero.",
         })
     }
 }
@@ -319,10 +340,35 @@ mod tests {
         assert!(ExposureTime::new(u32::MAX - 1, u32::MAX)? < ExposureTime::new(1, 1)?);
         assert!(ExposureTime::new(u32::MAX, u32::MAX - 1)? > ExposureTime::new(1, 1)?);
         assert!(ExposureTime::new(1, 0).is_err());
-        for invalid in ["", "1", "1/0", "a/60", "1/60/2", "-1/60"] {
+        assert_eq!("4294967295/1".parse::<ExposureTime>()?, ExposureTime::MAX);
+        assert_eq!(
+            "1/4294967295".parse::<ExposureTime>()?.denominator(),
+            u32::MAX
+        );
+        assert_eq!("0000000001/0000000060".parse::<ExposureTime>()?, sixtieth);
+        for (invalid, expected_reason) in [
+            ("", "unsigned decimal integers"),
+            ("1", "unsigned decimal integers"),
+            ("a/60", "unsigned decimal integers"),
+            ("1/60/2", "unsigned decimal integers"),
+            ("-1/60", "unsigned decimal integers"),
+            (" 1/60", "unsigned decimal integers"),
+            ("+1/60", "unsigned decimal integers"),
+            ("1 / 60", "unsigned decimal integers"),
+            ("1/60\n", "unsigned decimal integers"),
+            ("1/0", "nonzero denominator"),
+            ("1/0000000000", "nonzero denominator"),
+            ("4294967296/1", "out of range"),
+            ("1/4294967296", "out of range"),
+            ("99999999999/1", "out of range"),
+            ("00000000001/1", "out of range"),
+        ] {
             assert!(
-                invalid.parse::<ExposureTime>().is_err(),
-                "accepted {invalid:?}"
+                matches!(
+                    invalid.parse::<ExposureTime>(),
+                    Err(Error::InvalidParameter { reason, .. }) if reason.contains(expected_reason)
+                ),
+                "unexpected result for {invalid:?}"
             );
         }
         Ok(())
@@ -363,7 +409,9 @@ mod tests {
             serde_json::from_value::<ExposureTime>(serde_json::json!("2/120"))?,
             time
         );
-        assert!(serde_json::from_value::<ExposureTime>(serde_json::json!("1/0")).is_err());
+        for invalid in ["1/0", " 1/60", "+1/60", "1 / 60", "99999999999/1"] {
+            assert!(serde_json::from_value::<ExposureTime>(serde_json::json!(invalid)).is_err());
+        }
         Ok(())
     }
 }

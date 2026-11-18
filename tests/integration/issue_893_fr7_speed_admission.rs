@@ -55,21 +55,13 @@ impl Fr7 {
 }
 
 fn fast_drive() -> grafton_visca::command::pan_tilt::Drive {
-    grafton_visca::command::pan_tilt::Drive::for_target(
-        &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::IndividualCameraId::CAMERA_1,
-            grafton_visca::profiles::ProfileSpec::from_compile_time::<
-                grafton_visca::profiles::SonyFr7,
-            >()
-            .expect("source profile"),
-        ),
+    grafton_visca::command::pan_tilt::Drive::new(
         PanTiltDirection::Right,
         grafton_visca::types::PanTiltSpeed {
             pan: PanSpeed::new(50).unwrap(),
             tilt: TiltSpeed::new(50).unwrap(),
         },
     )
-    .unwrap()
 }
 
 fn assert_unsent(error: &Error) {

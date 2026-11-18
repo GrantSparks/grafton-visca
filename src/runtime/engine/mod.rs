@@ -48,8 +48,8 @@ mod decision;
 mod entry_table;
 use decision::Decision;
 use entry_table::{
-    AdmissionFacts, EntryChange, EntryPlacement, EntryTable, SequenceSlots, SocketClaim,
-    SocketedLifecycle, UnsocketedLifecycle,
+    EntryChange, EntryPlacement, EntryTable, SequenceSlots, SocketClaim, SocketedLifecycle,
+    UnsocketedLifecycle,
 };
 mod framing;
 pub(crate) use framing::{ProtocolEncoder, WireProtocol, WriteFraming};
@@ -207,6 +207,13 @@ impl CompletionSockets {
     }
 }
 
+/// The scheduler or an input frame can expose an overdue request.
+#[derive(Clone, Copy)]
+enum DueOrigin {
+    Scheduler,
+    Frame,
+}
+
 /// Time-bounded retained-input decision for one due raw release (#713).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RawReleaseGate {
@@ -273,7 +280,6 @@ pub(crate) struct Entry {
     submitted_at: Instant,
     prior: Option<PriorAttempts>,
     sequences: SequenceSlots,
-    slot: AdmissionSlot,
 }
 
 impl Entry {
@@ -294,16 +300,14 @@ impl Entry {
         if self.lifecycle().is_off_wire() || matches!(evidence, AttemptEvidence::Unwritten) {
             return AttemptEnd::Queued;
         }
-        let policy = self.request.context().retry;
+        let replayable = self.request.context().retry.max_retries > 0;
         let retry = match due {
-            Some(DueAction::Ack { retry, .. }) => {
-                policy.ack_timeout.then_some((retry, Backoff::AckCapped))
+            Some(DueAction::Ack { retry, .. }) => replayable.then_some((retry, Backoff::AckCapped)),
+            Some(DueAction::Completion(CompletionDeadline::Unacknowledged { retry })) => {
+                replayable.then_some((retry, Backoff::Uncapped))
             }
-            Some(DueAction::Completion(CompletionDeadline::Unacknowledged { retry })) => policy
-                .completion_timeout
-                .then_some((retry, Backoff::Uncapped)),
             Some(DueAction::InquiryReply { retry }) => {
-                (policy.inquiry_timeout && !mode.is_stream()).then_some((retry, Backoff::Uncapped))
+                (replayable && !mode.is_stream()).then_some((retry, Backoff::Uncapped))
             }
             Some(
                 DueAction::Completion(
@@ -311,7 +315,7 @@ impl Entry {
                 )
                 | DueAction::CancellationResolution { .. }
                 | DueAction::CancellationObservation { .. }
-                | DueAction::RetryBudget { .. }
+                | DueAction::RetryBudget
                 | DueAction::RetryReady { .. },
             )
             | None => None,
@@ -427,10 +431,10 @@ impl Entry {
     }
 
     fn due(&self, id: RequestId) -> Option<DueWork> {
-        let (at, action) = self.lifecycle.active()?.due_action(
-            self.retry_budget_deadline(),
-            self.certainty(AttemptEvidence::Lifecycle),
-        )?;
+        let (at, action) = self
+            .lifecycle
+            .active()?
+            .due_action(self.retry_budget_deadline())?;
         Some(DueWork {
             at,
             action,
@@ -506,15 +510,23 @@ pub(crate) struct InputTurn {
 }
 
 impl DueWork {
-    fn key(self) -> (Instant, RequestId, u8) {
-        (self.at, self.request, self.action.priority())
+    fn key(self) -> (Instant, RequestId) {
+        (self.at, self.request)
     }
 }
+
+const HALT_AXES: [crate::AffectedAxes; 5] = [
+    crate::AffectedAxes::PAN_TILT,
+    crate::AffectedAxes::ZOOM,
+    crate::AffectedAxes::FOCUS,
+    crate::AffectedAxes::IRIS,
+    crate::AffectedAxes::ND_FILTER,
+];
 
 #[derive(Debug, Default)]
 struct TargetState {
     policy: Option<TargetPolicy>,
-    motion_fences: [u64; 5],
+    motion_fences: [u64; HALT_AXES.len()],
 }
 
 /// Pure state machine implementing the issue #542 protocol boundary.
@@ -583,15 +595,22 @@ impl EngineAccess for ProtocolEngine {
 }
 
 impl ProtocolEngine {
-    /// Constructs an empty session engine. Targets are registered separately.
-    pub(crate) fn new(policy: ProtocolPolicy, now: Instant) -> Result<Self, Error> {
+    /// Constructs an empty session engine with its complete target table.
+    pub(crate) fn new(
+        policy: ProtocolPolicy,
+        targets: PerTarget<Option<TargetPolicy>>,
+        now: Instant,
+    ) -> Result<Self, Error> {
         policy.validate_at(now)?;
         let correlation = CorrelationMode::new(policy.wire.kind(), policy.transport);
         Ok(Self {
             correlation,
             core: EngineCore {
                 policy,
-                targets: PerTarget::default(),
+                targets: PerTarget::from_fn(|target| TargetState {
+                    policy: targets[target],
+                    ..TargetState::default()
+                }),
                 entries: EntryTable::new(),
                 next_request_id: IdAllocator::new(),
                 next_transmission_id: IdAllocator::new(),
@@ -600,14 +619,6 @@ impl ProtocolEngine {
                 session: EngineSession::Running,
             },
         })
-    }
-
-    pub(crate) fn register_target(
-        &mut self,
-        target: TargetSlot,
-        policy: TargetPolicy,
-    ) -> Result<(), Error> {
-        EngineMethods::register_target(self, target, policy)
     }
 
     pub(crate) fn retune(
@@ -729,19 +740,17 @@ impl ProtocolEngine {
         &mut self,
         turn: &InputTurn,
         request: RuntimeRequest,
-        slot: AdmissionSlot,
     ) -> Result<RequestId, Error> {
-        EngineMethods::admit_in_turn(self, turn, request, slot)
+        EngineMethods::admit_in_turn(self, turn, request)
     }
 
     pub(crate) fn admit_owner_in_turn(
         &mut self,
         turn: &InputTurn,
         request: RuntimeRequest,
-        slot: AdmissionSlot,
     ) -> Result<AdmittedId, Error> {
         let lane = request.lane();
-        let id = EngineMethods::admit_in_turn(self, turn, request, slot)?;
+        let id = EngineMethods::admit_in_turn(self, turn, request)?;
         Ok(match lane {
             Lane::Command => AdmittedId::Command(CommandRequestId::issued(id)),
             Lane::Inquiry => AdmittedId::Inquiry(id),
@@ -997,22 +1006,6 @@ trait EngineMethods: EngineAccess {
         }
     }
 
-    /// Registers one target's socket and cancellation policy.
-    fn register_target(&mut self, target: TargetSlot, policy: TargetPolicy) -> Result<(), Error> {
-        let slot = &mut self.targets[target].policy;
-        match *slot {
-            Some(existing) if existing != policy => Err(Error::InvalidState {
-                reason: "target already has conflicting protocol policy".into(),
-            }),
-            Some(_) => Ok(()),
-            None => {
-                *slot = Some(policy);
-                self.debug_assert_invariants();
-                Ok(())
-            }
-        }
-    }
-
     /// Replaces the session-wide pacing floor and per-target socket capacity.
     ///
     /// Target *registration* is still immutable: a slot that was never
@@ -1153,10 +1146,9 @@ trait EngineMethods: EngineAccess {
         &mut self,
         turn: &InputTurn,
         request: RuntimeRequest,
-        slot: AdmissionSlot,
     ) -> Result<RequestId, Error> {
         self.debug_assert_input_boundary();
-        let verdict = self.admit(request, slot, turn.now);
+        let verdict = self.admit(request, turn.now);
         self.debug_assert_invariants();
         verdict
     }
@@ -1200,6 +1192,12 @@ trait EngineMethods: EngineAccess {
         while decision.has_deferred() {
             self.apply_retro(now, &mut decision);
         }
+        if let (core, CorrelationState::RawStream(stream)) = self.split() {
+            let mut context = StreamContext { core, stream };
+            for target in TargetSlot::ALL {
+                context.release_idle_sockets(target);
+            }
+        }
         self.debug_assert_invariants();
         #[cfg(test)]
         tests::assert_occupancy_agrees(self, now);
@@ -1208,13 +1206,9 @@ trait EngineMethods: EngineAccess {
     fn apply_input(&mut self, input: Input, now: Instant, effects: &mut Decision) {
         match input {
             #[cfg(test)]
-            Input::Admit {
-                ticket,
-                request,
-                slot,
-            } => {
+            Input::Admit { ticket, request } => {
                 let turn = self.begin_input_turn(now);
-                effects.push(match self.admit_in_turn(&turn, request, slot) {
+                effects.push(match self.admit_in_turn(&turn, request) {
                     Ok(id) => Effect::Admitted { ticket, id },
                     Err(error) => Effect::AdmissionRejected { ticket, error },
                 });
@@ -1298,55 +1292,6 @@ trait EngineMethods: EngineAccess {
         }
     }
 
-    /// Entries holding `slot`, for `target` when the slot is a control
-    /// reserve.
-    fn entries_holding(&self, slot: AdmissionSlot, target: TargetSlot) -> usize {
-        self.entries
-            .values()
-            .filter(|entry| {
-                entry.slot == slot
-                    && (slot == AdmissionSlot::Ordinary || entry.request.context().target == target)
-            })
-            .count()
-    }
-
-    /// Whether `request` may take `slot` (D26, #778). Ordinary slots are
-    /// bounded by `capacity`; a target's reserved slots by its
-    /// `control_reserve`, and only an urgent request may hold one.
-    fn admission_slot_available(
-        &self,
-        request: &RuntimeRequest,
-        slot: AdmissionSlot,
-    ) -> Result<(), Error> {
-        let target = request.context().target;
-        match slot {
-            AdmissionSlot::Ordinary => {
-                if self.entries_holding(slot, target) >= self.policy.capacity.get() {
-                    return Err(Error::RuntimeQueueFull {
-                        capacity: self.policy.capacity.get(),
-                    });
-                }
-            }
-            AdmissionSlot::ControlReserve => {
-                if !request.is_stop() {
-                    return Err(Error::InvalidState {
-                        reason: "only an urgent request may hold a control-reserve slot".into(),
-                    });
-                }
-                let reserve = self.targets[target]
-                    .policy
-                    .map_or(0, |policy| policy.control_reserve);
-                if self.entries_holding(slot, target) >= usize::from(reserve) {
-                    return Err(Error::ControlReserveExhausted {
-                        target: target.individual_camera(),
-                        reserve: usize::from(reserve),
-                    });
-                }
-            }
-        }
-        Ok(())
-    }
-
     /// Establish a one-time owner halt fence without dispatching or discarding
     /// correlation for writes already in flight. Ready/retry work is terminal;
     /// future retry decisions consult the same bounded fence table.
@@ -1371,22 +1316,22 @@ trait EngineMethods: EngineAccess {
         sink: &mut Vec<Effect>,
     ) {
         let fences = &mut self.targets[target].motion_fences;
-        for (index, fence) in fences.iter_mut().enumerate() {
-            if axes.bits() & (1 << index) != 0 {
+        for (fence, axis) in fences.iter_mut().zip(HALT_AXES) {
+            if axes.contains(axis) {
                 *fence = (*fence).max(cutoff);
             }
         }
-        let ids: Vec<_> = self
+        let superseded: Vec<_> = self
             .entries
             .iter()
+            .filter(|(_, entry)| entry.lifecycle().is_off_wire())
             .filter_map(|(id, entry)| {
-                (entry.lifecycle().is_off_wire()
-                    && self.motion_superseded(&entry.request).is_some())
-                .then_some((*id, entry.certainty(AttemptEvidence::Unwritten)))
+                let axes = self.motion_superseded(&entry.request)?;
+                Some((*id, axes, entry.certainty(AttemptEvidence::Unwritten)))
             })
             .collect();
         let mut effects = Decision::new(sink);
-        for (id, certainty) in ids {
+        for (id, axes, certainty) in superseded {
             // A queued or backed-off request is not on the wire. It can have
             // affected the camera only through an earlier attempt that the
             // camera did not conclusively reject.
@@ -1461,24 +1406,18 @@ trait EngineMethods: EngineAccess {
     fn motion_superseded(&self, request: &RuntimeRequest) -> Option<crate::AffectedAxes> {
         let context = request.context();
         let motion = context.motion.filter(|_| !request.is_stop())?;
-        let fences = self.targets[context.target].motion_fences;
-        fences
-            .iter()
-            .enumerate()
-            .any(|(index, cutoff)| {
-                motion.axes.bits() & (1 << index) != 0
-                    && *cutoff != 0
-                    && context.submission_order <= *cutoff
+        let fenced = self.targets[context.target]
+            .motion_fences
+            .into_iter()
+            .zip(HALT_AXES)
+            .filter_map(|(cutoff, axis)| {
+                (cutoff != 0 && context.submission_order <= cutoff).then_some(axis)
             })
-            .then_some(motion.axes)
+            .reduce(crate::AffectedAxes::union)?;
+        motion.axes.intersection(fenced)
     }
 
-    fn admit(
-        &mut self,
-        request: RuntimeRequest,
-        slot: AdmissionSlot,
-        now: Instant,
-    ) -> Result<RequestId, Error> {
+    fn admit(&mut self, request: RuntimeRequest, now: Instant) -> Result<RequestId, Error> {
         if let EngineSession::Ended(end) = &self.session {
             return Err(end.cause.clone());
         }
@@ -1490,12 +1429,6 @@ trait EngineMethods: EngineAccess {
                 context: FailureContext::new(FailureStage::PreAdmission, Certainty::NotAccepted),
             });
         }
-        self.admission_slot_available(&request, slot)?;
-        let Some(_) = self.targets[context.target].policy else {
-            return Err(Error::InvalidState {
-                reason: "target is not registered in this session".into(),
-            });
-        };
         if let Some(shape) = request.payload_shape().filter(|_| self.mode().is_raw()) {
             let available = self
                 .tracked_inquiry_shapes(context.target)
@@ -1516,17 +1449,7 @@ trait EngineMethods: EngineAccess {
         let Some(id) = self.allocate_request_id() else {
             return Err(Error::RuntimeIdentityExhausted);
         };
-        let admitted = self.entries.admit(
-            id,
-            request,
-            AdmissionFacts {
-                submitted_at: now,
-                slot,
-            },
-        );
-        if !admitted {
-            return Err(Error::RuntimeIdentityExhausted);
-        }
+        self.entries.admit(id, request, now);
         Ok(id)
     }
 
@@ -2645,19 +2568,23 @@ trait EngineMethods: EngineAccess {
             effects.push(Effect::Ignored(unmatched));
             return;
         };
-        let compatible_target = self
+        let Some(entry) = self
             .entries
             .get(&id)
-            .is_some_and(|entry| entry.request.context().target == frame.target);
-        if !compatible_target {
+            .filter(|entry| entry.request.context().target == frame.target)
+        else {
             effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             return;
-        }
+        };
         match frame.response {
             DecodedResponse::Ack { socket } => self.ack(id, socket, now, effects),
             DecodedResponse::Completion { socket } => {
                 if correlation_kind == CorrelationKind::Cancellation {
-                    self.confirm_cancelled(id, now, effects);
+                    if let Some(cancellation) = entry.lifecycle().cancellation_ambiguity() {
+                        self.confirm_cancelled(id, cancellation, now, effects);
+                    } else {
+                        effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
+                    }
                 } else {
                     self.completion(id, socket, now, effects);
                 }
@@ -3383,10 +3310,11 @@ trait EngineMethods: EngineAccess {
     }
 
     fn mark_stream_answer_written(&mut self, id: RequestId, cancel: bool) {
-        if let Some((target, capacity)) = self.entries.get(&id).map(|entry| {
+        if let Some((target, capacity, completion_only)) = self.entries.get(&id).map(|entry| {
             (
                 entry.request.context().target,
                 entry.dispatched_socket_capacity(),
+                !cancel && entry.reply_family() == SendingReply::CompletionOnly,
             )
         }) {
             if let CorrelationState::RawStream(stream) = self.split().1 {
@@ -3395,6 +3323,9 @@ trait EngineMethods: EngineAccess {
                     *seen = (*seen).max(Some(capacity));
                 }
                 stream.ledger.mark_written(target, id, cancel);
+                if completion_only {
+                    stream.learning[target].terminals.write_completion_only();
+                }
             }
         }
     }
@@ -3435,7 +3366,7 @@ trait EngineMethods: EngineAccess {
             .and_then(|entry| entry.due(id))
             .filter(|due| due.at < now)
         {
-            self.apply_due(due, now, effects);
+            self.apply_due_from(due, now, DueOrigin::Frame, effects);
         }
     }
 
@@ -3496,7 +3427,7 @@ trait EngineMethods: EngineAccess {
     /// The error a latched lane gives `request` instead of writing it, if its
     /// target's lane is latched for that kind of request.
     ///
-    /// A latched inquiry lane fails inquiries and `CompletionOnly` commands,
+    /// A latched inquiry overlap class fails overlapping inquiries and `CompletionOnly` commands,
     /// whose unkeyed completion the retained inquiry hold also filters
     /// ([`Error::InquiryCorrelationLost`]). A latched command lane fails
     /// ordinary ACK-bearing and `CompletionOnly` commands
@@ -3597,11 +3528,9 @@ trait EngineMethods: EngineAccess {
             effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             return;
         }
-        let cancellation_active = entry.lifecycle().cancellation_ambiguity().is_some();
-        if code.confirms_cancellation()
-            && (cancellation_active || correlation_kind == CorrelationKind::Cancellation)
-        {
-            self.confirm_cancelled(id, now, effects);
+        let cancellation = entry.lifecycle().cancellation_ambiguity();
+        if let Some(proof) = cancellation.filter(|_| code.confirms_cancellation()) {
+            self.confirm_cancelled(id, proof, now, effects);
             return;
         }
         // A rejection proves that a command did not start only before its ACK.
@@ -3625,7 +3554,7 @@ trait EngineMethods: EngineAccess {
             return;
         }
         let retry = (correlation_kind == CorrelationKind::Request
-            && code.retry_permission(&entry.request.context().retry, entry.reply_family()))
+            && code.retry_permission(&entry.request))
         .then(|| entry.lifecycle().retry_eligibility(true))
         .flatten();
         let error = code.into_error();
@@ -3640,9 +3569,9 @@ trait EngineMethods: EngineAccess {
         // inquiry to that stale frame class (#712).
         self.quarantine_raw_inquiry_correlation(id, now);
         if let Some(retry) = retry {
-            if cancellation_active && possibly_applied {
+            if cancellation.is_some() && possibly_applied {
                 self.finish_observed(id, Error::CancellationUnconfirmed, evidence, now, effects);
-            } else if cancellation_active {
+            } else if cancellation.is_some() {
                 self.finish_observed(
                     id,
                     CommandOutcome::Cancelled,
@@ -3697,15 +3626,13 @@ trait EngineMethods: EngineAccess {
         );
     }
 
-    fn confirm_cancelled(&mut self, id: RequestId, now: Instant, effects: &mut Decision) {
-        let active = self
-            .entries
-            .get(&id)
-            .is_some_and(|entry| entry.lifecycle().cancellation_ambiguity().is_some());
-        if !active {
-            self.finish(id, Error::CommandCancelled, now, effects);
-            return;
-        }
+    fn confirm_cancelled(
+        &mut self,
+        id: RequestId,
+        _cancellation: CancellationAmbiguity,
+        now: Instant,
+        effects: &mut Decision,
+    ) {
         self.finish_with_cancel_hold(id, CommandOutcome::Cancelled, false, now, effects);
     }
 
@@ -4215,6 +4142,16 @@ trait EngineMethods: EngineAccess {
     }
 
     fn apply_due(&mut self, due: DueWork, now: Instant, effects: &mut Decision) {
+        self.apply_due_from(due, now, DueOrigin::Scheduler, effects);
+    }
+
+    fn apply_due_from(
+        &mut self,
+        due: DueWork,
+        now: Instant,
+        origin: DueOrigin,
+        effects: &mut Decision,
+    ) {
         let id = due.request;
         let Some(entry) = self.entries.get(&id) else {
             return;
@@ -4236,8 +4173,7 @@ trait EngineMethods: EngineAccess {
                 }
                 self.finish_cancellation_unconfirmed(id, now, effects);
             }
-            DueAction::RetryBudget { certainty } => {
-                debug_assert_eq!(certainty, entry.certainty(AttemptEvidence::Lifecycle));
+            DueAction::RetryBudget => {
                 self.end_attempt(id, ending, None, AttemptEvidence::Lifecycle, now, effects);
             }
             DueAction::Ack {
@@ -4260,17 +4196,21 @@ trait EngineMethods: EngineAccess {
                     // ambiguity interval if the clock can represent it.
                     let extended = add_duration(now, context.timeout.ambiguity.get());
                     if extended > now {
-                        self.transition(
-                            id,
-                            UnsocketedLifecycle::AwaitingAck {
-                                sent_at,
-                                deadline: extended,
-                                attempt: retry.attempt(),
-                                cancellation: None,
-                            },
-                            now,
-                            effects,
-                        );
+                        let waiting = UnsocketedLifecycle::AwaitingAck {
+                            sent_at,
+                            deadline: extended,
+                            attempt: retry.attempt(),
+                            cancellation: None,
+                        };
+                        match origin {
+                            DueOrigin::Scheduler => self.transition(id, waiting, now, effects),
+                            DueOrigin::Frame => {
+                                // Keep the candidate live for classification.
+                                // Its timer adjustment does not attribute this
+                                // frame to it or change its phase.
+                                self.entries.transition(id, waiting.into());
+                            }
+                        }
                     } else {
                         self.end_attempt(
                             id,
@@ -4308,6 +4248,7 @@ trait EngineMethods: EngineAccess {
                             now,
                             effects,
                         );
+                        record_deadline_expiry(id, DeadlineKind::Completion, mark, effects);
                     }
                     CompletionDeadline::Cancelling {
                         original_deadline,
@@ -4327,10 +4268,10 @@ trait EngineMethods: EngineAccess {
                             );
                         } else {
                             self.finish_cancellation_unconfirmed(id, now, effects);
+                            record_deadline_expiry(id, DeadlineKind::Completion, mark, effects);
                         }
                     }
                 }
-                record_deadline_expiry(id, DeadlineKind::Completion, mark, effects);
             }
             DueAction::InquiryReply { .. } => {
                 let mark = effects.len();
@@ -4348,9 +4289,7 @@ trait EngineMethods: EngineAccess {
             DueAction::RetryReady {
                 previous_attempt,
                 budget_at,
-                certainty,
             } => {
-                debug_assert_eq!(certainty, entry.certainty(AttemptEvidence::Lifecycle));
                 if budget_at.is_some_and(|at| at <= now) {
                     self.end_attempt(id, ending, None, AttemptEvidence::Lifecycle, now, effects);
                 } else {
@@ -4806,57 +4745,21 @@ trait EngineMethods: EngineAccess {
         {
             return Err("ended session retains stream learning or release work".into());
         }
-        let ordinary = self
-            .entries
-            .values()
-            .filter(|entry| entry.slot == AdmissionSlot::Ordinary)
-            .count();
-        if ordinary > self.policy.capacity.get() {
-            return Err("ordinary entry capacity exceeded".into());
-        }
-        // Inquiries hold ordinary admission slots, never STOP reserve:
-        // in-flight inquiries are <= capacity, and strictly < capacity while
-        // an ordinary Ready inquiry candidate holds another slot. Derive the
-        // audit's bounded counts once rather than scanning for every target.
+        // The owner pools admission permits. Audit the bounds the engine
+        // relies on: per-target entries and ordinary inquiry occupancy.
+        let mut target_entries = PerTarget::<usize>::default();
         let mut inquiry_occupancy = PerTarget::<(usize, bool)>::default();
-        for entry in self
-            .entries
-            .values()
-            .filter(|entry| entry.request.is_inquiry())
-        {
-            let (in_flight, ready) = &mut inquiry_occupancy[entry.request.context().target];
-            *in_flight += usize::from(entry.lifecycle().is_live_inquiry());
-            *ready |= entry.slot == AdmissionSlot::Ordinary
-                && matches!(entry.lifecycle(), Lifecycle::Ready { .. });
-        }
-        for (index, state) in self.targets.iter() {
-            let policy = &state.policy;
-            let (inquiries, ready) = inquiry_occupancy[index];
-            if inquiries > self.policy.capacity.get()
-                || (ready && inquiries == self.policy.capacity.get())
-            {
-                return Err("inquiry occupancy exceeds ordinary admission capacity".into());
-            }
-            let reserved = self
-                .entries
-                .values()
-                .filter(|entry| {
-                    entry.slot == AdmissionSlot::ControlReserve
-                        && entry.request.context().target == index
-                })
-                .count();
-            if reserved > policy.map_or(0, |policy| usize::from(policy.control_reserve)) {
-                return Err("control reserve exceeded".into());
-            }
-        }
-        if self
-            .entries
-            .values()
-            .any(|entry| entry.slot == AdmissionSlot::ControlReserve && !entry.request.is_stop())
-        {
-            return Err("a non-urgent entry holds a control-reserve slot".into());
-        }
         for entry in self.entries.values() {
+            let target = entry.request.context().target;
+            target_entries[target] += 1;
+            if self.targets[target].policy.is_none() {
+                return Err("entry target was never registered".into());
+            }
+            if entry.request.is_inquiry() {
+                let (in_flight, ready) = &mut inquiry_occupancy[target];
+                *in_flight += usize::from(entry.lifecycle().is_live_inquiry());
+                *ready |= matches!(entry.lifecycle(), Lifecycle::Ready { .. });
+            }
             if !entry.lifecycle().accepts_reply(entry.reply_family()) {
                 return Err("request reply class disagrees with lifecycle phase".into());
             }
@@ -4880,11 +4783,20 @@ trait EngineMethods: EngineAccess {
                 continue;
             };
             let target = index;
+            let (inquiries, ready) = inquiry_occupancy[target];
+            if inquiries > self.policy.capacity.get()
+                || (ready && inquiries == self.policy.capacity.get())
+            {
+                return Err("inquiry occupancy exceeds ordinary admission capacity".into());
+            }
             let admissible = self
                 .policy
                 .capacity
                 .get()
                 .saturating_add(usize::from(policy.control_reserve));
+            if target_entries[target] > admissible {
+                return Err("target entry capacity exceeded".into());
+            }
             if self.mode().ledger().len(target) > stream_ledger::max_entries_per_target(admissible)
             {
                 return Err("stream correlation ledger exceeds its bound".into());
@@ -5255,7 +5167,7 @@ fn raw_cancellation_no_socket_response(entry: &Entry) -> bool {
 mod cancellation_regression_tests {
     use std::{sync::Arc, time::Duration};
 
-    use super::*;
+    use super::{tests::deadline_expiries, *};
 
     fn camera() -> TargetSlot {
         TargetSlot::ALL[0]
@@ -5289,7 +5201,7 @@ mod cancellation_regression_tests {
         }
     }
 
-    fn retrying_buffer_full() -> RetryPolicy {
+    fn retry_once() -> RetryPolicy {
         RetryPolicy {
             max_retries: 1,
             initial_backoff: Duration::from_millis(1),
@@ -5297,8 +5209,6 @@ mod cancellation_regression_tests {
             total_budget: Some(
                 NonZeroDuration::new(Duration::from_secs(1)).expect("valid fixture timing"),
             ),
-            buffer_full: true,
-            ..RetryPolicy::NEVER
         }
     }
 
@@ -5307,6 +5217,7 @@ mod cancellation_regression_tests {
 
         request_context.retry = retry;
         RuntimeRequest::Command {
+            not_executable: false,
             reply_shape,
             wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0xff]).expect("test wire")),
             context: request_context,
@@ -5319,12 +5230,14 @@ mod cancellation_regression_tests {
     }
 
     fn engine(envelope: EnvelopeKind, command_spacing: Duration) -> ProtocolEngine {
-        let mut engine =
-            ProtocolEngine::new(policy(envelope, command_spacing), Instant::now()).expect("engine");
-        engine
-            .register_target(camera(), TargetPolicy::test_default())
-            .expect("target");
-        engine
+        ProtocolEngine::new(
+            policy(envelope, command_spacing),
+            PerTarget::from_fn(|target| {
+                (target == camera()).then_some(TargetPolicy::test_default())
+            }),
+            Instant::now(),
+        )
+        .expect("engine")
     }
 
     fn admitted(effects: &[Effect]) -> RequestId {
@@ -5387,7 +5300,6 @@ mod cancellation_regression_tests {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command(),
-                slot: AdmissionSlot::Ordinary,
             },
             now,
         );
@@ -5421,6 +5333,10 @@ mod cancellation_regression_tests {
         let completion_deadline = now + Duration::from_millis(5);
         let expired = engine.advance(completion_deadline);
         assert!(terminal_unconfirmed(&expired, id));
+        assert_eq!(
+            deadline_expiries(&expired, id),
+            [(DeadlineKind::Completion, false)]
+        );
         assert!(engine.entry(id).is_none());
         let deadline = engine
             .raw_hold(camera(), RawHoldScope::Socket(ViscaSocket::S1))
@@ -5455,6 +5371,7 @@ mod cancellation_regression_tests {
             let send_at = start + Duration::from_millis(40);
             let sent = engine.advance(send_at);
             let cancel_transmission = cancel_transmission(&sent);
+            assert!(deadline_expiries(&sent, id).is_empty());
             let expected_deadline = send_at + Duration::from_millis(50);
             assert!(matches!(
                 engine.entry(id).map(Entry::phase),
@@ -5465,6 +5382,7 @@ mod cancellation_regression_tests {
 
             let old_deadline = cancel_at + Duration::from_millis(50);
             let before_expiry = engine.advance(old_deadline);
+            assert!(deadline_expiries(&before_expiry, id).is_empty());
             assert!(!terminal_unconfirmed(&before_expiry, id));
             assert!(engine.entry(id).is_some());
             assert!(matches!(
@@ -5473,6 +5391,86 @@ mod cancellation_regression_tests {
                     if transmission == cancel_transmission
             ));
             engine.assert_invariants().expect("engine invariants");
+        }
+    }
+
+    #[test]
+    fn cancellation_resolution_has_no_completion_expiry_before_or_after_the_write() {
+        let start = Instant::now();
+        for envelope in [EnvelopeKind::Raw, EnvelopeKind::Sony] {
+            for spacing in [Duration::ZERO, Duration::from_millis(40)] {
+                for completes in [true, false] {
+                    let (mut engine, id) = start_executing(envelope, spacing, start);
+                    let cancel_at = start + Duration::from_millis(1);
+                    let send_at = cancel_at.max(start + spacing);
+                    let completion_deadline = start + Duration::from_millis(5);
+                    let mut effects = engine.handle(engine.cancel_input(id), cancel_at);
+                    if send_at > completion_deadline {
+                        effects.extend(engine.advance(completion_deadline));
+                        effects.extend(engine.advance(send_at));
+                    }
+                    let transmission = cancel_transmission(&effects);
+                    effects.extend(engine.handle(
+                        Input::TransmissionFinished {
+                            request: id,
+                            transmission,
+                            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(
+                                (envelope == EnvelopeKind::Sony).then_some(0x1002),
+                            )),
+                        },
+                        send_at,
+                    ));
+                    if send_at < completion_deadline {
+                        effects.extend(engine.advance(completion_deadline));
+                    }
+                    assert!(engine.entry(id).is_some());
+                    let terminal = if completes {
+                        let completion = DecodedFrame {
+                            target: camera(),
+                            sequence: (envelope == EnvelopeKind::Sony)
+                                .then_some(FrameSequence::from_reply_header(0x1001)),
+                            response: DecodedResponse::Completion {
+                                socket: Some(ViscaSocket::S1),
+                            },
+                        };
+                        engine.handle(Input::Frame(completion), start + Duration::from_millis(45))
+                    } else {
+                        engine.advance(send_at + Duration::from_millis(50))
+                    };
+                    assert!(
+                        terminal.iter().any(|effect| {
+                            let Effect::Terminal {
+                                id: terminal_id,
+                                outcome: RuntimeOutcome::Command(outcome),
+                            } = effect
+                            else {
+                                return false;
+                            };
+                            *terminal_id == id
+                                && matches!(
+                                    (completes, envelope, outcome),
+                                    (true, _, CommandOutcome::Applied)
+                                        | (
+                                            false,
+                                            EnvelopeKind::Sony,
+                                            CommandOutcome::Failed(Error::CancellationUnconfirmed)
+                                        )
+                                        | (
+                                            false,
+                                            EnvelopeKind::Raw,
+                                            CommandOutcome::Failed(
+                                                Error::UnsequencedCommandUnconfirmed
+                                            )
+                                        )
+                                )
+                        }),
+                        "{envelope:?}, spacing {spacing:?}, completes {completes}: {terminal:?}"
+                    );
+                    effects.extend(terminal);
+                    assert!(deadline_expiries(&effects, id).is_empty());
+                    assert!(engine.entry(id).is_none());
+                }
+            }
         }
     }
 
@@ -5509,8 +5507,7 @@ mod cancellation_regression_tests {
         let admitted_effects = engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(1),
-                request: command_with(CommandReply::AckThenCompletion, retrying_buffer_full()),
-                slot: AdmissionSlot::Ordinary,
+                request: command_with(CommandReply::AckThenCompletion, retry_once()),
             },
             now,
         );
@@ -5585,8 +5582,7 @@ mod cancellation_regression_tests {
         let admitted_effects = engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(1),
-                request: command_with(CommandReply::CompletionOnly, retrying_buffer_full()),
-                slot: AdmissionSlot::Ordinary,
+                request: command_with(CommandReply::CompletionOnly, retry_once()),
             },
             now,
         );
@@ -5646,8 +5642,7 @@ mod cancellation_regression_tests {
         let admitted_effects = engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(1),
-                request: command_with(CommandReply::AckThenCompletion, retrying_buffer_full()),
-                slot: AdmissionSlot::Ordinary,
+                request: command_with(CommandReply::AckThenCompletion, retry_once()),
             },
             now,
         );

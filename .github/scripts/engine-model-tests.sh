@@ -1,17 +1,12 @@
 # shellcheck shell=bash
 #
-# The protocol engine's randomized, generated and exhaustive model tests, by
-# full libtest path. Sourced by the feature matrix and standalone CI jobs.
-#
-# They are the expensive part of the library unit tests and they cannot
-# differ by facade configuration: the engine
-# compiles only with a facade (`any(async, blocking)`), its production code in
-# `src/runtime/engine/` has no further `cfg(feature = ...)`, and the crate items
-# it uses (`protocol::framer`, `raw`, the error and ID types) are gated at most
-# on that same facade condition. The feature cfgs that do exist there are
-# test-only: four engine tests gated on a facade, and one helper in `types.rs`
-# under `cfg(all(test, any(async, blocking)))`. None of the model tests below is
-# among those tests or uses that helper.
+# Feature-independent engine and owner regressions, by full libtest path.
+# Sourced by the feature matrix and standalone CI jobs. The engine and the
+# owner turn coordinator are gated on the same condition (`any(async, blocking)`).
+# The coordinator and its tests, and the inquiry-shapes tests, have no feature
+# cfgs of their own. The engine's two production test-utils accessors only read
+# the command spacing and envelope kind. Its other internal feature cfgs are test-only,
+# and none apply to any of the listed tests or the helpers they use.
 #
 # So the feature matrix runs them in exactly one leg (`ENGINE_MODEL_TEST_LEG`
 # in `test-all-features.sh`) and skips them, by exact name, in every other;
@@ -25,6 +20,9 @@ readonly ENGINE_MODEL_TESTS=(
     "runtime::engine::tests::raw_evidence::ten_thousand_halts_against_a_silent_camera_keep_the_ledger_bounded"
     "runtime::engine::tests::inquiry_shapes::randomized_stream_mixed_shapes_never_cross_bind"
     "runtime::engine::tests::inquiry_shapes::randomized_datagram_mixed_shapes_never_cross_bind"
+    "runtime::engine::tests::inquiry_shapes::alternating_inquiry_and_stop_debts_bound_the_ack_separator_charge"
+    "runtime::owner::turn::coordinator::tests::model::exhaustive_short_sequences_preserve_the_invariants"
+    "runtime::owner::turn::coordinator::tests::model::generated_sequences_preserve_the_invariants"
 )
 
 # Test paths contain no whitespace, so callers can read the arguments into

@@ -41,7 +41,7 @@ async fn tokio_timer_cancels_the_old_deadline_and_rearms_after_completion() {
 #[test]
 fn smol_timer_cancels_the_old_deadline_and_rearms_after_completion() {
     let executor = grafton_visca::runtime::SmolExecutor::new();
-    executor.block_on(async {
+    smol::block_on(async {
         let start = executor.now();
         let mut timer = pin!(executor.timer(start));
         let mut context = Context::from_waker(Waker::noop());

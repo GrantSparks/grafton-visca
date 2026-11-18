@@ -19,17 +19,17 @@
 //! This example uses an in-memory transport, so it runs with no hardware: the
 //! two runs first demonstrate a silent open peer and then a closed peer. In
 //! each run the factory's next transport answers the re-query inquiries. The demo disables retries
-//! (`retry_limit(0)`), so the silent probe ends at the profile's own deadline;
+//! (`with_retry_limit(RetryLimit::MIN)`), so the silent probe ends at the profile's own deadline;
 //! production supervisors should choose their own application silence
 //! threshold. Requires only the default `blocking` feature.
 
+use grafton_visca::tuning::RetryLimit;
 use std::{collections::VecDeque, time::Duration};
 
 use grafton_visca::{
     blocking::Session, config::OperationalTuning, config::SessionConfig, error::Recovery,
     profiles::ProfileSpec, profiles::PtzOpticsG2, transport::BlockingTransport,
-    transport::HasTransportConfig, transport::ReceiveOutcome, transport::ValidatedTransportConfig,
-    Error,
+    transport::HasTransportConfig, transport::IoBounds, transport::ReceiveOutcome, Error,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -44,7 +44,7 @@ enum Peer {
 /// the power, zoom, and pan/tilt position inquiries with valid VISCA data.
 #[derive(Debug)]
 struct FakeCamera {
-    config: ValidatedTransportConfig,
+    config: IoBounds,
     peer: Peer,
     replies: VecDeque<Vec<u8>>,
 }
@@ -52,7 +52,7 @@ struct FakeCamera {
 impl FakeCamera {
     fn new(peer: Peer) -> Self {
         Self {
-            config: ValidatedTransportConfig::default(),
+            config: IoBounds::default(),
             peer,
             replies: VecDeque::new(),
         }
@@ -67,7 +67,7 @@ impl HasTransportConfig for FakeCamera {
         }
     }
 
-    fn transport_config(&self) -> &ValidatedTransportConfig {
+    fn io_bounds(&self) -> &IoBounds {
         &self.config
     }
 }
@@ -120,7 +120,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn demonstrate(first_peer: Peer) -> Result<(), Box<dyn std::error::Error>> {
     let config = SessionConfig::new(ProfileSpec::from_compile_time::<PtzOpticsG2>()?)
-        .with_tuning(OperationalTuning::new().with_retry_limit(0));
+        .with_tuning(OperationalTuning::new().with_retry_limit(RetryLimit::MIN));
 
     // A RE-CALLABLE factory (`FnMut`, not `FnOnce`): a supervisor can call it on
     // every reconnect. Here the first transport is silent and later ones

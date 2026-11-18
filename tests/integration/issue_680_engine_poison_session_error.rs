@@ -9,11 +9,12 @@
 //! effect carrying the complete verdict. The owner publishes that cause
 //! directly, so a `shutdown()`/`close()` on the dead
 //! session returns `StreamPoisoned` (which `requires_new_session()`), the
-//! `SessionChanged` diagnostic carries the real `ErrorKind`, and the documented
+//! `SessionEnded` diagnostic carries the real `ErrorKind`, and the documented
 //! supervisor recovery loop actually rebuilds.
 
 #![cfg(feature = "blocking")]
 
+use grafton_visca::observability::DiagnosticCapacity;
 use grafton_visca_test_support::{fake_camera, profile_fixtures};
 
 use std::sync::Arc;
@@ -23,7 +24,7 @@ use grafton_visca::{
     blocking::Session,
     config::SessionConfig,
     error::ErrorKind,
-    observability::{DiagnosticEvent, SessionStatus},
+    observability::{DiagnosticEvent, SessionEndStatus, SessionStatus},
     operation::AppliedOnly,
     profiles::ProfileSpec,
     Error,
@@ -110,28 +111,30 @@ fn close_after_engine_poison_surfaces_the_terminal_cause() {
 #[test]
 fn engine_poison_reports_poisoned_status_and_names_the_diagnostic_reason() {
     let session = strict_session();
-    let diagnostics = session.subscribe_diagnostics(128).expect("diagnostics");
+    let diagnostics = session
+        .subscribe_diagnostics(DiagnosticCapacity::MAX)
+        .expect("diagnostics");
     poison_via_strict_opt_in(&session);
 
     let metrics = session.metrics().expect("terminal metrics survive poison");
     assert_eq!(metrics.session, SessionStatus::Poisoned);
     assert_eq!(metrics.active, 0);
     assert_eq!(metrics.pending, 0);
-    // The SessionChanged diagnostic reason is the real ErrorKind (IoClosed for a
+    // The SessionEnded diagnostic reason is the real ErrorKind (IoClosed for a
     // stream poison), not the Other it collapsed to while session_error stayed
     // unset.
     let diagnostics: Vec<_> = std::iter::from_fn(|| diagnostics.try_recv()).collect();
     let reason = diagnostics
         .iter()
         .find_map(|event| match event {
-            DiagnosticEvent::SessionChanged { to, reason, .. }
-                if *to == SessionStatus::Poisoned =>
-            {
-                Some(*reason)
-            }
+            DiagnosticEvent::SessionEnded {
+                status: SessionEndStatus::Poisoned,
+                reason,
+                ..
+            } => Some(*reason),
             _ => None,
         })
-        .expect("a SessionChanged diagnostic into Poisoned was recorded");
+        .expect("a SessionEnded diagnostic into Poisoned was recorded");
     assert_eq!(
         reason,
         ErrorKind::IoClosed,
@@ -197,7 +200,9 @@ fn socket_reuse_in_a_strict_session_surfaces_the_poison_to_every_observer() {
             .with_quick_timeout(Duration::from_secs(5)),
     );
     let session = Session::open(camera.blocking_wire(), &config).expect("strict session");
-    let diagnostics = session.subscribe_diagnostics(128).expect("diagnostics");
+    let diagnostics = session
+        .subscribe_diagnostics(DiagnosticCapacity::MAX)
+        .expect("diagnostics");
     let view = session
         .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("view");

@@ -277,6 +277,7 @@ impl StateCache {
 ///
 /// The owner's state cache keeps one entry per [`crate::state_cache::StateKey`], so this describes
 /// the last corner that was written, not the full limit rectangle.
+/// Serialized updates require `position` and use `null` to clear the limit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(
     feature = "serde",
@@ -287,6 +288,14 @@ impl StateCache {
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct PanTiltLimitUpdate {
     corner: crate::command::PanTiltLimitCorner,
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profiles::required_option")
+    )]
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(required, transform = crate::profiles::nullable_schema)
+    )]
     position: Option<crate::types::PanTiltPosition>,
 }
 
@@ -368,6 +377,12 @@ mod portable_data_tests {
             "pan_tilt_limit"
         );
         assert_eq!(serde_json::to_value(StateEntry::Unknown)?, "unknown");
+        assert!(
+            serde_json::from_value::<PanTiltLimitUpdate>(serde_json::json!({
+                "corner": "up_right"
+            }))
+            .is_err()
+        );
         assert!(serde_json::from_value::<KnownState>(serde_json::json!({
             "presets_recall_speed": 0
         }))
@@ -386,7 +401,13 @@ mod portable_data_tests {
     fn snapshot_schema_and_typescript_keep_typed_values() {
         let schema = schemars::schema_for!(PanTiltLimitUpdate);
         assert_eq!(schema.as_value()["additionalProperties"], false);
-        assert!(schema.as_value()["$defs"]["PanTiltPosition"].is_object());
+        assert_eq!(
+            schema.as_value()["required"],
+            serde_json::json!(["corner", "position"])
+        );
+        let position = &schema.as_value()["properties"]["position"]["anyOf"];
+        assert_eq!(position[0]["required"], serde_json::json!(["pan", "tilt"]));
+        assert_eq!(position[1]["type"], "null");
         let config = ts_rs::Config::default();
         assert_eq!(
             <PanTiltLimitUpdate as ts_rs::TS>::decl(&config),

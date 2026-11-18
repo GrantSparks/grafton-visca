@@ -1,22 +1,15 @@
 use grafton_visca::{
     __macro_support::InquiryData, __macro_support::InquiryKind, error::Certainty,
-    error::FailureStage, transport::BufferConfig, transport::FrameMeta,
-    transport::TransportConfig, types::ImageFlipMode, types::MovementTolerance, types::ViscaSocket,
-    wire::Response, Error,
+    error::FailureStage, transport::BufferConfig, transport::FrameMeta, transport::IoBounds,
+    types::ImageFlipMode, types::MovementTolerance, types::ViscaSocket, wire::Response, Error,
 };
 
 fn main() {
-    let mut config = TransportConfig::default();
-    config = config.with_buffer_config(BufferConfig::for_tcp());
-    let mut tolerance = MovementTolerance::default();
-    tolerance.zoom = 1;
-    let _ = (
-        config,
-        tolerance,
-        FrameMeta::Sony {
-            sequence: 1,
-        },
-    );
+    let config = IoBounds::default()
+        .with_buffer_config(BufferConfig::for_tcp())
+        .expect("checked buffers");
+    let tolerance = MovementTolerance::DEFAULT.with_zoom(1);
+    let _ = (config, tolerance, FrameMeta::Sony { sequence: 1 });
     let error = Error::invalid_parameter("zoom", "invalid", "outside range");
     match error {
         Error::InvalidParameter {

@@ -194,7 +194,7 @@ mod parity {
     use grafton_visca::{
         blocking::Session as BlockingSession,
         config::SessionConfig as BlockingSessionConfig,
-        transport::{AddressingMode, TransportConfig},
+        transport::{AddressingMode, IoBounds},
     };
 
     /// How soon the urgent stop must follow its submission while camera one's
@@ -222,8 +222,8 @@ mod parity {
         ])
     }
 
-    fn serial_config() -> TransportConfig {
-        TransportConfig::default()
+    fn serial_config() -> IoBounds {
+        IoBounds::default()
     }
 
     fn blocking_transcript() -> Vec<Vec<u8>> {

@@ -2,9 +2,9 @@
 use super::*;
 use crate::observability::{
     DiagnosticCancellation, DiagnosticDeadline, DiagnosticIgnoreReason, DiagnosticLane,
-    DiagnosticOutcome, DiagnosticPhase, DiagnosticResponse,
+    DiagnosticOutcome, DiagnosticPhase, DiagnosticResponse, SessionEndStatus,
 };
-use crate::runtime::engine::Phase;
+use crate::runtime::engine::{EndStatus, Phase};
 
 pub(super) fn id(id: RequestId) -> crate::OperationId {
     crate::OperationId::from_nonzero(id.as_nonzero())
@@ -16,12 +16,21 @@ pub(super) fn phase(value: Lifecycle) -> DiagnosticPhase {
         Phase::Sending { .. } => DiagnosticPhase::Sending,
         Phase::AwaitingAck { .. } => DiagnosticPhase::AwaitingAck,
         Phase::AwaitingCompletion { .. } => DiagnosticPhase::AwaitingCompletion,
-        Phase::Executing { .. } | Phase::ExecutingDisplaced { .. } => DiagnosticPhase::Executing,
+        Phase::Executing { .. } => DiagnosticPhase::Executing,
+        Phase::ExecutingDisplaced { .. } => DiagnosticPhase::Displaced,
         Phase::AwaitingReply { .. } => DiagnosticPhase::AwaitingReply,
         Phase::Backoff { .. } => DiagnosticPhase::Backoff,
         Phase::AwaitingCancellationResolution { .. } => {
             DiagnosticPhase::AwaitingCancellationResolution
         }
+    }
+}
+
+pub(super) fn end_status(value: EndStatus) -> SessionEndStatus {
+    match value {
+        EndStatus::Closed => SessionEndStatus::Closed,
+        EndStatus::Shutdown => SessionEndStatus::Shutdown,
+        EndStatus::Poisoned => SessionEndStatus::Poisoned,
     }
 }
 

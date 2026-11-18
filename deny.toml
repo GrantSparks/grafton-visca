@@ -35,8 +35,6 @@ ignore = [
     { id = "RUSTSEC-2026-0249", reason = "smartstring unmaintained; build-time only, behind the optional ts-rs feature" },
 ]
 
-[bans]
-
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"

@@ -16,8 +16,8 @@ use crate::{
         async_tcp::NetStream,
         async_udp::NetDatagram,
         datagram::recv_datagram,
-        socket_options::{configured_tcp_socket, TcpConnectionConfig},
-        ReceiveOutcome,
+        socket_options::configured_tcp_socket,
+        ReceiveOutcome, TcpConnect,
     },
     Error,
 };
@@ -36,10 +36,7 @@ impl AsyncNet for SmolNet {
         smol::net::resolve(endpoint).await
     }
 
-    async fn connect_tcp(
-        address: SocketAddr,
-        options: TcpConnectionConfig,
-    ) -> io::Result<TcpStream> {
+    async fn connect_tcp(address: SocketAddr, options: TcpConnect) -> io::Result<TcpStream> {
         let socket = configured_tcp_socket(address, options)?;
         socket.set_nonblocking(true)?;
         match socket.connect(&address.into()) {
@@ -105,10 +102,6 @@ impl AsyncReadExtTrait for SmolTcpStream {
 impl AsyncWriteExtTrait for SmolTcpStream {
     async fn write_all<'a>(&'a mut self, buf: &'a [u8]) -> Result<(), Error> {
         Ok(self.stream.write_all(buf).await?)
-    }
-
-    async fn flush(&mut self) -> Result<(), Error> {
-        Ok(self.stream.flush().await?)
     }
 }
 

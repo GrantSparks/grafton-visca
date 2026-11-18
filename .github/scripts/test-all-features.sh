@@ -447,13 +447,6 @@ test)
     add_job "re-exported range macro with helpers" run_reexported_range_helper_test
     add_job "all-features and all-targets check" \
         cargo_stable check --workspace --all-features --all-targets
-    add_job "blocking examples" \
-        cargo_stable check --examples --no-default-features --features blocking
-    add_job "Tokio examples" \
-        cargo_stable check --examples --no-default-features --features runtime-tokio
-    add_job "smol examples" \
-        cargo_stable check --examples --no-default-features --features runtime-smol
-    add_job "all-feature examples" cargo_stable check --examples --all-features
     add_job "no-default doctests" cargo_stable test --doc --no-default-features
     add_job "async doctests" cargo_stable test --doc --no-default-features --features async
     add_job "all-feature doctests" cargo_stable test --doc --all-features

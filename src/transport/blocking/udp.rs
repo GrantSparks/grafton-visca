@@ -5,19 +5,16 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[cfg(test)]
-use crate::transport::{connect::preflight, TransportConfig};
-
 use crate::{
     timeout::Deadline,
     transport::{
         address::{bind_address_for, resolve_blocking},
         blocking::{bounded_io, TimedIo},
-        builder::ValidatedTransportConfig,
         connect::{connect_deadline, socket_setup, udp_target},
         datagram::{deliverable, recv_datagram},
-        socket_options::{apply_udp_socket_options, UdpSocketConfig},
-        BlockingTransport, HasTransportConfig, NetworkEndpoint, ReceiveOutcome,
+        socket_options::apply_udp_socket_options,
+        BlockingTransport, HasTransportConfig, IoBounds, NetworkEndpoint, ReceiveOutcome,
+        UdpConnect,
     },
     Error,
 };
@@ -25,31 +22,30 @@ use crate::{
 /// UDP transport for blocking VISCA communication.
 ///
 /// This transport supports DNS resolution and both IPv4 and IPv6 addresses.
-/// It operates at the datagram level, treating each datagram as a frame.
+/// The owner adapter decodes every frame a datagram carries.
 #[derive(Debug)]
 pub struct Udp {
     socket: UdpSocket,
-    config: ValidatedTransportConfig,
+    config: IoBounds,
 }
 
 impl Udp {
-    /// Connect with a full configuration.
-    ///
-    /// The address must include an explicit port. Name resolution and socket
-    /// setup share `config.connect_timeout`; see [`crate::transport::connect`]
-    /// for the error contract shared with the async connectors.
     #[cfg(test)]
-    pub fn connect_with_config(address: &str, config: TransportConfig) -> Result<Self, Error> {
-        let (endpoint, config) = preflight(address, config)?;
-        Self::connect_endpoint(&endpoint, config)
+    pub(crate) fn connect_with_config(
+        address: &str,
+        options: UdpConnect,
+        io_bounds: IoBounds,
+    ) -> Result<Self, Error> {
+        let endpoint = NetworkEndpoint::parse(address, None)?;
+        Self::connect_endpoint(&endpoint, options, io_bounds)
     }
 
     pub(crate) fn connect_endpoint(
         endpoint: &NetworkEndpoint,
-        config: ValidatedTransportConfig,
+        options: UdpConnect,
+        io_bounds: IoBounds,
     ) -> Result<Self, Error> {
-        let options = UdpSocketConfig::from(config);
-        let deadline = connect_deadline(Instant::now(), options.connect_timeout)?;
+        let deadline = connect_deadline(Instant::now(), options.connect_timeout())?;
         let target = udp_target(&resolve_blocking(endpoint, deadline)?)?;
         deadline.remaining_or(Instant::now(), Error::connect_timeout)?;
 
@@ -59,18 +55,10 @@ impl Udp {
             endpoint,
             apply_udp_socket_options(socket2::SockRef::from(&socket), target, options),
         )?;
-        Ok(Self { socket, config })
-    }
-
-    /// Run endpoint parsing and UDP setup only after configuration preflight.
-    #[cfg(test)]
-    fn preflight_udp_setup<T>(
-        address: &str,
-        config: TransportConfig,
-        setup: impl FnOnce(&NetworkEndpoint, UdpSocketConfig) -> Result<T, Error>,
-    ) -> Result<T, Error> {
-        let (endpoint, config) = preflight(address, config)?;
-        setup(&endpoint, config.into())
+        Ok(Self {
+            socket,
+            config: io_bounds,
+        })
     }
 }
 
@@ -87,7 +75,7 @@ impl HasTransportConfig for Udp {
         crate::transport::TransportIdentity::Udp
     }
 
-    fn transport_config(&self) -> &ValidatedTransportConfig {
+    fn io_bounds(&self) -> &IoBounds {
         &self.config
     }
 }
@@ -127,16 +115,12 @@ impl BlockingTransport for Udp {
 mod tests {
     use std::{
         net::UdpSocket,
-        sync::{
-            atomic::{AtomicUsize, Ordering},
-            Arc,
-        },
         thread,
         time::{Duration, Instant},
     };
 
     use super::*;
-    use crate::transport::{BlockingTransport, BufferConfig, TransportConfig};
+    use crate::transport::BlockingTransport;
 
     /// #800 review: an interrupted send is retried in place, not reported as
     /// a timeout.
@@ -261,24 +245,6 @@ mod tests {
         }
     }
 
-    fn invalid_buffer_config() -> TransportConfig {
-        TransportConfig {
-            buffer_config: BufferConfig {
-                recv_buffer_size: 65,
-                max_buffer_size: 64,
-            },
-            ..TransportConfig::default()
-        }
-    }
-
-    fn assert_invalid_buffer_error<T>(result: Result<T, Error>) {
-        assert!(matches!(
-            result,
-            Err(Error::InvalidRequest { reason: actual })
-                if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
-        ));
-    }
-
     fn connected_socket_pair() -> (UdpSocket, UdpSocket) {
         let receiver = UdpSocket::bind("127.0.0.1:0").expect("bind receiver");
         let sender = UdpSocket::bind("127.0.0.1:0").expect("bind sender");
@@ -289,35 +255,6 @@ mod tests {
             .connect(receiver.local_addr().expect("receiver address"))
             .expect("connect sender");
         (receiver, sender)
-    }
-
-    #[test]
-    fn invalid_config_is_rejected_before_udp_socket_setup() {
-        // This is the real production setup seam: it includes resolver,
-        // bind, connect, and socket options. It must not run for invalid
-        // buffers, independent of network/DNS behavior.
-        let setup_calls = Arc::new(AtomicUsize::new(0));
-        let spy_calls = Arc::clone(&setup_calls);
-        let result =
-            Udp::preflight_udp_setup("127.0.0.1:9", invalid_buffer_config(), move |_, _| {
-                spy_calls.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            });
-
-        assert_invalid_buffer_error(result);
-        assert_eq!(
-            setup_calls.load(Ordering::SeqCst),
-            0,
-            "invalid buffer configuration must not reach UDP resolver/socket setup"
-        );
-
-        // The malformed endpoint makes the buffer error's precedence over
-        // address parsing explicit.
-        assert_invalid_buffer_error(Udp::preflight_udp_setup(
-            "[::1",
-            invalid_buffer_config(),
-            |_, _| Ok(()),
-        ));
     }
 
     #[test]
@@ -449,9 +386,12 @@ mod tests {
             return;
         };
         let address = peer.local_addr().expect("IPv6 peer");
-        let config = TransportConfig::for_udp().with_ttl(Some(7));
+        let config = UdpConnect::default()
+            .with_ttl(Some(7))
+            .expect("valid connector test configuration");
         let transport =
-            Udp::connect_with_config(&address.to_string(), config).expect("IPv6 UDP setup");
+            Udp::connect_with_config(&address.to_string(), config, IoBounds::UDP_DEFAULT)
+                .expect("IPv6 UDP setup");
         assert_eq!(
             socket2::SockRef::from(&transport.socket)
                 .unicast_hops_v6()

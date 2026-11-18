@@ -4,6 +4,7 @@
 
 #![cfg(feature = "blocking")]
 
+use grafton_visca::observability::DiagnosticCapacity;
 use grafton_visca_test_support::fake_camera;
 
 use fake_camera::FakeCamera;
@@ -28,7 +29,9 @@ fn no_reply_plain_command_returns_after_one_write() {
             grafton_visca::types::IndividualCameraId::CAMERA_1,
         )
         .expect("camera view");
-    let diagnostics = session.subscribe_diagnostics(16).expect("diagnostics");
+    let diagnostics = session
+        .subscribe_diagnostics(DiagnosticCapacity::new(16).expect("diagnostic capacity"))
+        .expect("diagnostics");
 
     let wire = [0x81, 0x01, 0x04, 0x07, 0xff];
     let policy = grafton_visca::request::CommandPolicy::new(

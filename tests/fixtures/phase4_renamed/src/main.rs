@@ -530,14 +530,14 @@ impl CompileTimeProfile for DownstreamProfile {
     const ID: Option<visca_renamed::profiles::ProfileId> = None;
 
     fn spec() -> visca_renamed::Result<ProfileSpec> {
-        use capabilities::{CapabilityRange, ImageCaps, InquirySupport};
+        use capabilities::{CapabilityRange, ImageCaps};
         let base = Base::spec()?;
         let mut caps = base.capabilities().clone();
         caps.profile_id = None;
         caps.model_name = "Downstream renamed profile".into();
         caps.default_camera_id = visca_renamed::types::IndividualCameraId::new(3)?;
         caps.typed_support = Self::TYPED_SUPPORT;
-        caps.inquiry_support = InquirySupport::Full;
+        caps.inquiries = true;
         let pan_tilt = caps.pan_tilt.as_mut().expect("base pan/tilt");
         pan_tilt.pan_speed = CapabilityRange::<u8>::new(1, 9).expect("valid capability bounds");
         pan_tilt.tilt_speed = CapabilityRange::<u8>::new(1, 7).expect("valid capability bounds");
@@ -581,7 +581,6 @@ impl CompileTimeProfile for DownstreamProfile {
             gamma_range: None,
             flip: false,
             mirror: false,
-            requires_settings_save_for_flip: false,
             picture_effects: vec![],
         });
         image.flip = true;
@@ -591,10 +590,8 @@ impl CompileTimeProfile for DownstreamProfile {
         let presets = caps.presets.as_mut().expect("base presets");
         presets.highest = 8;
         presets.recall_axes = AffectedAxes::PAN_TILT;
-        presets.tour = false;
         let power = caps.power.as_mut().expect("base power");
-        power.on_time = Duration::from_millis(4_250);
-        power.standby = Some(Duration::from_secs(5));
+        power.standby = true;
         ProfileSpec::builder(caps)
             .transports(TransportCompatibility::new().with_tcp(9876))
             .envelope(visca_renamed::profiles::ProfileEnvelope::RawVisca)

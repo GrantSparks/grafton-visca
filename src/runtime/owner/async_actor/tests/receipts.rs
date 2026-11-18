@@ -325,6 +325,8 @@ async fn halt_after_accepted_shutdown_is_rejected_at_the_handle() {
 
 use super::*;
 #[cfg(feature = "runtime-tokio")]
+use crate::observability::DiagnosticCapacity;
+#[cfg(feature = "runtime-tokio")]
 use crate::runtime::owner::boundary::PreAdmissionRejection;
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
@@ -656,13 +658,14 @@ fn tokio_from_handle_runs_the_owner_on_the_selected_runtime() {
         let runtime = TokioRuntime::from_handle(selected_handle.clone());
         let (observed, receiver) = flume::bounded(1);
         let (_owner, actor) = AsyncOwnerActor::new(policy(1), runtime.clone()).unwrap();
-        let actor_task = crate::executor::Executor::spawn(
-            &runtime,
-            actor.run(RuntimeAffinityDriver { observed }),
-        );
+        let (terminated, snapshot) = flume::bounded(1);
+        crate::executor::Executor::spawn_detached(&runtime, async move {
+            let state = actor.run(RuntimeAffinityDriver { observed }).await.state;
+            terminated.send_async(state).await.unwrap();
+        });
 
         assert_eq!(receiver.recv_async().await.unwrap(), selected_handle.id());
-        assert_eq!(actor_task.await.unwrap().state, SessionState::Closed);
+        assert_eq!(snapshot.recv_async().await.unwrap(), SessionState::Closed);
     });
 }
 #[cfg(feature = "runtime-smol")]
@@ -815,7 +818,10 @@ async fn fail_fast_capacity_rejection_records_metrics_and_diagnostic() {
     let gates = harness.gates.clone();
     let writes = Arc::clone(&harness.writes);
     let actor_task = tokio::spawn(actor.run(harness.driver));
-    let diagnostics = handle.subscribe_diagnostics(16).await.unwrap();
+    let diagnostics = handle
+        .subscribe_diagnostics(DiagnosticCapacity::new(16).expect("diagnostic capacity"))
+        .await
+        .unwrap();
 
     let first = handle.submit(command()).await.unwrap();
     assert_eq!(started.recv_async().await.unwrap(), first.id());
@@ -1143,7 +1149,7 @@ async fn terminal_handle_work_and_metrics_are_stable<R: Executor>(runtime: R) {
         ));
         assert!(actor.core.receivers.cancellations.is_empty());
         assert!(matches!(
-            future::poll_once(handle.subscribe_diagnostics(1)).await,
+            future::poll_once(handle.subscribe_diagnostics(DiagnosticCapacity::MIN)).await,
             Some(Err(Error::RuntimeShutdown))
         ));
         assert!(actor.core.receivers.control.is_empty());
@@ -1174,7 +1180,7 @@ async fn terminal_handle_work_and_metrics_are_stable<R: Executor>(runtime: R) {
         .control
         .try_send(
             super::super::super::boundary::ControlBoundary::SubscribeDiagnostics {
-                capacity: 1,
+                capacity: DiagnosticCapacity::MIN,
                 reply,
             },
         )

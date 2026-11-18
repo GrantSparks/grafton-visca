@@ -17,7 +17,7 @@ without granting control over the protocol engine.
 | `writes` | Transport writes attempted. |
 | `write_failures` | Writes that returned an error. |
 | `terminal` | Requests reaching a terminal outcome. |
-| `cancellations` | Cancellation requests observed by the owner. |
+| `cancellations` | Cancellation intents the engine recorded. Repeated cancellation calls from one handle and refused cancellations are excluded. |
 | `cache_updates` | Exact applied-state effects committed to a target cache. |
 | `cache_invalidations` | Cache keys made unknown by unconfirmed writes. |
 | `ack_timeouts` | Acknowledgement deadlines that expired on a sent command. A disputed ACK deadline extended for more evidence counts once if the extended deadline ends the request. |
@@ -77,8 +77,9 @@ while making the probes and fixtures exercise the production header path.
 Both facades expose `subscribe_diagnostics(capacity)`. An async subscription
 uses `r#async::Diagnostics`, and a blocking subscription uses
 `blocking::Diagnostics`. Both provide `try_recv`, `recv`, and
-`recv_with_timeout`; the async receives are awaited. A subscription capacity must be `1..=128`, and
-one owner retains at most four live subscriptions. A fifth subscription fails
+`recv_with_timeout`. The async receives are awaited. A checked
+`observability::DiagnosticCapacity` sets the queue size to 1 through 128
+events. One owner retains up to four live subscriptions. A fifth subscription fails
 with nonretryable `DiagnosticSubscriberLimit { capacity }`; drop an existing
 subscription to make room. Request-admission capacity does not change this
 subscriber limit. Subscriptions receive events recorded after they are created;
@@ -87,7 +88,7 @@ there is no retained diagnostic history or replay.
 `DiagnosticEvent` is a bounded, `#[non_exhaustive]` enum containing only
 sanitized categories: admission, frame category, protocol phase transition,
 write success, retry, cancellation, applied state, state invalidation, terminal
-outcome, session state, and ignored-input observations. Its helper enums are also bounded and
+outcome, session end, and ignored-input observations. Its helper enums are also bounded and
 non-exhaustive. Events contain no wire bytes, arbitrary strings, timestamps,
 or socket and transmission details.
 
@@ -193,13 +194,12 @@ session starts every target at `Unknown`; target views remain isolated.
 
 Retry requires evidence that replay is safe. Commands and operations select
 `request::CommandRetryClass`; inquiries select `request::InquiryRetryClass`.
-Every family except its `Never` variant may retry a camera reporting a full
-command buffer (`0x03`) or no free socket (`0x05`), because that response
-conclusively rejected the attempt. `0x41` (`CommandNotExecutable`) is the one
-answer whose retryability depends on the class: it is transient for movement
-and preset work, where the
-camera is reporting a state that passes, and terminal everywhere else, where
-it is the camera's verdict on the command.
+A zero retry count rules out replay after a protocol deadline or camera
+rejection. With a positive count,
+a full command buffer (`0x03`) or no free socket (`0x05`) conclusively rejects
+an attempt and permits a retry. `0x41` (`CommandNotExecutable`) permits a
+retry for movement and preset commands, for which the reported camera state
+may pass.
 
 For Sony-encapsulated traffic, a lost ACK may be retried within policy with
 the same sequence number, preserving the logical request's identity. Once an
@@ -212,18 +212,15 @@ The exact phases, quarantine scopes, transient-fault behavior, and
 `strict_unconfirmed_poison` alternative are defined once in
 [Raw unconfirmed outcomes and strict recovery](architecture_2_0.md#raw-unconfirmed-outcomes-and-strict-recovery).
 
-Raw inquiry replies are unkeyed too. The production Raw adapter admits one live
-inquiry per target. A matched reply releases that lane immediately, without a
-hold. An uncertain datagram release (terminal error/timeout or retry requeue)
-retains only the profile's `raw_inquiry_reply_skew`, bounded by minimum inquiry
-spacing. ACK-bearing commands, including STOPs, remain independently eligible.
-The hold filters stale unkeyed inquiry data and socketless errors while exact
-attributable command evidence remains eligible. On a raw stream a written,
-unanswered inquiry is never resent: its first reply deadline fails it, and the
-ledger keeps owing the reply. That debt can latch the camera's inquiry lane;
-it never blocks STOP delivery or ends the session (#712/#795). At an exact
-response or skew deadline, complete input wins before due work; retained partial
-bytes follow the [byte-stream ambiguity rule](architecture_2_0.md#engine-transition-and-ordering).
+Raw inquiry replies carry no identity. A target can have one staged or live
+inquiry per overlapping payload declaration class, and disjoint classes can
+run together. An uncertain datagram release retains the profile's
+`raw_inquiry_reply_skew`, bounded by minimum inquiry spacing. On streams,
+the [correlation ledger](architecture_2_0.md#the-raw-byte-stream-correlation-ledger)
+tracks unanswered inquiries and applies the ambiguity window to overlapping
+work. At an exact response or skew deadline, complete input wins before due
+work. Retained partial bytes follow the
+[byte-stream ambiguity rule](architecture_2_0.md#engine-transition-and-ordering).
 
 `0x02` (`SyntaxError`) is retried on one narrow path: an inquiry issued through
 this crate's own built-in typed inquiry surface. Cameras answer a built-in
@@ -387,7 +384,7 @@ exhausts all Address Set attempts remains `MaxRetriesExceeded` (`Timeout` /
 | `InvalidCameraId` | `InvalidParameter` | — | `Abandon` |
 | `ResponseTooLarge` | `Protocol` | — | `Abandon` |
 | `InvalidAddress` | `InvalidParameter` | — | `Abandon` |
-| `UnsupportedTransport` | `Unsupported` | — | `Abandon` |
+| `UnsupportedTransport / built-in or custom profile` | `Unsupported` | — | `Abandon` |
 | `MissingRuntime` | `Unsupported` | — | `Abandon` |
 | `WithContext / pending command` | `Busy` | — | `WaitAgain` |
 | `Timeout / inquiry reply` | `Timeout` | Terminal / FailedConclusively | `Resubmit after 2s` |
@@ -539,35 +536,19 @@ built-in therefore fails after about six inquiry deadlines plus backoffs and
 pacing. The facade returns `Error::InquiryFailed { source: Timeout { .. }, .. }`
 with stage `Terminal` and certainty `FailedConclusively`.
 
-On a raw VISCA stream such as TCP, the inquiry is written once and fails at
-its first reply deadline. Its reply is then owed. Until it arrives, that camera's
-next inquiries wait; once the profile's ambiguity window has passed they fail
-at once, unwritten, with `Error::InquiryCorrelationLost { camera }`
-(`kind() == ErrorKind::NotExecutable`, `failure_context()` = `Terminal` /
-`NotAccepted`, `recovery() == Recovery::Abandon`). A silent camera therefore stops
-answering *inquiries* on that session. The session is still live, so
-`requires_new_session()` is `false`. Meanwhile ACK-bearing commands and stops
-to that camera are still written. The engine resolves every frame on a raw
-stream in write order (the correlation ledger in `docs/architecture_2_0.md`),
-and a camera answers in the order it reads: the owed reply — data or a
-socketless rejection — reopens the lane whenever it arrives, and so does the
-camera's answer to any command written after that inquiry, which proves the
-reply will never come. A camera that never answers one inquiry therefore keeps
-accepting commands, and its next command answer reopens its inquiries; a
-later command's own answer still reaches that command. To recover inquiries
-to a camera that answers nothing at all, close and reopen the session. A raw
-`CompletionOnly` command is exclusive on its camera until its completion or
-rejection arrives: inquiries and ordinary commands to that camera queue
-behind it (and fail with the errors above once its window ends unanswered),
-while STOPs are always sent. Everything that needs an inquiry to that
-camera fails with `InquiryCorrelationLost` meanwhile: `settled()`
-observed-stable settlement polling (as `SettlementObservationFailed` with that
-source), `is_moving`, and `wait_until_idle`. The same applies to commands: a
-command that ended `UnsequencedCommandUnconfirmed` before its ACK still owes
-that answer, and once its ambiguity window has passed ordinary commands to the
-camera fail unwritten with `CommandCorrelationLost { camera }` until it
-arrives or the camera answers a later inquiry or STOP (a `CompletionOnly`
-completion is settled only by itself); STOPs are always sent (#795).
+On a raw VISCA stream, an inquiry is written once. After its reply deadline,
+the reply stays owed. Inquiries with overlapping declarations wait through
+the ambiguity window and then fail unwritten with
+`Error::InquiryCorrelationLost { camera }` (`NotExecutable`, `Terminal` /
+`NotAccepted`, `Recovery::Abandon`). Disjoint inquiries, including position
+queries used by `is_moving`, `wait_until_idle`, and settlement polling, can
+continue. Their answers can settle older debts by write order. An owed
+`CompletionOnly` answer holds all inquiries to its camera. ACK-bearing
+commands and STOPs remain eligible when the only debt is an inquiry reply.
+See the [raw stream correlation ledger](architecture_2_0.md#the-raw-byte-stream-correlation-ledger)
+for the rules for inquiry and command debts, including
+`Error::CommandCorrelationLost`. To clear a debt on a camera that never answers
+any work, close and reopen the session.
 
 The inquiry timeout itself is retryable and
 `requires_new_session() == false`: it proves only that this request received no
@@ -591,15 +572,15 @@ There are two independent layers of connection liveness, and it is worth being
 precise about which one a failure belongs to:
 
 - **OS-level TCP keepalive.** Enabled by default on every TCP transport
-  (blocking, Tokio, and smol) via `TransportConfig::tcp_keepalive`, whose
+  (blocking, Tokio, and smol) via `TcpConnect::keepalive`, whose
   default `TcpKeepaliveConfig` starts probing after ten seconds idle and repeats
   every ten seconds. The crate does not override the OS probe count; on Linux's
   usual count of nine, a black-holed peer is therefore detected after roughly
   100 seconds from the start of the idle period. Set the idle duration with
   `TcpKeepaliveConfig::new(idle)` and the interval with `with_interval(Some(interval))`.
-  Pass that value to `TransportConfig::for_tcp().with_tcp_keepalive(Some(keepalive))`,
-  or use `with_tcp_keepalive(None)` to disable probing. Attach the settings
-  with `CameraConfig::with_transport_config`. See the
+  Pass that value to `TcpConnect::default().with_keepalive(Some(keepalive))`.
+  Use `with_keepalive(None)` to keep the operating system default. Supply the
+  resulting settings to `CameraConfig::tcp_configured`. See the
   [configuration example in the migration guide](migration_2_0.md#extensible-public-payloads-788).
   Keepalive
   probes detect a peer that has gone away and keep NAT/firewall path state warm
@@ -628,6 +609,9 @@ application idle timeout there are two application-side levers:
    `requires_new_session()` signal for a silent open socket; compare the frame
    counter and apply a bounded application policy:
 
+   An unwritten heartbeat can also reflect a latched
+   [raw inquiry overlap class](architecture_2_0.md#the-raw-byte-stream-correlation-ledger).
+
    ```rust,ignore
    // Application-owned idle heartbeat; the library starts no timer of its own.
    let before = session.metrics()?.received_frames;
@@ -637,7 +621,6 @@ application idle timeout there are two application-side levers:
    } else if session.metrics()?.received_frames > before {
        record_positive_liveness();
    } else {
-       // Includes a latched inquiry lane after a prior unanswered raw inquiry.
        record_unanswered_heartbeat(); // rebuild when your threshold is met
    }
    ```
@@ -704,15 +687,15 @@ fixed; the remaining four are caller-tunable bounds:
 | Diagnostic subscribers | 4 | no |
 | Events per diagnostic subscriber | 128 | no |
 | Frames per receive batch | 64 | no |
-| Admitted request lifecycle entries (pending or active, including quarantine) | `SessionConfig::admission_capacity()` (64 by default) for ordinary work, plus each camera's control reserve (one slot per supported typed STOP, at most three) | yes — `SessionConfig::with_admission_capacity()`; the reserve is set by each profile |
+| Admitted request lifecycle entries (pending or active) | `SessionConfig::admission_capacity()` (64 by default) for ordinary work, plus each camera's control reserve (one slot per supported typed STOP, at most three) | yes — `SessionConfig::with_admission_capacity()`; the reserve is set by each profile |
 | Owner transport-read scratch / largest copied read | see below | yes — `BufferConfig::recv_buffer_size` |
 | Single framed response | see below | yes — `BufferConfig::recv_buffer_size` |
 | Stream input retained between reads | 8192 by default (the framer also holds one more read) | yes — `BufferConfig::max_buffer_size` |
 
-Admission capacity is fixed when the session opens and bounds each admitted
-boundary plus its pending/active owner lifecycle entry until safe terminal
-removal, including ambiguity quarantine. It defaults to 64; callers may choose
-any non-zero value below `usize::MAX` with
+Admission capacity is fixed when the session opens. The owner releases the
+admission slot when the request reaches terminal. Ambiguity holds have a
+separate bound of 20 per target. Capacity defaults to 64 and callers can
+choose any nonzero value below `usize::MAX` with
 `SessionConfig::with_admission_capacity()`.
 
 The capacity bounds ordinary work. Each registered camera also reserves one
@@ -725,26 +708,23 @@ budget are both full, the STOP fails with `Error::ControlReserveExhausted`
 (D26, #778). An admitted STOP still waits for protocol pacing, socket
 availability, and in-progress writes.
 
-The three transport-buffer rows are set from `TransportConfig::buffer_config`
-every time a production session is built, so the first two have no single
-number. `OwnerLimits::default()` retains internal 4096/8192 test defaults, but
-the production adapter replaces both values before allocating owner buffers.
-Camera configuration, runtime connectors and direct transport constructors
-start from the same per-transport defaults.
+`OwnerLimits` fixes the 4096-byte receive scratch and the owner collection
+bounds. The production adapter sizes transport buffers from
+`IoBounds::buffer_config`. The retention limit defaults to 8192 bytes.
+Standard camera constructors select their transport's buffer preset.
+Caller-owned transports report bounds through `HasTransportConfig::io_bounds()`.
 
 | Defaults | `recv_buffer_size` | Used by |
 | --- | ---: | --- |
-| `TransportConfig::for_tcp()` | 256 | every built-in TCP transport |
-| `TransportConfig::for_udp()` | 1024 | every built-in UDP transport |
-| `TransportConfig::for_serial()` | 256 | every built-in serial transport |
-| `TransportConfig::default()` | 128 | the transport-neutral base for a caller-owned transport |
+| `BufferConfig::for_tcp()` | 256 | built-in TCP transports |
+| `BufferConfig::for_udp()` | 1024 | built-in UDP transports |
+| `BufferConfig::for_serial()` | 256 | built-in serial transports |
+| `BufferConfig::default()` | 128 | transport-neutral caller-owned defaults |
 
-To raise the TCP buffer limit, pass
+To raise the TCP retention bound, pass
 `BufferConfig::for_tcp().with_max_buffer_size(16_384)` to
-`TransportConfig::for_tcp().with_buffer_config(...)`. Attach the resulting
-configuration with `CameraConfig::with_transport_config`. A caller-owned
-transport reports its settings through `HasTransportConfig::transport_config()`.
-See the [configuration example in the migration guide](migration_2_0.md#extensible-public-payloads-788).
+`IoBounds::default().with_buffer_config(...)`. Supply the checked bounds to
+`CameraConfig::tcp_configured`.
 
 Every default keeps `max_buffer_size` at 8192. The two limits mean:
 

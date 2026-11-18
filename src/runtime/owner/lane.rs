@@ -26,6 +26,7 @@ impl LaneRequest<CommandOutcome> {
         wire: Arc<EncodedMessage>,
         context: RequestContext,
         applied_state: Option<AppliedStateProjection>,
+        not_executable: bool,
     ) -> Self {
         Self {
             request: RuntimeRequest::Command {
@@ -33,6 +34,7 @@ impl LaneRequest<CommandOutcome> {
                 wire,
                 context,
                 applied_state,
+                not_executable,
             },
             lane: PhantomData,
         }
@@ -44,12 +46,14 @@ impl LaneRequest<InquiryOutcome> {
         wire: Arc<EncodedMessage>,
         context: RequestContext,
         payload_shape: PayloadShape,
+        syntax: bool,
     ) -> Self {
         Self {
             request: RuntimeRequest::Inquiry {
                 wire,
                 context,
                 payload_shape,
+                syntax,
             },
             lane: PhantomData,
         }

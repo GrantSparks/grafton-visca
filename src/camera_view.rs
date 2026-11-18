@@ -47,8 +47,8 @@ macro_rules! camera_view_getters {
 
         /// Returns this view's submission-class default, if it carries one.
         ///
-        /// `None` — the initial value — means every request uses its intrinsic
-        /// [`crate::request::ControlClass`](crate::request::ControlClass). See
+        /// The initial value `None` uses each request policy's
+        /// [`crate::request::SubmissionClass`] for ordinary work. See
         /// [`set_submission_class`](Self::set_submission_class).
         #[must_use]
         pub const fn submission_class(&self) -> Option<$crate::SubmissionClass> {
@@ -88,12 +88,10 @@ macro_rules! camera_view_getters {
         ///
         /// # Urgent requests are never demoted
         ///
-        /// A request the crate classifies
-        /// [`crate::request::ControlClass::Urgent`](crate::request::ControlClass::Urgent) — the typed
-        /// stops [`Stop`](crate::command::pan_tilt::Stop),
-        /// [`Stop`](crate::command::zoom::Stop),
-        /// [`Stop`](crate::command::focus::Stop), and owner-issued
-        /// protocol cancellation — ignores this default and stays urgent. A
+        /// Typed STOPs such as [`Stop`](crate::command::pan_tilt::Stop),
+        /// [`Stop`](crate::command::zoom::Stop), and
+        /// [`Stop`](crate::command::focus::Stop) always use the urgent
+        /// lane, as does owner-issued protocol cancellation. A
         /// view demoted to
         /// [`crate::request::SubmissionClass::Background`](crate::request::SubmissionClass::Background)
         /// for telemetry polling therefore still preempts with an emergency

@@ -40,15 +40,6 @@ fn completion(target: u8, socket: ViscaSocket) -> Input {
     )
 }
 
-/// A movement-class retry policy without the `0x41` retry, so a camera
-/// rejection is observable as a terminal error.
-fn no_not_executable_retry() -> RetryPolicy {
-    RetryPolicy {
-        movement_not_executable: false,
-        ..retrying()
-    }
-}
-
 /// Admits one ordinary raw command on target 1, writes it, and ACKs it on
 /// `socket`, leaving it `Executing`.
 fn executing_on(
@@ -92,7 +83,7 @@ fn named_error_on_a_free_socket_rejects_the_unique_unacknowledged_command() {
     let (effects, id) = admit(
         &mut engine,
         1,
-        command_with_retry(1, no_not_executable_retry()),
+        without_not_executable_retry(command(1)),
         now,
     );
     send_ok(&mut engine, &effects, None, now);
@@ -129,7 +120,7 @@ fn named_error_on_a_free_socket_rejects_the_command_while_an_inquiry_is_live() {
         let (command_effects, command_id) = admit(
             &mut engine,
             2,
-            command_with_retry(1, no_not_executable_retry()),
+            without_not_executable_retry(command(1)),
             now,
         );
         send_ok(&mut engine, &command_effects, None, now);
@@ -381,8 +372,7 @@ fn stream_owed_rejection_settles_the_debt() {
     assert_eq!(raw_owed(&engine, 1), 1);
     let later = now + Duration::from_millis(80);
     // A prepared typed STOP never retries `0x41` (see `prepared.rs`).
-    let mut stop_request = urgent_command(1);
-    stop_request.context_mut().retry = no_not_executable_retry();
+    let stop_request = without_not_executable_retry(urgent_command(1));
     let (urgent, stop) = admit(&mut engine, 2, stop_request, later);
     send_ok(&mut engine, &urgent, None, later);
 
@@ -449,7 +439,6 @@ fn stream_owed_answer_past_its_window_latches_only_the_command_lane() {
         Input::Admit {
             ticket: AdmissionTicket(3),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         window_end,
     );
@@ -464,8 +453,7 @@ fn stream_owed_answer_past_its_window_latches_only_the_command_lane() {
     let (other, other_id) = admit(&mut engine, 4, command(2), window_end);
     assert_eq!(request_transmit(&other).1, other_id);
     send_ok(&mut engine, &other, None, window_end);
-    let mut stop_request = urgent_command(1);
-    stop_request.context_mut().retry = no_not_executable_retry();
+    let stop_request = without_not_executable_retry(urgent_command(1));
     let (stop_effects, stop) = admit(&mut engine, 5, stop_request, window_end);
     assert_eq!(request_transmit(&stop_effects).1, stop);
     send_ok(&mut engine, &stop_effects, None, window_end);
@@ -546,7 +534,6 @@ fn halt_superseding_never_written_motion_reports_not_accepted() {
         Input::Admit {
             ticket: AdmissionTicket(3),
             request: declared_motion(1, crate::AffectedAxes::ZOOM, 2),
-            slot: AdmissionSlot::Ordinary,
         },
         now,
     );
@@ -706,9 +693,7 @@ fn socketless_error(target: u8, code: u8) -> Input {
 }
 
 fn stop_command(target: u8) -> RuntimeRequest {
-    let mut request = urgent_command(target);
-    request.context_mut().retry = no_not_executable_retry();
-    request
+    without_not_executable_retry(urgent_command(target))
 }
 
 /// A `CompletionOnly` command that ends unconfirmed on a stream owes its
@@ -752,7 +737,6 @@ fn stream_owed_completion_only_answer_holds_back_ordinary_work() {
             Input::Admit {
                 ticket: AdmissionTicket(ticket),
                 request,
-                slot: AdmissionSlot::Ordinary,
             },
             window_end,
         );
@@ -963,7 +947,7 @@ fn stream_order_settles_debts_across_lanes() {
     engine.assert_invariants().unwrap();
 }
 
-/// A latched inquiry lane's owed reply was written before any later command,
+/// A latched inquiry class's owed reply was written before any later command,
 /// so a socketless error is that reply's late answer: it settles the inquiry
 /// lane, and the command's own ACK still binds to the command.
 #[test]
@@ -1316,11 +1300,7 @@ fn disputed(engine: &mut ProtocolEngine, now: Instant) -> (RequestId, RequestId,
     let (effects, completion_only) = admit(
         engine,
         1,
-        command_with_reply_shape_and_retry(
-            1,
-            CommandReply::CompletionOnly,
-            no_not_executable_retry(),
-        ),
+        without_not_executable_retry(command_with_reply_shape(1, CommandReply::CompletionOnly)),
         now,
     );
     send_ok(engine, &effects, None, now);
@@ -1385,6 +1365,117 @@ fn a_disputed_stop_is_settled_by_its_own_ack() {
         }
     }
     assert!(phase_of(&engine, inquiry_id).is_none_or(|phase| !matches!(phase, Phase::Ready)));
+    engine.assert_invariants().unwrap();
+}
+
+/// Two STOPs cross the waiting bound behind an earlier disputed STOP.
+/// Their first answers arrive only after both writes have left.
+fn stop_pair_behind_dispute(
+    engine: &mut ProtocolEngine,
+    start: Instant,
+) -> (RequestId, RequestId, Instant) {
+    let (queued, first) = admit(engine, 4, stop_command(1), start);
+    assert!(request_transmit_optional(&queued).is_none());
+    let (queued, second) = admit(engine, 5, stop_command(1), start);
+    assert!(request_transmit_optional(&queued).is_none());
+    // Let the original STOP extend its ACK wait, then retire at the bound.
+    engine.advance(start + Duration::from_millis(20));
+    let at = start + Duration::from_millis(70);
+    let mut write = engine.advance(at);
+    for id in [first, second] {
+        let (transmission, writing, _) = request_transmit(&write);
+        assert_eq!(writing, id);
+        finish_write_input_only(
+            engine,
+            id,
+            transmission,
+            Ok(TransmissionMeta::for_sequence(None)),
+            at,
+        );
+        write = engine.advance(at);
+    }
+    (first, second, at)
+}
+
+#[test]
+fn a_follow_cannot_claim_a_waiting_stops_rejection_after_socketless_completion() {
+    let start = Instant::now();
+    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
+    engine.handle(socketless_completion(1), start);
+    disputed(&mut engine, start);
+    let (first, second, at) = stop_pair_behind_dispute(&mut engine, start);
+    let responses = [
+        ack(1, ViscaSocket::S2),
+        socketless_completion(1),
+        named_error(1, ViscaSocket::S2, 0x41),
+        socketless_completion(1),
+    ];
+    let mut effects = Vec::new();
+    for (index, response) in responses.into_iter().enumerate() {
+        effects.extend(engine.handle_turn(
+            response,
+            at + Duration::from_millis(u64::try_from(index).unwrap() + 1),
+            EngineTurn::InputOnly,
+        ));
+    }
+    assert!(terminal_failure(&effects, first).is_none(), "{effects:?}");
+    assert!(engine
+        .correlation
+        .ledger()
+        .live(camera(1), second)
+        .any(|entry| entry.disputed));
+    engine.assert_invariants().unwrap();
+}
+
+#[test]
+fn a_named_execution_error_is_kept_as_the_disputed_acks_follow() {
+    let start = Instant::now();
+    let mut engine = numbering_camera(start);
+    disputed(&mut engine, start);
+    let (first, second, at) = stop_pair_behind_dispute(&mut engine, start);
+    let later = |millis| at + Duration::from_millis(millis);
+    for (millis, response) in [
+        (1, ack(1, ViscaSocket::S2)),
+        (2, named_error(1, ViscaSocket::S2, 0x41)),
+    ] {
+        let effects = engine.handle_turn(response, later(millis), EngineTurn::InputOnly);
+        assert!(terminal_id(&effects).is_none(), "{effects:?}");
+    }
+    let proved = engine.handle_turn(socketless_completion(1), later(3), EngineTurn::InputOnly);
+    assert!(
+        matches!(
+            terminal_failure(&proved, first),
+            Some(Error::CommandFailedAfterAck { source, .. })
+                if matches!(*source, Error::CommandNotExecutable)
+        ),
+        "{proved:?}"
+    );
+    assert!(terminal_outcome(&proved, second).is_none());
+    engine.assert_invariants().unwrap();
+}
+
+#[test]
+fn a_waiting_stops_own_ack_proves_a_named_error_paid_the_last_terminal() {
+    let (mut engine, at) = socketless_ack_conflicts::engine_with_ambiguous_executions();
+    assert!(terminal_id(&engine.handle(socketless_completion(1), at)).is_none());
+    let (write, waiting) = admit(&mut engine, 4, stop_command(1), at);
+    send_ok(&mut engine, &write, None, at);
+
+    // The remaining operation sends its execution error. Until the STOP
+    // supplies its own first answer, this could be the STOP's rejection.
+    let error = engine.handle(named_error(1, ViscaSocket::S1, 0x41), at);
+    assert!(terminal_id(&error).is_none());
+    assert_eq!(engine.raw_socket_hold_count(camera(1)), 1);
+    let accepted = engine.handle(frame(1, None, DecodedResponse::Ack { socket: None }), at);
+    assert!(terminal_id(&accepted).is_none(), "{accepted:?}");
+    assert_eq!(socket_of(&engine, waiting), Some(ViscaSocket::S1));
+    assert_eq!(engine.raw_socket_hold_count(camera(1)), 0);
+
+    let completed = engine.handle(socketless_completion(1), at);
+    assert!(matches!(
+        terminal_outcome(&completed, waiting),
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
+    ));
     engine.assert_invariants().unwrap();
 }
 
@@ -1755,7 +1846,6 @@ fn reaching_the_debt_cap_keeps_queries_available_without_dropping_command_debt()
         Input::Admit {
             ticket: AdmissionTicket(102),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         now,
     );
@@ -1787,7 +1877,7 @@ fn reaching_the_debt_cap_keeps_queries_available_without_dropping_command_debt()
     send_ok(&mut engine, &other, None, now);
 
     // The camera recovers: its late ACKs pay the oldest debts first. Back
-    // below the cap the inquiry lane reopens; the command lane stays latched
+    // below the cap the inquiry class reopens; the command lane stays latched
     // until its own debts are paid.
     engine.handle(ack(1, ViscaSocket::S1), now);
     assert_eq!(raw_owed(&engine, 1), MAX_DEBTS_PER_TARGET);
@@ -1962,7 +2052,7 @@ fn stream_unanswered_cancel_holds_its_socket_until_evidence() {
     let (effects, id) = admit(
         &mut engine,
         2,
-        command_with_retry(1, no_not_executable_retry()),
+        without_not_executable_retry(command(1)),
         ended,
     );
     send_ok(&mut engine, &effects, None, ended);
@@ -2014,7 +2104,7 @@ fn stream_socket_displacement_leaves_no_preack_hold() {
     engine.assert_invariants().unwrap();
 }
 
-/// R2: an inquiry the camera never answers latches only the inquiry lane;
+/// R2: an inquiry the camera never answers latches only the inquiry overlap class;
 /// the first later command's ACK proves (by write order) that its reply will
 /// never come, so the debt is retired and inquiries work again.
 #[test]
@@ -2479,7 +2569,6 @@ fn an_unanswered_tracked_dispute_falls_to_the_latch() {
         Input::Admit {
             ticket: AdmissionTicket(9),
             request: inquiry(1),
-            slot: AdmissionSlot::Ordinary,
         },
         at,
     );
@@ -2611,7 +2700,6 @@ fn completion_only_work_behind_an_unsettled_no_reply_fails_fast() {
         Input::Admit {
             ticket: AdmissionTicket(3),
             request: completion_only_request(),
-            slot: AdmissionSlot::Ordinary,
         },
         window_end,
     );
@@ -2663,11 +2751,7 @@ fn a_learned_completion_decides_its_dispute_accepted() {
     let (effects, completion_only) = admit(
         &mut engine,
         2,
-        command_with_reply_shape_and_retry(
-            1,
-            CommandReply::CompletionOnly,
-            no_not_executable_retry(),
-        ),
+        without_not_executable_retry(command_with_reply_shape(1, CommandReply::CompletionOnly)),
         now,
     );
     assert_eq!(request_transmit(&effects).1, completion_only);
@@ -3004,11 +3088,8 @@ fn a_socketless_disputed_ack_holds_a_free_socket_and_preserves_uncertainty() {
 fn accepting_a_dispute_preserves_the_second_stop_debt_in_the_engine() {
     let now = Instant::now();
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
-    let mut co = command_with_reply_shape_and_retry(
-        1,
-        CommandReply::CompletionOnly,
-        no_not_executable_retry(),
-    );
+    let mut co =
+        without_not_executable_retry(command_with_reply_shape(1, CommandReply::CompletionOnly));
     co.context_mut().timeout.completion = NonZeroDuration::new(Duration::from_secs(2)).unwrap();
     let (written, completion_only) = admit(&mut engine, 1, co, now);
     send_ok(&mut engine, &written, None, now);

@@ -13,6 +13,8 @@
 #![cfg(feature = "blocking")]
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
+use grafton_visca::observability::DiagnosticCapacity;
+use grafton_visca::tuning::RetryLimit;
 use grafton_visca_test_support::fake_camera;
 
 use std::time::Duration;
@@ -51,13 +53,13 @@ fn silent_session() -> Session {
 /// The base retry count is an operational override rather than a profile
 /// constant, so the scenario below is one the caller asked for retries in and
 /// the counter has to show them.
-fn retrying_silent_session(retry_limit: u32) -> Session {
+fn retrying_silent_session(retry_limit: u8) -> Session {
     let config = SessionConfig::new(
         ProfileSpec::from_compile_time::<SonyFr7>().expect("built-in Sony FR7 profile"),
     )
     .with_tuning(
         OperationalTuning::new()
-            .with_retry_limit(retry_limit)
+            .with_retry_limit(RetryLimit::new(retry_limit).expect("valid retry limit"))
             .with_initial_retry_backoff(Duration::from_millis(50))
             .with_maximum_retry_backoff(Duration::from_millis(500))
             .with_retry_budget(Duration::from_secs(30)),
@@ -71,7 +73,9 @@ fn retrying_silent_session(retry_limit: u32) -> Session {
 #[test]
 fn an_unanswered_command_counts_ack_timeouts_and_reports_each_retry_decision() {
     let session = silent_session();
-    let diagnostics = session.subscribe_diagnostics(128).expect("diagnostics");
+    let diagnostics = session
+        .subscribe_diagnostics(DiagnosticCapacity::MAX)
+        .expect("diagnostics");
     let camera = session
         .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera facade");
@@ -164,10 +168,12 @@ fn an_unanswered_command_counts_ack_timeouts_and_reports_each_retry_decision() {
 /// last expiry is the one that gave up.
 #[test]
 fn a_caller_configured_retry_budget_is_visible_in_the_scheduled_retry_counter() {
-    const RETRY_LIMIT: u32 = 2;
+    const RETRY_LIMIT: u8 = 2;
 
     let session = retrying_silent_session(RETRY_LIMIT);
-    let diagnostics = session.subscribe_diagnostics(128).expect("diagnostics");
+    let diagnostics = session
+        .subscribe_diagnostics(DiagnosticCapacity::MAX)
+        .expect("diagnostics");
     let camera = session
         .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera facade");
@@ -188,7 +194,7 @@ fn a_caller_configured_retry_budget_is_visible_in_the_scheduled_retry_counter() 
         "the scenario must fit the diagnostic subscription for the pairing below to hold"
     );
 
-    assert_eq!(metrics.retries_scheduled, RETRY_LIMIT as u64);
+    assert_eq!(metrics.retries_scheduled, u64::from(RETRY_LIMIT));
     assert_eq!(
         metrics.ack_timeouts,
         metrics.retries_scheduled + 1,
@@ -199,7 +205,7 @@ fn a_caller_configured_retry_budget_is_visible_in_the_scheduled_retry_counter() 
         .iter()
         .filter(|event| matches!(event, DiagnosticEvent::RetryScheduled { .. }))
         .count();
-    assert_eq!(retries, RETRY_LIMIT as usize);
+    assert_eq!(retries, usize::from(RETRY_LIMIT));
     assert_eq!(metrics.retries_scheduled, retries as u64);
     assert_eq!(metrics.terminal, 1);
     assert_eq!(metrics.completion_timeouts, 0);

@@ -5,18 +5,15 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[cfg(test)]
-use crate::transport::{connect::preflight, TransportConfig};
-
 use crate::{
     timeout::Deadline,
     transport::{
         address::resolve_blocking,
         blocking::{read_once_bounded, write_all_bounded, TimedIo},
-        builder::ValidatedTransportConfig,
         connect::{connect_deadline, AttemptFailure, TcpAttempts},
-        socket_options::{configured_tcp_socket, TcpConnectionConfig},
-        stream_read, BlockingTransport, HasTransportConfig, NetworkEndpoint, ReceiveOutcome,
+        socket_options::configured_tcp_socket,
+        stream_read, BlockingTransport, HasTransportConfig, IoBounds, NetworkEndpoint,
+        ReceiveOutcome, TcpConnect,
     },
     Error,
 };
@@ -37,7 +34,7 @@ fn arm_read(stream: &mut TcpStream, timeout: Duration) -> std::io::Result<()> {
 /// into another user-space buffer. Framing is handled by the runtime layer.
 pub struct Tcp {
     stream: TcpStream,
-    config: ValidatedTransportConfig,
+    config: IoBounds,
 }
 
 impl std::fmt::Debug for Tcp {
@@ -47,25 +44,22 @@ impl std::fmt::Debug for Tcp {
 }
 
 impl Tcp {
-    /// Connect with a full configuration.
-    ///
-    /// The address must include an explicit port; explicit IPv6 ports require
-    /// brackets. Name resolution and connection setup share
-    /// `config.connect_timeout`, and each resolved address is tried in order.
-    /// See [`crate::transport::connect`] for the error contract shared with
-    /// the async connectors.
     #[cfg(test)]
-    pub fn connect_with_config(address: &str, config: TransportConfig) -> Result<Self, Error> {
-        let (endpoint, config) = preflight(address, config)?;
-        Self::connect_endpoint(&endpoint, config)
+    pub(crate) fn connect_with_config(
+        address: &str,
+        options: TcpConnect,
+        io_bounds: IoBounds,
+    ) -> Result<Self, Error> {
+        let endpoint = NetworkEndpoint::parse(address, None)?;
+        Self::connect_endpoint(&endpoint, options, io_bounds)
     }
 
     pub(crate) fn connect_endpoint(
         endpoint: &NetworkEndpoint,
-        config: ValidatedTransportConfig,
+        options: TcpConnect,
+        io_bounds: IoBounds,
     ) -> Result<Self, Error> {
-        let options = TcpConnectionConfig::from(config);
-        let deadline = connect_deadline(Instant::now(), options.connect_timeout)?;
+        let deadline = connect_deadline(Instant::now(), options.connect_timeout())?;
         let stream = connect_resolved(
             endpoint,
             options,
@@ -74,17 +68,20 @@ impl Tcp {
             connect_one,
             Instant::now,
         )?;
-        Ok(Self { stream, config })
+        Ok(Self {
+            stream,
+            config: io_bounds,
+        })
     }
 }
 
 /// Drive the same address plan used by the async connectors after resolution.
 fn connect_resolved(
     endpoint: impl std::fmt::Display,
-    options: TcpConnectionConfig,
+    options: TcpConnect,
     addresses: Vec<SocketAddr>,
     deadline: Deadline,
-    mut connect: impl FnMut(&SocketAddr, Duration, TcpConnectionConfig) -> std::io::Result<TcpStream>,
+    mut connect: impl FnMut(&SocketAddr, Duration, TcpConnect) -> std::io::Result<TcpStream>,
     mut now: impl FnMut() -> Instant,
 ) -> Result<TcpStream, Error> {
     let mut attempts = TcpAttempts::new(addresses, deadline);
@@ -101,7 +98,7 @@ fn connect_resolved(
 fn connect_one(
     address: &SocketAddr,
     remaining: Duration,
-    options: TcpConnectionConfig,
+    options: TcpConnect,
 ) -> std::io::Result<TcpStream> {
     let started = Instant::now();
     let socket = configured_tcp_socket(*address, options)?;
@@ -118,7 +115,7 @@ impl HasTransportConfig for Tcp {
         crate::transport::TransportIdentity::Tcp
     }
 
-    fn transport_config(&self) -> &ValidatedTransportConfig {
+    fn io_bounds(&self) -> &IoBounds {
         &self.config
     }
 }
@@ -154,81 +151,22 @@ impl BlockingTransport for Tcp {
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
-    use std::{
-        io::{self, ErrorKind},
-        net::TcpListener,
-        thread,
-        time::{Duration, Instant},
-    };
+    use std::{io::ErrorKind, net::TcpListener};
 
     use super::*;
-    use crate::transport::BufferConfig;
 
-    fn invalid_buffer_config() -> TransportConfig {
-        TransportConfig {
-            buffer_config: BufferConfig {
-                recv_buffer_size: 65,
-                max_buffer_size: 64,
-            },
-            ..TransportConfig::default()
-        }
-    }
-
-    #[test]
-    fn invalid_config_returns_before_a_listener_can_accept() {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
-        listener
-            .set_nonblocking(true)
-            .expect("make listener nonblocking");
-        let address = listener.local_addr().expect("listener address");
-
-        let accept_thread = thread::spawn(move || -> Result<bool, io::Error> {
-            let deadline = Instant::now() + Duration::from_millis(100);
-            loop {
-                match listener.accept() {
-                    Ok(_) => return Ok(true),
-                    Err(error) if error.kind() == ErrorKind::WouldBlock => {
-                        if Instant::now() >= deadline {
-                            return Ok(false);
-                        }
-                        thread::sleep(Duration::from_millis(1));
-                    }
-                    Err(error) => return Err(error),
-                }
-            }
-        });
-
-        let result = Tcp::connect_with_config(&address.to_string(), invalid_buffer_config());
-        let accepted = accept_thread
-            .join()
-            .expect("join accept observer")
-            .expect("listener failed while observing connector");
-
-        assert!(matches!(
-            result,
-            Err(Error::InvalidRequest { reason: actual })
-                if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
-        ));
-        assert!(
-            !accepted,
-            "invalid configuration must be rejected before TCP connect"
-        );
-    }
     #[test]
     fn an_unroutable_first_address_does_not_hide_the_next_refusal() {
         let addresses = [
             "192.0.2.1:5678".parse().expect("test-net address"),
             "127.0.0.1:9".parse().expect("local address"),
         ];
-        let options = TcpConnectionConfig::from(
-            TransportConfig::for_tcp()
-                .with_connect_timeout(Duration::from_millis(800))
-                .validated()
-                .expect("valid connector test configuration"),
-        );
+        let options = TcpConnect::default()
+            .with_connect_timeout(Duration::from_millis(800))
+            .expect("valid connector test configuration");
         let started = Instant::now();
         let clock = std::cell::Cell::new(started);
-        let deadline = connect_deadline(started, options.connect_timeout).expect("budget");
+        let deadline = connect_deadline(started, options.connect_timeout()).expect("budget");
         let mut tried = Vec::new();
         // Inject OS verdicts and time into the production connector loop.
         // Windows can spend a short budget before a closed local port reports
@@ -271,16 +209,13 @@ mod tests {
             "192.0.2.1:5678".parse().expect("first address"),
             "192.0.2.2:5678".parse().expect("second address"),
         ];
-        let options = TcpConnectionConfig::from(
-            TransportConfig::for_tcp()
-                .with_connect_timeout(Duration::from_millis(800))
-                .validated()
-                .expect("valid connector test configuration"),
-        );
+        let options = TcpConnect::default()
+            .with_connect_timeout(Duration::from_millis(800))
+            .expect("valid connector test configuration");
         for spend_shares in [false, true] {
             let started = Instant::now();
             let clock = std::cell::Cell::new(started);
-            let deadline = connect_deadline(started, options.connect_timeout).expect("budget");
+            let deadline = connect_deadline(started, options.connect_timeout()).expect("budget");
             let mut tried = Vec::new();
             let error = connect_resolved(
                 "camera.test:5678",
@@ -311,13 +246,10 @@ mod tests {
             first.local_addr().expect("first"),
             second.local_addr().expect("second"),
         ];
-        let options = TcpConnectionConfig::from(
-            TransportConfig::for_tcp()
-                .with_ttl(Some(2))
-                .validated()
-                .expect("valid connector test configuration"),
-        );
-        let deadline = connect_deadline(Instant::now(), options.connect_timeout).expect("budget");
+        let options = TcpConnect::default()
+            .with_ttl(Some(2))
+            .expect("valid connector test configuration");
+        let deadline = connect_deadline(Instant::now(), options.connect_timeout()).expect("budget");
         let mut tried = Vec::new();
         let stream = connect_resolved(
             "camera.test:1259",
@@ -328,7 +260,7 @@ mod tests {
                 tried.push(*address);
                 if *address == addresses[0] {
                     // Bypass preflight to exercise an actual setsockopt error.
-                    options.ttl = Some(300);
+                    options = options.with_unchecked_ttl(Some(300));
                 }
                 connect_one(address, remaining, options)
             },
@@ -350,9 +282,12 @@ mod tests {
             return;
         };
         let address = listener.local_addr().expect("IPv6 listener");
-        let config = TransportConfig::for_tcp().with_ttl(Some(7));
+        let config = TcpConnect::default()
+            .with_ttl(Some(7))
+            .expect("valid connector test configuration");
         let transport =
-            Tcp::connect_with_config(&address.to_string(), config).expect("IPv6 TCP connect");
+            Tcp::connect_with_config(&address.to_string(), config, IoBounds::TCP_DEFAULT)
+                .expect("IPv6 TCP connect");
         assert_eq!(
             socket2::SockRef::from(&transport.stream)
                 .unicast_hops_v6()

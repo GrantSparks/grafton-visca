@@ -217,9 +217,9 @@ regenerated when upgrading from the flat capability record.
 | `power()` | `PtzOpticsG2`: 3/3; `PtzOpticsG3`: 3/3; `PtzOptics30x`: 3/3; `SonyFr7`: 3/3; `SonyBrcH900`: 3/3; `SonyEviH100`: 3/3; `SonyBrc300`: 2/3; `NearusBrc300`: 2/3; `GenericVisca`: 2/3 |
 | `zoom()` | `PtzOpticsG2`: 9/14; `PtzOpticsG3`: 9/14; `PtzOptics30x`: 9/14; `SonyFr7`: 13/14; `SonyBrcH900`: 6/14; `SonyEviH100`: 10/14; `SonyBrc300`: 10/14; `NearusBrc300`: 10/14; `GenericVisca`: 6/14 |
 | `system()` | `PtzOpticsG2`: 1/2; `PtzOpticsG3`: 1/2; `PtzOptics30x`: 1/2; `SonyFr7`: 1/2; `SonyBrcH900`: 1/2; `SonyEviH100`: 1/2; `SonyBrc300`: 1/2; `NearusBrc300`: 1/2; `GenericVisca`: 1/2 |
-| `pan_tilt()` | `PtzOpticsG2`: 9/10; `PtzOpticsG3`: 9/10; `PtzOptics30x`: 9/10; `SonyFr7`: 10/10; `SonyBrcH900`: 9/10; `SonyEviH100`: 9/10; `SonyBrc300`: 9/10; `NearusBrc300`: 9/10; `GenericVisca`: 4/10 |
+| `pan_tilt()` | `PtzOpticsG2`: 9/10; `PtzOpticsG3`: 9/10; `PtzOptics30x`: 9/10; `SonyFr7`: 10/10; `SonyBrcH900`: 9/10; `SonyEviH100`: 9/10; `SonyBrc300`: 9/10; `NearusBrc300`: 9/10; `GenericVisca`: 2/10 |
 | `focus()` | `PtzOpticsG2`: 13/22; `PtzOpticsG3`: 12/22; `PtzOptics30x`: 13/22; `SonyFr7`: 12/22; `SonyBrcH900`: 11/22; `SonyEviH100`: 14/22; `SonyBrc300`: 12/22; `NearusBrc300`: 12/22; `GenericVisca`: 12/22 |
-| `presets()` | `PtzOpticsG2`: 4/13; `PtzOpticsG3`: 4/13; `PtzOptics30x`: 4/13; `SonyFr7`: 13/13; `SonyBrcH900`: 1/13; `SonyEviH100`: 3/13; `SonyBrc300`: 3/13; `NearusBrc300`: 3/13; `GenericVisca`: 3/13 |
+| `presets()` | `PtzOpticsG2`: 4/13; `PtzOpticsG3`: 4/13; `PtzOptics30x`: 4/13; `SonyFr7`: 13/13; `SonyBrcH900`: 1/13; `SonyEviH100`: 3/13; `SonyBrc300`: 3/13; `NearusBrc300`: 3/13; `GenericVisca`: 2/13 |
 | `exposure()` | `PtzOpticsG2`: 36/49; `PtzOpticsG3`: 36/49; `PtzOptics30x`: 36/49; `SonyFr7`: 14/49; `SonyBrcH900`: 16/49; `SonyEviH100`: 32/49; `SonyBrc300`: 32/49; `NearusBrc300`: 32/49; `GenericVisca`: 17/49 |
 | `white_balance()` | `PtzOpticsG2`: 24/52; `PtzOpticsG3`: 23/52; `PtzOptics30x`: 24/52; `SonyFr7`: 31/52; `SonyBrcH900`: 2/52; `SonyEviH100`: 13/52; `SonyBrc300`: 13/52; `NearusBrc300`: 13/52; `GenericVisca`: 3/52 |
 | `image()` | `PtzOpticsG2`: 30/54; `PtzOpticsG3`: 30/54; `PtzOptics30x`: 30/54; `SonyFr7`: 28/54; `SonyBrcH900`: 0/54; `SonyEviH100`: 13/54; `SonyBrc300`: 2/54; `NearusBrc300`: 2/54; `GenericVisca`: 0/54 |
@@ -262,11 +262,10 @@ AE-mode command/inquiry family, standard absolute Iris Direct command, or `09
 `set_auto_iris` and `auto_iris` under `HasAutoIris`, through `camera.exposure()`; these do not
 provide an absolute iris position or its readback.
 
-`IrisLevel` represents the `0x00..=0x1E` union used by the built-in iris
-profiles, and `GainLevel` represents the union of built-in gain codes `0x00..=0x19`.
-The selected profile's advertised range remains the final admission check, so
-constructing a syntactically valid value never grants it to a camera that does
-not document it. Coarse `SpeedLevel` position requests similarly clamp to each
+`IrisLevel` and `GainLevel` represent two-nibble wire codes from `0x00` to
+`0xFF`. Preparation checks the selected profile's domain. Where the source
+documents the register without model-specific numerical limits, the camera
+determines which codes it accepts. Coarse `SpeedLevel` position requests similarly clamp to each
 profile's documented pan and tilt maxima; `Fastest` therefore means the fastest
 valid speed for that selected camera.
 
@@ -604,17 +603,18 @@ grafton-visca = { version = "=2.0.0", features = ["runtime-tokio", "transport-se
 ```rust
 use grafton_visca::config::CameraConfig;
 use grafton_visca::profiles::PtzOpticsG2;
-use grafton_visca::transport::TransportConfig;
+use grafton_visca::transport::{BufferConfig, IoBounds, TcpConnect, TcpKeepaliveConfig};
 use grafton_visca::types::IndividualCameraId;
 use std::time::Duration;
 
-let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
-    .with_camera_id(IndividualCameraId::CAMERA_1)
-    .with_transport_config(
-        TransportConfig::for_tcp().with_tcp_keepalive(Some(
-            grafton_visca::transport::TcpKeepaliveConfig::new(Duration::from_secs(30)),
-        )),
-    );
+let config = CameraConfig::<PtzOpticsG2>::tcp_configured(
+    "192.168.0.110",
+    TcpConnect::default().with_keepalive(Some(
+        TcpKeepaliveConfig::new(Duration::from_secs(30)),
+    ))?,
+    IoBounds::default().with_buffer_config(BufferConfig::for_tcp())?,
+)
+.with_camera_id(IndividualCameraId::CAMERA_1);
 ```
 
 TCP keepalive is a socket-level liveness mechanism. It can detect broken peers
@@ -647,19 +647,9 @@ resubmission. Never blindly replay an operation whose completion is uncertain.
 
 ---
 
-## Camera Profiles
+## Profile transport selection
 
-Profiles define protocol format, supported standard transports, and default ports:
-
-| Profile              | Protocol           | TCP Port | UDP Port | Serial |
-| -------------------- | ------------------ | -------: | -------: | :----: |
-| `GenericVisca`       | Raw VISCA          |     5678 |     1259 |  yes   |
-| `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` | Raw VISCA          |     5678 |     1259 |  yes   |
-| `SonyEviH100`        | Raw VISCA          |      n/a |      n/a |  yes   |
-| `SonyBrc300`         | Raw VISCA          |      n/a |      n/a |  yes   |
-| `NearusBrc300`       | Raw VISCA          |      n/a |      n/a |  yes   |
-| `SonyBrcH900`        | Sony encapsulation |      n/a |    52381 |   no   |
-| `SonyFr7`            | Sony encapsulation |      n/a |    52381 |   no   |
+See the [generated transport table](#transports) for supported transports and default ports.
 
 The EVI-H100, BRC-300 and Nearus BRC-300 sources document VISCA over RS-232C
 and RS-422 only, so those profiles are serial-only.

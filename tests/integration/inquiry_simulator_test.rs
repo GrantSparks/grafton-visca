@@ -6,7 +6,7 @@ use grafton_visca::{testing::ViscaCameraSimulator, transport::AsyncTransport, ty
 
 #[tokio::test(start_paused = true)]
 async fn test_simulator_power_inquiry_direct() {
-    let mut simulator = ViscaCameraSimulator::new();
+    let mut simulator = ViscaCameraSimulator::default();
 
     // Send power inquiry command directly
     let power_inquiry = vec![0x81, 0x09, 0x04, 0x00, 0xFF];
@@ -33,7 +33,7 @@ async fn test_simulator_power_inquiry_direct() {
 
 #[tokio::test(start_paused = true)]
 async fn test_simulator_zoom_inquiry_direct() {
-    let mut simulator = ViscaCameraSimulator::new();
+    let mut simulator = ViscaCameraSimulator::default();
 
     // Send zoom position inquiry
     let zoom_inquiry = vec![0x81, 0x09, 0x04, 0x47, 0xFF];
@@ -66,7 +66,7 @@ async fn test_simulator_zoom_inquiry_direct() {
 
 #[tokio::test(start_paused = true)]
 async fn test_simulator_pan_tilt_inquiry_direct() {
-    let mut simulator = ViscaCameraSimulator::new();
+    let mut simulator = ViscaCameraSimulator::default();
 
     // Send pan/tilt position inquiry
     let pt_inquiry = vec![0x81, 0x09, 0x06, 0x12, 0xFF];
@@ -105,7 +105,7 @@ async fn test_simulator_pan_tilt_inquiry_direct() {
 
 #[tokio::test(start_paused = true)]
 async fn test_simulator_exposure_compensation_inquiry() {
-    let mut simulator = ViscaCameraSimulator::new();
+    let mut simulator = ViscaCameraSimulator::default();
 
     // Send exposure compensation inquiry command directly
     let inquiry = vec![0x81, 0x09, 0x04, 0x4E, 0xFF];
@@ -140,7 +140,7 @@ async fn test_simulator_exposure_compensation_inquiry() {
 
 #[tokio::test(start_paused = true)]
 async fn test_simulator_mixed_commands_and_inquiries() {
-    let mut simulator = ViscaCameraSimulator::new();
+    let mut simulator = ViscaCameraSimulator::default();
 
     // Send a regular command (zoom in)
     let zoom_in = vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF];
@@ -188,7 +188,7 @@ async fn session_inquiries_observe_applied_simulator_state() {
     };
 
     let session = Session::open(
-        ViscaCameraSimulator::new(),
+        ViscaCameraSimulator::default(),
         &SessionConfig::from_compile_time::<PtzOpticsG2>().unwrap(),
         TokioRuntime::from_current().unwrap(),
     )

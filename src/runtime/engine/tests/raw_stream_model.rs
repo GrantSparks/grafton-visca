@@ -40,6 +40,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use super::*;
+use crate::runtime::owner::{AdmissionPermit, AdmissionPermitPool};
 
 const ACTIVE_STEPS: u32 = 4_000;
 const DRAIN_STEPS: u32 = 3_000;
@@ -549,6 +550,8 @@ struct Session {
     random: u64,
     now: Instant,
     engine: ProtocolEngine,
+    permits: AdmissionPermitPool,
+    admitted_permits: BTreeMap<RequestId, AdmissionPermit>,
     cameras: [Camera; 2],
     /// Requests written and not yet read by their camera, in write order.
     unread: VecDeque<(u8, Job)>,
@@ -607,18 +610,20 @@ impl Session {
         };
         let start = Instant::now();
         let configured = policy(EnvelopeKind::Raw, TransportKind::Stream);
-        let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
-        for target in [camera(1), camera(2)] {
-            engine
-                .register_target(
-                    target,
-                    TargetPolicy {
-                        control_reserve: 2,
-                        ..TargetPolicy::test_default()
-                    },
-                )
-                .unwrap();
-        }
+        let policies = target_policies(
+            &[camera(1), camera(2)],
+            TargetPolicy {
+                control_reserve: 2,
+                ..TargetPolicy::test_default()
+            },
+        );
+        let permits = AdmissionPermitPool::new(
+            configured.capacity.get(),
+            PerTarget::from_fn(|target| {
+                policies[target].map_or(0, |policy| policy.control_reserve)
+            }),
+        );
+        let engine = ProtocolEngine::new(configured, policies, start).unwrap();
         let mut session = Self {
             start,
             kind,
@@ -627,6 +632,8 @@ impl Session {
             random: seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1,
             now: start,
             engine,
+            permits,
+            admitted_permits: BTreeMap::new(),
             cameras: [Camera::default(), Camera::default()],
             unread: VecDeque::new(),
             outbound: VecDeque::new(),
@@ -660,18 +667,15 @@ impl Session {
             if step % 50 == 0 {
                 for target in [1, 2] {
                     let request = inquiry(target);
-                    session.admit(request, AdmissionSlot::Ordinary);
+                    session.admit_ordinary(request);
                     if step % 200 == 0 {
                         let now = session.now;
-                        session.admit(
-                            stop(
-                                target,
-                                now,
-                                session.kind.link.stop_budget,
-                                session.ticket + 1,
-                            ),
-                            AdmissionSlot::ControlReserve,
-                        );
+                        session.admit_reserved(stop(
+                            target,
+                            now,
+                            session.kind.link.stop_budget,
+                            session.ticket + 1,
+                        ));
                     }
                 }
             }
@@ -692,16 +696,13 @@ impl Session {
                 for target in [camera(1), camera(2)] {
                     if !session.owes_only_completions(target) {
                         let now = session.now;
-                        session.admit(inquiry(target.camera().value()), AdmissionSlot::Ordinary);
-                        session.admit(
-                            stop(
-                                target.camera().value(),
-                                now,
-                                session.kind.link.stop_budget,
-                                session.ticket + 1,
-                            ),
-                            AdmissionSlot::ControlReserve,
-                        );
+                        session.admit_ordinary(inquiry(target.camera().value()));
+                        session.admit_reserved(stop(
+                            target.camera().value(),
+                            now,
+                            session.kind.link.stop_budget,
+                            session.ticket + 1,
+                        ));
                     }
                 }
             }
@@ -772,12 +773,11 @@ impl Session {
             self.coverage.halts_unproven += 1;
         }
         for _ in 0..3 {
-            for slot in [AdmissionSlot::ControlReserve, AdmissionSlot::Ordinary] {
-                let request = stop(target, self.now, self.kind.link.stop_budget, order);
-                if let Some(id) = self.admit(request, slot) {
-                    self.halt_stops.insert(id, unproven);
-                    break;
-                }
+            let request = stop(target, self.now, self.kind.link.stop_budget, order);
+            if let Some(id) = self.admit_reserved(request).or_else(|| {
+                self.admit_ordinary(stop(target, self.now, self.kind.link.stop_budget, order))
+            }) {
+                self.halt_stops.insert(id, unproven);
             }
         }
     }
@@ -797,32 +797,52 @@ impl Session {
     fn admit_random(&mut self, target: u8) {
         if self.roll(1_000) < self.kind.link.no_reply_per_mille {
             let request = command_with_reply_shape(target, CommandReply::NoReply);
-            self.admit(request, AdmissionSlot::Ordinary);
+            self.admit_ordinary(request);
             return;
         }
-        let (request, slot) = match self.roll(20) {
-            0..=2 => (
-                stop(
+        let request = match self.roll(20) {
+            0..=2 => {
+                self.admit_reserved(stop(
                     target,
                     self.now,
                     self.kind.link.stop_budget,
                     self.ticket + 1,
-                ),
-                AdmissionSlot::ControlReserve,
-            ),
-            3..=8 => (inquiry(target), AdmissionSlot::Ordinary),
-            9..=15 => (command(target), AdmissionSlot::Ordinary),
-            16..=17 => (
-                command_with_reply_shape(target, CommandReply::CompletionOnly),
-                AdmissionSlot::Ordinary,
-            ),
-            _ => (command(target), AdmissionSlot::Ordinary),
+                ));
+                return;
+            }
+            3..=8 => inquiry(target),
+            9..=15 => command(target),
+            16..=17 => command_with_reply_shape(target, CommandReply::CompletionOnly),
+            _ => command(target),
         };
-        self.admit(request, slot);
+        self.admit_ordinary(request);
     }
 
-    fn admit(&mut self, mut request: RuntimeRequest, slot: AdmissionSlot) -> Option<RequestId> {
+    fn admit_reserved(&mut self, request: RuntimeRequest) -> Option<RequestId> {
+        let permit = self
+            .permits
+            .try_acquire(&request)
+            .ok()
+            .filter(AdmissionPermit::is_reserved);
+        self.admit(request, permit)
+    }
+
+    fn admit_ordinary(&mut self, request: RuntimeRequest) -> Option<RequestId> {
+        let permit = self.permits.try_acquire_ordinary().ok();
+        self.admit(request, permit)
+    }
+
+    fn admit(
+        &mut self,
+        mut request: RuntimeRequest,
+        permit: Option<AdmissionPermit>,
+    ) -> Option<RequestId> {
         self.ticket += 1;
+        let Some(permit) = permit else {
+            let effects = self.engine.advance(self.now);
+            self.apply(effects);
+            return None;
+        };
         request.context_mut().timeout = self.kind.link.timeout;
         let deadline = request.context().dispatch_deadline;
         let target = request.context().target;
@@ -830,7 +850,6 @@ impl Session {
             Input::Admit {
                 ticket: AdmissionTicket(self.ticket),
                 request,
-                slot,
             },
             self.now,
         );
@@ -838,6 +857,9 @@ impl Session {
             Effect::Admitted { id, .. } => Some(*id),
             _ => None,
         });
+        if let Some(id) = admitted {
+            assert!(self.admitted_permits.insert(id, permit).is_none());
+        }
         if let (Some(deadline), Some(id)) = (deadline, admitted) {
             self.stops.insert(id, (deadline, None));
             self.stop_admitted
@@ -977,6 +999,7 @@ impl Session {
                         self.coverage.acked += 1;
                     }
                     Effect::Terminal { id, outcome } => {
+                        assert!(self.admitted_permits.remove(&id).is_some());
                         if matches!(
                             outcome,
                             RuntimeOutcome::Command(CommandOutcome::Failed(
@@ -1587,11 +1610,10 @@ impl Session {
 /// A STOP as the owner admits it: within a halt (its siblings share
 /// `order`) or alone.
 fn stop(target: u8, now: Instant, budget: Duration, order: u64) -> RuntimeRequest {
-    let mut request = urgent_command(target);
+    let mut request = without_not_executable_retry(urgent_command(target));
     let context = request.context_mut();
     context.submission_order = order;
     context.retry = RetryPolicy {
-        movement_not_executable: false,
         total_budget: Some(NonZeroDuration::new(budget).unwrap()),
         ..retrying()
     };
@@ -1766,7 +1788,11 @@ fn terminal_stream_reset_clears_and_audits_every_learning_field() {
             count: 1,
         }),
         dropped_completion_owners: [Some(id), None],
+        ..correlation::CompletionLearning::default()
     };
+    stream.learning[camera(1)]
+        .terminals
+        .observe_ack(CommandSocketCount::TWO);
     stream.release_gate = Some(RawReleaseGate {
         releases: RawCorrelationReleaseSet::default(),
         await_until: now,
@@ -1779,7 +1805,7 @@ fn terminal_stream_reset_clears_and_audits_every_learning_field() {
 
     // The audit catches a forgotten reset even after all lifecycle/ledger work
     // is gone. Exercise every learning field and the independent release gate.
-    for field in 0..5 {
+    for field in 0..6 {
         let stream = engine.correlation.stream_mut().unwrap();
         *stream = correlation::StreamCorrelation::new();
         match field {
@@ -1796,6 +1822,9 @@ fn terminal_stream_reset_clears_and_audits_every_learning_field() {
                     })
             }
             3 => stream.learning[camera(1)].dropped_completion_owners = [Some(id), None],
+            4 => stream.learning[camera(1)]
+                .terminals
+                .observe_ack(CommandSocketCount::TWO),
             _ => {
                 stream.release_gate = Some(RawReleaseGate {
                     releases: RawCorrelationReleaseSet::default(),

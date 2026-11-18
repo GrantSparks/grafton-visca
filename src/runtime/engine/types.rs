@@ -59,29 +59,24 @@ impl EncodedMessage {
 
     /// Writes directly into bounded inert storage, retaining a large frame's
     /// one allocation instead of copying it into a second buffer.
-    pub(crate) fn encode(
+    pub(crate) fn encode<T>(
         capacity: usize,
-        write: impl FnOnce(&mut [u8]) -> Result<usize, Error>,
-    ) -> Result<Self, Error> {
+        write: impl FnOnce(&mut [u8]) -> Result<(usize, T), Error>,
+    ) -> Result<(Self, T), Error> {
         if capacity > MAX_BYTES {
             return Err(Error::InvalidRequest {
                 reason: "encoded VISCA storage exceeds raw::MAX_BYTES".into(),
             });
         }
         let mut bytes = SmallVec::from_elem(0, capacity);
-        let written = write(&mut bytes)?;
+        let (written, result) = write(&mut bytes)?;
         if written > capacity {
             return Err(Error::InvalidRequest {
                 reason: "encoder returned a length beyond its supplied buffer".into(),
             });
         }
         bytes.truncate(written);
-        if bytes.last().copied() != Some(0xff) {
-            return Err(Error::InvalidRequest {
-                reason: "encoded VISCA message must end in 0xff".into(),
-            });
-        }
-        Ok(Self { bytes })
+        Ok((Self { bytes }, result))
     }
 
     /// Returns the inert wire bytes.
@@ -319,12 +314,6 @@ pub(crate) struct RetryPolicy {
     pub(crate) initial_backoff: Duration,
     pub(crate) maximum_backoff: Duration,
     pub(crate) total_budget: Option<NonZeroDuration>,
-    pub(crate) ack_timeout: bool,
-    pub(crate) completion_timeout: bool,
-    pub(crate) inquiry_timeout: bool,
-    pub(crate) buffer_full: bool,
-    pub(crate) movement_not_executable: bool,
-    pub(crate) builtin_inquiry_syntax: bool,
 }
 
 impl RetryPolicy {
@@ -351,12 +340,6 @@ impl RetryPolicy {
         initial_backoff: Duration::ZERO,
         maximum_backoff: Duration::ZERO,
         total_budget: None,
-        ack_timeout: false,
-        completion_timeout: false,
-        inquiry_timeout: false,
-        buffer_full: false,
-        movement_not_executable: false,
-        builtin_inquiry_syntax: false,
     };
 }
 
@@ -427,12 +410,14 @@ pub(crate) enum RuntimeRequest {
         wire: Arc<EncodedMessage>,
         context: RequestContext,
         reply_shape: CommandReply,
+        not_executable: bool,
         applied_state: Option<AppliedStateProjection>,
     },
     Inquiry {
         wire: Arc<EncodedMessage>,
         context: RequestContext,
         payload_shape: crate::PayloadShape,
+        syntax: bool,
     },
 }
 
@@ -519,6 +504,8 @@ pub(crate) enum TransportKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TargetPolicy {
     pub(crate) command_sockets: crate::CommandSocketCount,
+    /// Profile limit used for camera evidence, independently of owner tuning.
+    pub(crate) physical_command_sockets: crate::CommandSocketCount,
     pub(crate) cancellation: CancellationPolicy,
     /// Admission slots reserved for this target's urgent typed STOPs, one
     /// per STOP path its profile supports (D26, #778).
@@ -532,21 +519,11 @@ impl TargetPolicy {
     pub(crate) const fn test_default() -> Self {
         Self {
             command_sockets: crate::types::CommandSocketCount::TWO,
+            physical_command_sockets: crate::types::CommandSocketCount::TWO,
             cancellation: CancellationPolicy::Supported,
             control_reserve: 0,
         }
     }
-}
-
-/// Which admission budget an entry holds (D26, #778).
-///
-/// Ordinary requests hold one of the session's `capacity` slots. An urgent
-/// typed STOP may instead hold one of its target's reserved slots, which
-/// ordinary work can never use.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AdmissionSlot {
-    Ordinary,
-    ControlReserve,
 }
 
 /// Session-wide scheduling policy.
@@ -1056,7 +1033,6 @@ pub(crate) enum Input {
     Admit {
         ticket: AdmissionTicket,
         request: RuntimeRequest,
-        slot: AdmissionSlot,
     },
     TransmissionFinished {
         request: RequestId,
@@ -1188,7 +1164,8 @@ pub(crate) enum Effect {
         ready_at: Instant,
     },
     /// One of a request's own protocol deadlines expired. Extending a disputed
-    /// ACK deadline only emits a [`Effect::Transition`].
+    /// ACK deadline or entering cancellation resolution emits only a
+    /// [`Effect::Transition`].
     ///
     /// `will_retry` is the engine's actual decision for this expiry rather than
     /// the policy that motivated it: it is true exactly when the expiry produced
@@ -1233,21 +1210,20 @@ pub(crate) const fn checked_stream_ledger_bound(admissible: usize) -> Option<usi
 
 impl CameraErrorCode {
     /// Applies the prepared request's permissions to the decoded camera error.
-    pub(crate) const fn retry_permission(
-        self,
-        retry: &RetryPolicy,
-        family: super::SendingReply,
-    ) -> bool {
+    pub(crate) const fn retry_permission(self, request: &RuntimeRequest) -> bool {
+        if request.context().retry.max_retries == 0 {
+            return false;
+        }
         match self {
-            Self::BufferFull | Self::NoSocket => retry.buffer_full,
-            Self::NotExecutable => retry.movement_not_executable,
-            Self::Syntax => match family {
-                super::SendingReply::Inquiry => retry.builtin_inquiry_syntax,
-                super::SendingReply::Stop
-                | super::SendingReply::AckThenCompletion
-                | super::SendingReply::CompletionOnly
-                | super::SendingReply::NoReply => false,
-            },
+            Self::BufferFull | Self::NoSocket => true,
+            Self::NotExecutable => matches!(
+                request,
+                RuntimeRequest::Command {
+                    not_executable: true,
+                    ..
+                }
+            ),
+            Self::Syntax => matches!(request, RuntimeRequest::Inquiry { syntax: true, .. }),
             Self::MessageLength | Self::Cancelled | Self::Other(_) => false,
         }
     }

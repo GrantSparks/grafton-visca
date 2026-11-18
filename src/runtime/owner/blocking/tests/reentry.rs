@@ -1,6 +1,7 @@
 //! A transport callback must leave its own worker free to finish the turn.
 
 use super::*;
+use crate::observability::DiagnosticCapacity;
 
 fn refuses_reentry(during_write: bool) {
     let clock = ManualClock::new();
@@ -23,7 +24,9 @@ fn refuses_reentry(during_write: bool) {
         .unwrap();
     let written = peer.next_write();
     peer.reply(&sony_reply_to(&written, ACK));
-    let diagnostics = owner.subscribe_diagnostics(16).unwrap();
+    let diagnostics = owner
+        .subscribe_diagnostics(DiagnosticCapacity::new(16).expect("diagnostic capacity"))
+        .unwrap();
 
     let callback_owner = owner.clone();
     let callback_profile = profile.clone();
@@ -56,7 +59,9 @@ fn refuses_reentry(during_write: bool) {
             ("set_tuning", callback_owner.reconfigure(Ok(tuning))),
             (
                 "subscribe_diagnostics",
-                callback_owner.subscribe_diagnostics(1).map(|_| ()),
+                callback_owner
+                    .subscribe_diagnostics(DiagnosticCapacity::MIN)
+                    .map(|_| ()),
             ),
             (
                 "submit_command",

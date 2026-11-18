@@ -2,8 +2,12 @@
 #![allow(clippy::expect_used)]
 
 use grafton_visca::{
-    __macro_support::InquiryData, error::ErrorKind, request::Inquiry, types::GainLevel,
-    wire::ResponseParser, Error, ViscaInquiry,
+    __macro_support::InquiryData,
+    error::ErrorKind,
+    request::Inquiry,
+    types::{GainLevel, GainLimit},
+    wire::ResponseParser,
+    Error, ViscaInquiry,
 };
 
 #[derive(Debug, Clone, Copy, ViscaInquiry)]
@@ -19,7 +23,7 @@ fn custom_gain_parser(payload: &[u8]) -> Result<InquiryData, Error> {
     let &[raw] = payload else {
         return Err(Error::invalid_response_length(1, payload));
     };
-    let level = GainLevel::new(raw)?;
+    let level = GainLevel::new(GainLimit::new(raw)?.value())?;
     Ok(InquiryData::Gain { gain: level })
 }
 
@@ -29,8 +33,8 @@ struct GeneratedCustomGain;
 
 #[test]
 fn canonical_checked_fields_report_camera_range_errors() {
-    // Valid nibble framing; 26 exceeds the shared gain maximum of 25.
-    let payload = [0, 0, 1, 0x0A];
+    // Valid nibble framing; 256 exceeds the two-nibble gain field.
+    let payload = [0, 1, 0, 0];
     for error in [
         CanonicalGain
             .decoder()
@@ -65,7 +69,7 @@ fn generated_custom_parser_errors_are_protocol_faults_at_the_decode_boundary() {
 #[test]
 fn direct_caller_construction_keeps_its_parameter_error() {
     assert_eq!(
-        GainLevel::new(26).expect_err("caller value").kind(),
+        GainLimit::new(26).expect_err("caller value").kind(),
         ErrorKind::InvalidParameter
     );
     // The caller-provided function is distinct from the library's generated

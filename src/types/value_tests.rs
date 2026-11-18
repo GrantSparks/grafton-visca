@@ -83,8 +83,6 @@ fn enums_preserve_their_documented_setting_bytes() {
     assert_eq!(TallyBrightness::Low.to_wire(), 4);
     assert_eq!(TallyBrightness::High.to_wire(), 5);
     assert!(TallyMode::from_wire(0).is_err());
-    assert_eq!(FStop::F5_6.to_string(), "F5.6");
-    assert_eq!(FStop::Closed.to_string(), "Closed");
 }
 
 #[cfg(feature = "serde")]
@@ -98,7 +96,7 @@ fn merged_values_and_speed_inputs_round_trip_with_validated_domains() {
     );
     assert!(serde_json::from_str::<RgbGain>("256").is_err());
     assert!(serde_json::from_str::<RgbTuning>("11").is_err());
-    assert!(serde_json::from_str::<GainLevel>("26").is_err());
+    assert!(serde_json::from_str::<GainLevel>("256").is_err());
     let exact = Speed::Exact(ZoomSpeed::new(7).expect("zoom speed"));
     let coarse: Speed<ZoomSpeed> = SpeedLevel::Medium.into();
     for input in [exact, coarse] {
@@ -130,7 +128,7 @@ fn scalar_schemas_use_the_checked_semantic_domain() {
         );
     }
 
-    assert_bounds::<GainLevel>(0, 25);
+    assert_bounds::<GainLevel>(0, 255);
     assert_bounds::<ExposureCompensationLevel>(-7, 7);
     assert_bounds::<Kelvin>(2000, 15000);
     assert_bounds::<UnknownPictureEffect>(1, 254);

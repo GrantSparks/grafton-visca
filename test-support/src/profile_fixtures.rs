@@ -9,10 +9,10 @@ use std::time::Duration;
 use grafton_visca::{
     capabilities::{
         self, Capabilities, CapabilityDomain, CapabilityRange, CoordinateSystem, Domain, DomainSet,
-        EndpointQuantization, ExposureCaps, FocusCaps, FocusNearEnd, ImageCaps, InquirySupport,
-        MenuCaps, PanTiltCaps, PanTiltWireCodec, PowerCaps, PresetCaps, RgbGainRanges,
-        RgbTuningRanges, ShutterSpeedEntry, TiltRanges, TransportSet, TypedSupportSet,
-        TypedSupportSurface, WhiteBalanceCaps, ZoomCaps,
+        EndpointQuantization, ExposureCaps, FocusCaps, FocusNearEnd, ImageCaps, MenuCaps,
+        PanTiltCaps, PanTiltWireCodec, PowerCaps, PresetCaps, RgbGainRanges, RgbTuningRanges,
+        ShutterSpeedEntry, TiltRanges, TransportSet, TypedSupportSet, TypedSupportSurface,
+        WhiteBalanceCaps, ZoomCaps,
     },
     config::SessionConfig,
     profiles::{
@@ -38,7 +38,7 @@ fn synthetic_spec(
     use TypedSupportSurface as S;
     let mut caps = Capabilities::runtime_baseline(model, 1)?;
     caps.typed_support = typed_support.union(PAN_TILT_POSITIONING);
-    caps.inquiry_support = InquirySupport::Full;
+    caps.inquiries = true;
     caps.pan_tilt = Some(PanTiltCaps {
         geometry: Some(grafton_visca::capabilities::PanTiltGeometry {
             pan_range: CapabilityRange::<i32>::new(-1700, 1700)?,
@@ -53,8 +53,6 @@ fn synthetic_spec(
         }),
         pan_speed: CapabilityRange::<u8>::new(1, 24)?,
         tilt_speed: CapabilityRange::<u8>::new(1, 20)?,
-        simultaneous: true,
-        preset_recovery_time: Duration::ZERO,
         variable_speed: false,
         motion_sync_speed_range: typed_support
             .contains(S::MotionSync)
@@ -96,6 +94,7 @@ fn synthetic_spec(
             .contains(S::Iris)
             .then_some(CapabilityDomain::<u16>::new(0, 30, &[][..])?),
         gain_range: Some(CapabilityRange::<u8>::new(0, 15)?),
+        shutter_codes: Some(CapabilityDomain::<u8>::new(1, 1, &[][..])?),
         shutter_speeds: vec![ShutterSpeedEntry::new(
             grafton_visca::types::ExposureTime::new(1, 60)?,
             0x01,
@@ -113,7 +112,6 @@ fn synthetic_spec(
     caps.white_balance = Some(WhiteBalanceCaps {
         modes: white_modes,
         one_push: typed_support.contains(S::OnePushWhiteBalance),
-        color_temp_range: color_temperature.then_some(CapabilityRange::<u16>::new(2500, 8000)?),
         color_temperature_steps: if color_temperature {
             (0..=55)
                 .map(|step| 2500 + 100 * step)
@@ -145,7 +143,6 @@ fn synthetic_spec(
             gamma_range: Some(CapabilityRange::<u8>::new(0, 4)?),
             flip: true,
             mirror: true,
-            requires_settings_save_for_flip: false,
             picture_effects: vec![
                 grafton_visca::types::PictureEffectMode::Off,
                 grafton_visca::types::PictureEffectMode::BlackAndWhite,
@@ -158,20 +155,10 @@ fn synthetic_spec(
             .union(AffectedAxes::ZOOM)
             .union(AffectedAxes::FOCUS),
         recall_speed_range: Some(CapabilityRange::<u8>::new(1, 23)?),
-        tour: false,
-        thumbnail: false,
-        recall_delay: Duration::ZERO,
-        names: None,
     });
     caps.power = Some(PowerCaps {
         status_query: grafton_visca::capabilities::PowerStatusQuery::Standard,
-        on_time: Duration::from_secs(5),
-        standby: typed_support
-            .contains(S::PowerStandby)
-            .then_some(Duration::from_secs(5)),
-        wake_on_lan: false,
-        retains_settings: true,
-        home_on_up: false,
+        standby: typed_support.contains(S::PowerStandby),
     });
     if typed_support.contains(S::MenuDisplay) {
         caps.menu = Some(MenuCaps {});
@@ -262,6 +249,10 @@ macro_rules! synthetic_profile_impl {
             };
             const TRANSPORTS: TransportSet = SYNTHETIC_TRANSPORTS.transport_set();
             const TYPED_SUPPORT: TypedSupportSet = $typed_support.union(PAN_TILT_POSITIONING);
+            const SETTLEMENT_SUPPORT: Option<capabilities::SettlementSupport> =
+                Some(capabilities::SettlementSupport::from_axes(
+                    Self::DOMAINS, Some(AffectedAxes::MOVEMENT), Some(AffectedAxes::MOVEMENT),
+                ));
             const ID: Option<ProfileId> = None;
             fn spec() -> grafton_visca::Result<ProfileSpec> {
                 synthetic_spec($model, $typed_support, $ambiguity_timeout,
@@ -274,6 +265,9 @@ macro_rules! synthetic_profile_impl {
         impl capabilities::HasZoom for $profile {}
         impl capabilities::HasFocus for $profile {}
         impl capabilities::HasPresets for $profile {}
+        impl capabilities::HasPanTiltSettlement for $profile {}
+        impl capabilities::HasFocusSettlement for $profile {}
+        impl capabilities::HasPresetRecallSettlement for $profile {}
         impl capabilities::HasExposure for $profile {}
         impl capabilities::HasWhiteBalance for $profile {}
     };

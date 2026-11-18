@@ -1,13 +1,6 @@
 //! Serial port configuration shared by the blocking and Tokio serial
 //! transports.
 
-use std::time::Duration;
-
-use crate::transport::{
-    buffer::BufferConfig,
-    builder::{TransportConfig, ValidatedTransportConfig},
-};
-
 /// Bus writes a serial transport performs while opening, before any session
 /// traffic.
 ///
@@ -74,10 +67,8 @@ impl SerialStartup {
 
 /// Serial port configuration for VISCA communication.
 ///
-/// Timeouts and buffer limits default to [`TransportConfig::for_serial`], the
-/// single source of serial transport defaults, and
-/// [`SerialConfig::transport_config`] reports them back as the transport's
-/// configuration. The default [`SerialStartup`] writes nothing to the bus.
+/// Startup writes are controlled by [`SerialStartup`]. Timeouts and frame
+/// limits are specified separately with [`crate::transport::IoBounds`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(
     feature = "serde",
@@ -94,26 +85,14 @@ pub struct SerialConfig {
     pub(crate) baud_rate: u32,
     /// Bus writes performed while opening the port.
     pub(crate) startup: SerialStartup,
-    /// Read timeout for serial operations.
-    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number; nanos: number }"))]
-    pub(crate) read_timeout: Duration,
-    /// Write timeout for serial operations.
-    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number; nanos: number }"))]
-    pub(crate) write_timeout: Duration,
-    /// Frame and retention limits for received data.
-    pub(crate) buffer_config: BufferConfig,
 }
 
 impl Default for SerialConfig {
     fn default() -> Self {
-        let transport = TransportConfig::for_serial();
         Self {
             port: "/dev/ttyUSB0".to_string(),
             baud_rate: 9600,
             startup: SerialStartup::default(),
-            read_timeout: transport.read_timeout(),
-            write_timeout: transport.write_timeout(),
-            buffer_config: transport.buffer_config(),
         }
     }
 }
@@ -135,24 +114,6 @@ impl SerialConfig {
     #[must_use]
     pub const fn startup(&self) -> SerialStartup {
         self.startup
-    }
-
-    /// Returns the receive timeout.
-    #[must_use]
-    pub const fn read_timeout(&self) -> Duration {
-        self.read_timeout
-    }
-
-    /// Returns the send timeout.
-    #[must_use]
-    pub const fn write_timeout(&self) -> Duration {
-        self.write_timeout
-    }
-
-    /// Returns the receive frame and retention limits.
-    #[must_use]
-    pub const fn buffer_config(&self) -> BufferConfig {
-        self.buffer_config
     }
 
     /// Selects the serial device path.
@@ -183,136 +144,27 @@ impl SerialConfig {
         self.startup = startup;
         self
     }
-
-    /// Set the read timeout.
-    #[must_use]
-    pub const fn with_read_timeout(mut self, timeout: Duration) -> Self {
-        self.read_timeout = timeout;
-        self
-    }
-
-    /// Set the write timeout.
-    #[must_use]
-    pub const fn with_write_timeout(mut self, timeout: Duration) -> Self {
-        self.write_timeout = timeout;
-        self
-    }
-
-    /// Set the buffer configuration.
-    #[must_use]
-    pub const fn with_buffer_config(mut self, config: BufferConfig) -> Self {
-        self.buffer_config = config;
-        self
-    }
-
-    /// The transport configuration a serial transport opened from this
-    /// configuration reports: [`TransportConfig::for_serial`] with this
-    /// configuration's timeouts and buffer limits. It never carries IP
-    /// addressing or TCP socket options.
-    #[must_use]
-    pub fn transport_config(&self) -> TransportConfig {
-        let mut config = TransportConfig::for_serial();
-        config.read_timeout = self.read_timeout;
-        config.write_timeout = self.write_timeout;
-        config.buffer_config = self.buffer_config;
-        config
-    }
-}
-
-/// Serial device settings and their transport limits, checked before startup I/O.
-#[derive(Debug, Clone)]
-pub struct ValidatedSerialConfig {
-    config: SerialConfig,
-    transport_config: ValidatedTransportConfig,
-}
-
-impl ValidatedSerialConfig {
-    /// Returns the device settings.
-    #[must_use]
-    pub const fn as_config(&self) -> &SerialConfig {
-        &self.config
-    }
-
-    /// Returns the validated bounds for a transport opened on this device.
-    #[must_use]
-    pub const fn transport_config(&self) -> &ValidatedTransportConfig {
-        &self.transport_config
-    }
-
-    #[cfg(any(
-        feature = "transport-serial",
-        feature = "transport-serial-tokio",
-        all(test, any(feature = "async", feature = "blocking"))
-    ))]
-    pub(crate) fn into_parts(self) -> (SerialConfig, ValidatedTransportConfig) {
-        (self.config, self.transport_config)
-    }
-}
-
-impl SerialConfig {
-    /// Check the transport limits before opening a serial device.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`crate::Error::InvalidRequest`] if a timeout or buffer limit is invalid.
-    pub fn validated(self) -> crate::Result<ValidatedSerialConfig> {
-        Ok(ValidatedSerialConfig {
-            transport_config: self.transport_config().validated()?,
-            config: self,
-        })
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// #828: the serial defaults used to request I/F Clear on every open.
     #[test]
-    fn defaults_come_from_the_serial_transport_defaults_and_write_nothing() {
+    fn defaults_select_9600_baud_and_write_nothing() {
         let config = SerialConfig::new("/dev/test");
-        assert_eq!(config.startup(), SerialStartup::default());
+        assert_eq!(config.port(), "/dev/test");
+        assert_eq!(config.baud_rate(), 9600);
         assert!(!config.startup().address_set() && !config.startup().interface_clear());
-        assert_eq!(config.transport_config(), TransportConfig::for_serial());
     }
 
     #[test]
-    fn reported_transport_config_is_serial_shaped() {
-        let config = SerialConfig::new("/dev/test")
-            .with_read_timeout(Duration::from_millis(37))
-            .with_write_timeout(Duration::from_millis(41));
-        let reported = config.transport_config();
-
-        assert_eq!(reported.tcp_nodelay(), None);
-        assert_eq!(reported.tcp_keepalive(), None);
-        assert_eq!(reported.ttl(), None);
-        assert_eq!(reported.read_timeout(), Duration::from_millis(37));
-        assert_eq!(reported.write_timeout(), Duration::from_millis(41));
-    }
-
-    #[cfg(feature = "serde")]
-    #[test]
-    fn serde_preserves_opt_in_bus_writes_and_rejects_unknown_options(
-    ) -> Result<(), serde_json::Error> {
-        let config = SerialConfig::new("/dev/test")
+    fn configured_device_preserves_the_requested_startup() {
+        let config = SerialConfig::new("COM1")
             .with_baud_rate(38_400)
-            .with_startup(SerialStartup::default().with_address_set(true))
-            .with_read_timeout(Duration::from_millis(37));
-        let value = serde_json::to_value(&config)?;
-        let restored: SerialConfig = serde_json::from_value(value.clone())?;
-        assert_eq!(restored, config);
-        assert!(restored.startup().address_set());
-        assert!(!restored.startup().interface_clear());
-        for nested in [false, true] {
-            let mut unknown = value.clone();
-            let object = if nested {
-                &mut unknown["startup"]
-            } else {
-                &mut unknown
-            };
-            object["misspelled_option"] = serde_json::json!(true);
-            assert!(serde_json::from_value::<SerialConfig>(unknown).is_err());
-        }
-        Ok(())
+            .with_startup(SerialStartup::default().with_interface_clear(true));
+        assert_eq!(config.port(), "COM1");
+        assert_eq!(config.baud_rate(), 38_400);
+        assert!(config.startup().interface_clear());
     }
 }

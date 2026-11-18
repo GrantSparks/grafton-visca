@@ -4,9 +4,7 @@
 //! device I/O. Opening still verifies the actual transport's descriptor and
 //! any serial Address Set report, then builds its owner adapter.
 
-use crate::camera::config::{ConnectionPlan, ConnectionTransport};
-#[cfg(any(feature = "blocking", feature = "async"))]
-use crate::transport::NetworkTransport;
+use crate::camera::config::{ConnectionPlan, ConnectionTransport, NetworkConnector};
 
 #[cfg(feature = "blocking")]
 pub(crate) fn connect_blocking(plan: ConnectionPlan) -> crate::Result<crate::blocking::Session> {
@@ -16,27 +14,26 @@ pub(crate) fn connect_blocking(plan: ConnectionPlan) -> crate::Result<crate::blo
         session_config,
     } = plan;
     match transport {
-        ConnectionTransport::Network(network) => match network.kind {
-            NetworkTransport::Tcp => crate::blocking::Session::open_validated(
-                Tcp::connect_endpoint(&network.endpoint, network.transport_config)?,
+        ConnectionTransport::Network(network) => match network.connector {
+            NetworkConnector::Tcp(options) => crate::blocking::Session::open_validated(
+                Tcp::connect_endpoint(&network.endpoint, options, network.io_bounds)?,
                 session_config,
             ),
-            NetworkTransport::Udp => crate::blocking::Session::open_validated(
-                Udp::connect_endpoint(&network.endpoint, network.transport_config)?,
+            NetworkConnector::Udp(options) => crate::blocking::Session::open_validated(
+                Udp::connect_endpoint(&network.endpoint, options, network.io_bounds)?,
                 session_config,
             ),
         },
-        ConnectionTransport::Serial(serial_config) => {
+        ConnectionTransport::Serial { config, io_bounds } => {
             #[cfg(feature = "transport-serial")]
             {
-                let transport = crate::transport::serial_blocking::SerialTransport::open_validated(
-                    serial_config,
-                )?;
+                let transport =
+                    crate::transport::serial_blocking::SerialTransport::open(config, io_bounds)?;
                 crate::blocking::Session::open_validated(transport, session_config)
             }
             #[cfg(not(feature = "transport-serial"))]
             {
-                let _ = (serial_config, session_config);
+                let _ = (config, io_bounds, session_config);
                 Err(crate::Error::FeatureNotSupported {
                     feature: "blocking serial transport",
                 })
@@ -58,10 +55,10 @@ pub(crate) fn connect_async<R: crate::runtime::Runtime>(
             session_config,
         } = plan;
         match transport {
-            ConnectionTransport::Network(network) => match network.kind {
-                NetworkTransport::Tcp => {
+            ConnectionTransport::Network(network) => match network.connector {
+                NetworkConnector::Tcp(options) => {
                     let transport = runtime
-                        .connect_tcp_endpoint(network.endpoint, network.transport_config)
+                        .connect_tcp(network.endpoint, options, network.io_bounds)
                         .await?;
                     crate::async_session::Session::open_validated(
                         transport,
@@ -70,9 +67,9 @@ pub(crate) fn connect_async<R: crate::runtime::Runtime>(
                     )
                     .await
                 }
-                NetworkTransport::Udp => {
+                NetworkConnector::Udp(options) => {
                     let transport = runtime
-                        .connect_udp_endpoint(network.endpoint, network.transport_config)
+                        .connect_udp(network.endpoint, options, network.io_bounds)
                         .await?;
                     crate::async_session::Session::open_validated(
                         transport,
@@ -82,10 +79,10 @@ pub(crate) fn connect_async<R: crate::runtime::Runtime>(
                     .await
                 }
             },
-            ConnectionTransport::Serial(serial_config) => {
+            ConnectionTransport::Serial { config, io_bounds } => {
                 #[cfg(feature = "transport-serial-tokio")]
                 {
-                    let transport = runtime.connect_validated_serial(serial_config).await?;
+                    let transport = runtime.connect_serial(config, io_bounds).await?;
                     crate::async_session::Session::open_validated(
                         transport,
                         session_config,
@@ -95,7 +92,7 @@ pub(crate) fn connect_async<R: crate::runtime::Runtime>(
                 }
                 #[cfg(not(feature = "transport-serial-tokio"))]
                 {
-                    let _ = (serial_config, session_config, runtime);
+                    let _ = (config, io_bounds, session_config, runtime);
                     Err(crate::Error::FeatureNotSupported {
                         feature: "async serial transport",
                     })

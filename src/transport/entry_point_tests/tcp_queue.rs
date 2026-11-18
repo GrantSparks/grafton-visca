@@ -9,7 +9,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::transport::{ReceiveOutcome, TransportConfig};
+use super::{TcpConnect, TCP_BOUNDS};
+use crate::transport::ReceiveOutcome;
 
 const PAYLOAD: [u8; 4_000] = [0xa5; 4_000];
 const BOUND: Duration = Duration::from_secs(2);
@@ -108,7 +109,8 @@ fn blocking_reads_leave_unrequested_bytes_in_kernel() {
     let listener = listener();
     let mut transport = crate::transport::blocking::Tcp::connect_with_config(
         &listener.local_addr().expect("listener address").to_string(),
-        TransportConfig::for_tcp(),
+        TcpConnect::default(),
+        TCP_BOUNDS,
     )
     .expect("connect blocking transport");
     let mut peer = QueuedPeer::new(&listener);
@@ -171,27 +173,48 @@ async fn assert_async_reads<S: crate::transport::async_tcp::NetStream>(
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn tokio_reads_leave_unrequested_bytes_in_kernel() {
+    use crate::{
+        runtime::{Runtime, TokioRuntime},
+        transport::NetworkEndpoint,
+    };
     let listener = listener();
-    let transport = crate::transport::tokio::tcp::Tcp::connect_with_config(
-        &listener.local_addr().expect("listener address").to_string(),
-        TransportConfig::for_tcp(),
-    )
-    .await
-    .expect("connect Tokio transport");
+    let transport = TokioRuntime::from_current()
+        .expect("Tokio runtime")
+        .connect_tcp(
+            NetworkEndpoint::parse(
+                &listener.local_addr().expect("listener address").to_string(),
+                None,
+            )
+            .expect("endpoint"),
+            TcpConnect::default(),
+            TCP_BOUNDS,
+        )
+        .await
+        .expect("connect Tokio transport");
     assert_async_reads(transport, listener).await;
 }
 
 #[cfg(feature = "runtime-smol")]
 #[test]
 fn smol_reads_leave_unrequested_bytes_in_kernel() {
+    use crate::{
+        runtime::{Runtime, SmolRuntime},
+        transport::NetworkEndpoint,
+    };
     smol::block_on(async {
         let listener = listener();
-        let transport = crate::transport::smol::tcp::Tcp::connect_with_config(
-            &listener.local_addr().expect("listener address").to_string(),
-            TransportConfig::for_tcp(),
-        )
-        .await
-        .expect("connect smol transport");
+        let transport = SmolRuntime::new()
+            .connect_tcp(
+                NetworkEndpoint::parse(
+                    &listener.local_addr().expect("listener address").to_string(),
+                    None,
+                )
+                .expect("endpoint"),
+                TcpConnect::default(),
+                TCP_BOUNDS,
+            )
+            .await
+            .expect("connect smol transport");
         assert_async_reads(transport, listener).await;
     });
 }

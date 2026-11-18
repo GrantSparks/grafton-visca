@@ -18,16 +18,16 @@ use crate::{
     target::TargetSlot,
     timeout::{CommandTimeoutClass, ResolvedTiming},
     types::{FocusPosition, IrisLevel, ZoomPosition},
-    AffectedAxes, ControlClass, Inquiry, OperationCommand, OperationalTuning, PlainCommand,
-    ProfileSpec, Request, ResponseDecoder, SubmissionClass,
+    AffectedAxes, Inquiry, OperationCommand, OperationalTuning, PlainCommand, ProfileSpec, Request,
+    ResponseDecoder, SubmissionClass,
 };
 use crate::{Error, Result};
 
-use crate::raw::MAX_BYTES;
 use crate::runtime::engine::{
-    AppliedStateProjection, CommandOutcome, CommandReply, ControlPolicy, EncodedMessage,
-    InquiryOutcome, RequestContext, RetryPolicy, TimeoutPolicy,
+    AppliedStateProjection, CommandOutcome, CommandReply, ControlClass, ControlPolicy,
+    EncodedMessage, InquiryOutcome, RequestContext, RetryPolicy, TimeoutPolicy,
 };
+use crate::{raw::MAX_BYTES, request::policy::CommandAdmission};
 
 #[cfg(test)]
 use crate::runtime::engine::RuntimeRequest;
@@ -48,19 +48,20 @@ pub(crate) enum ClassSelection {
 }
 
 impl ClassSelection {
-    /// Resolves the effective class for a request that classifies itself as
-    /// `request`.
-    ///
-    /// The crate classifies stop and protocol-cancel requests as urgent. That
-    /// intrinsic safety floor always wins; ordinary requests use the caller's
-    /// selected QoS when one exists.
-    pub(crate) const fn resolve(self, request: ControlClass) -> ControlClass {
+    /// Retains reviewed STOP admission and applies view QoS to ordinary work.
+    pub(crate) const fn resolve(self, admission: CommandAdmission) -> CommandAdmission {
+        match admission {
+            CommandAdmission::Ordinary(class) => {
+                CommandAdmission::Ordinary(self.resolve_ordinary(class))
+            }
+            CommandAdmission::Stop => CommandAdmission::Stop,
+        }
+    }
+
+    const fn resolve_ordinary(self, class: SubmissionClass) -> SubmissionClass {
         match self {
-            Self::Request => request,
-            Self::Handle(class) => match request {
-                ControlClass::Urgent => ControlClass::Urgent,
-                _ => class.control_class(),
-            },
+            Self::Request => class,
+            Self::Handle(selected) => selected,
         }
     }
 
@@ -166,6 +167,7 @@ pub(crate) struct PreparedInquiryTemplate<R> {
     wire: Arc<EncodedMessage>,
     context: RequestContext,
     payload_shape: crate::PayloadShape,
+    syntax: bool,
     decoder: ResponseDecoder<R>,
 }
 
@@ -175,6 +177,7 @@ impl<R> PreparedInquiryTemplate<R> {
             wire: PreparedWire::Shared(Arc::clone(&self.wire)),
             context: self.context,
             payload_shape: self.payload_shape,
+            syntax: self.syntax,
             decoder: self.decoder.clone(),
         }
     }
@@ -218,9 +221,9 @@ impl PositionReading for PanTiltUnits {
     fn moved(self, previous: Self, tolerance: MovementTolerance) -> bool {
         let (pan, tilt) = self.raw_values();
         let (previous_pan, previous_tilt) = previous.raw_values();
-        let tolerance = u64::from(tolerance.pan_tilt.unsigned_abs());
-        (i64::from(pan) - i64::from(previous_pan)).unsigned_abs() > tolerance
-            || (i64::from(tilt) - i64::from(previous_tilt)).unsigned_abs() > tolerance
+        let tolerance = u64::from(tolerance.pan_tilt());
+        i64::from(pan).abs_diff(i64::from(previous_pan)) > tolerance
+            || i64::from(tilt).abs_diff(i64::from(previous_tilt)) > tolerance
     }
 }
 
@@ -228,7 +231,7 @@ macro_rules! scalar_position_readings {
     ($($type:ty => $field:ident),+ $(,)?) => {$(
         impl PositionReading for $type {
             fn moved(self, previous: Self, tolerance: MovementTolerance) -> bool {
-                u64::from(self.value().abs_diff(previous.value())) > u64::from(tolerance.$field)
+                u64::from(self.value().abs_diff(previous.value())) > u64::from(tolerance.$field())
             }
         }
     )+};
@@ -347,7 +350,7 @@ pub(crate) struct MotionWindow {
 }
 
 /// A [`MotionWindow`] whose baseline snapshot was received: the final
-/// snapshot may start at [`Self::final_not_before`].
+/// snapshot may start once [`Self::remaining`] returns `None`.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct OpenMotionWindow {
     final_not_before: Instant,
@@ -356,16 +359,10 @@ pub(crate) struct OpenMotionWindow {
 impl MotionWindow {
     /// Validates the query before any I/O.
     pub(crate) fn new(query: MotionQuery) -> Result<Self> {
-        if query.window.is_zero() {
-            return Err(Error::InvalidParameter {
-                parameter: "MotionQuery::window",
-                value: "0ns".into(),
-                reason: "a movement observation needs a positive window".into(),
-            });
-        }
+        query.validate()?;
         Ok(Self {
-            window: query.window,
-            tolerance: query.tolerance,
+            window: query.window(),
+            tolerance: query.tolerance(),
         })
     }
 
@@ -405,21 +402,11 @@ impl MotionWindow {
 }
 
 impl OpenMotionWindow {
-    /// The earliest instant the final snapshot may start.
-    pub(crate) const fn final_not_before(&self) -> Instant {
+    /// Time until the final snapshot may start, if the window is still open.
+    pub(crate) fn remaining(&self, now: Instant) -> Option<Duration> {
         self.final_not_before
-    }
-
-    /// Accepts the plan's final comparison, whose first inquiry started at
-    /// `started_at`, only once the observation window has elapsed.
-    pub(crate) fn observe_final(self, moving: bool, started_at: Instant) -> Result<bool> {
-        if started_at < self.final_not_before {
-            return Err(Error::InvalidState {
-                reason: "final movement snapshot started before the observation window elapsed"
-                    .into(),
-            });
-        }
-        Ok(moving)
+            .checked_duration_since(now)
+            .filter(|remaining| !remaining.is_zero())
     }
 }
 
@@ -471,6 +458,7 @@ pub(crate) struct PreparedCommand {
     wire: PreparedWire,
     context: RequestContext,
     reply_shape: CommandReply,
+    not_executable: bool,
     applied_state: Option<AppliedStateProjection>,
 }
 
@@ -480,6 +468,7 @@ pub(crate) struct PreparedInquiry<R> {
     wire: PreparedWire,
     context: RequestContext,
     payload_shape: crate::PayloadShape,
+    syntax: bool,
     decoder: ResponseDecoder<R>,
 }
 
@@ -492,6 +481,7 @@ where
     wire: PreparedWire,
     context: RequestContext,
     reply_shape: CommandReply,
+    not_executable: bool,
     motion: crate::runtime::engine::MotionEffect,
     settlement: completion::SettlementPlan<K>,
     applied_state: Option<AppliedStateProjection>,
@@ -551,13 +541,25 @@ pub(crate) fn prepare_command<C>(
 where
     C: PlainCommand + ?Sized,
 {
-    prepare_command_with_state(
-        command,
-        registration,
-        tuning,
-        class,
-        crate::requests::applied_state_projection(command),
-    )
+    let (
+        mut context,
+        LoweredCommand {
+            reply_shape,
+            not_executable,
+        },
+    ) = lower_request_context(command, registration, tuning, class);
+    let (wire, lowered, ()) = encode(command, registration, || Ok(()))?;
+    context.requires_extended_pan_tilt_speed = lowered.requires_extended_pan_tilt_speed;
+    context.motion = command
+        .motion_axes()
+        .map(|axes| crate::runtime::engine::MotionEffect { axes });
+    Ok(PreparedCommand {
+        wire,
+        context,
+        reply_shape,
+        not_executable,
+        applied_state: lowered.applied_state,
+    })
 }
 
 /// Prepares a crate built-in command with its closed applied-state selection.
@@ -571,30 +573,6 @@ where
     C: PlainCommand + ?Sized,
 {
     prepare_command(command, registration, tuning, ClassSelection::Request)
-}
-
-fn prepare_command_with_state<C>(
-    command: &C,
-    registration: &crate::TargetRegistration,
-    tuning: ValidatedTuning,
-    class: ClassSelection,
-    applied_state: Option<AppliedStateProjection>,
-) -> Result<PreparedCommand>
-where
-    C: PlainCommand + ?Sized,
-{
-    command.validate_for_target(registration)?;
-    let (mut context, reply_shape) = lower_request_context(command, registration, tuning, class);
-    let wire = encode(command, registration)?;
-    context.motion = command
-        .motion_axes()
-        .map(|axes| crate::runtime::engine::MotionEffect { axes });
-    Ok(PreparedCommand {
-        wire,
-        context,
-        reply_shape,
-        applied_state,
-    })
 }
 
 /// Prepares a generic typed inquiry through the shared lowering path.
@@ -623,23 +601,18 @@ where
     Q: Inquiry + ?Sized,
 {
     let profile = registration.profile();
-    if matches!(
-        profile.capabilities().inquiry_support,
-        crate::capabilities::InquirySupport::None
-    ) {
+    if !profile.capabilities().inquiries {
         return Err(Error::FeatureNotSupported {
             feature: "VISCA inquiries",
         });
     }
-    inquiry.validate_for_target(registration)?;
-    let decoder = bind_decoder(profile)?;
-    let (mut context, _) = lower_request_context(inquiry, registration, tuning, class);
-    let wire = encode(inquiry, registration)?;
-    context.retry.builtin_inquiry_syntax = crate::requests::builtin_inquiry_syntax_retry(inquiry);
+    let (wire, _, decoder) = encode(inquiry, registration, || bind_decoder(profile))?;
+    let (context, _) = lower_request_context(inquiry, registration, tuning, class);
     Ok(PreparedInquiry {
         wire,
         context,
         payload_shape: inquiry.payload_shape_for_profile(profile),
+        syntax: crate::requests::builtin_inquiry_syntax_retry(inquiry),
         decoder,
     })
 }
@@ -655,13 +628,42 @@ where
     K: completion::Kind,
     O: OperationCommand<K> + ?Sized,
 {
-    prepare_operation_with_state(
-        operation,
-        registration,
-        tuning,
-        class,
-        crate::requests::applied_state_projection(operation),
-    )
+    let profile = registration.profile();
+    let (
+        mut context,
+        LoweredCommand {
+            reply_shape,
+            not_executable,
+        },
+    ) = lower_request_context(operation, registration, tuning, class);
+    let (wire, lowered, (motion, settlement)) = encode(operation, registration, || {
+        // A validated request must settle before its encoder is called.
+        let axes = operation.affected_axes_for_target(
+            registration,
+            crate::requests::RequestContractAuthority::new(),
+        )?;
+        let settlement = completion::lower_settlement::<K>(
+            registration,
+            tuning,
+            axes,
+            observation_timeout(
+                &context,
+                settlement_budget(operation.policy().timeout_class(), profile, tuning),
+            ),
+        )?;
+        Ok((crate::runtime::engine::MotionEffect { axes }, settlement))
+    })?;
+    context.requires_extended_pan_tilt_speed = lowered.requires_extended_pan_tilt_speed;
+    Ok(PreparedOperation {
+        wire,
+        context,
+        reply_shape,
+        not_executable,
+        motion,
+        settlement,
+        applied_state: lowered.applied_state,
+        marker: PhantomData,
+    })
 }
 
 /// Prepares a crate built-in operation with its closed applied-state selection.
@@ -678,143 +680,18 @@ where
     prepare_operation::<K, _>(operation, registration, tuning, ClassSelection::Request)
 }
 
-fn prepare_operation_with_state<K, O>(
-    operation: &O,
-    registration: &crate::TargetRegistration,
-    tuning: ValidatedTuning,
-    class: ClassSelection,
-    applied_state: Option<AppliedStateProjection>,
-) -> Result<PreparedOperation<K>>
-where
-    K: completion::Kind,
-    O: OperationCommand<K> + ?Sized,
-{
-    let profile = registration.profile();
-    // Domain/profile admission must complete before lowering settlement
-    // inquiries or encoding the command.  In particular, an unsupported
-    // targeted built-in must not even prepare an inquiry plan as a side
-    // effect of discovering that its operation class is unavailable.
-    let movement = crate::requests::prepare_movement(operation, registration)?;
-    let affected_axes = operation.affected_axes_for_target(
-        registration,
-        crate::requests::RequestContractAuthority::new(),
-    )?;
-    let (mut context, reply_shape) = lower_request_context(operation, registration, tuning, class);
-    let motion = crate::runtime::engine::MotionEffect {
-        axes: affected_axes,
-    };
-    let settlement = completion::lower_settlement::<K>(
-        registration,
-        tuning,
-        affected_axes,
-        observation_timeout(
-            &context,
-            settlement_budget(operation.policy().timeout_class(), profile, tuning),
-        ),
-    )?;
-    let wire = if let Some(movement) = movement {
-        context.requires_extended_pan_tilt_speed = movement.requires_extended_pan_tilt_speed;
-        movement.wire
-    } else {
-        encode(operation, registration)?
-    };
-    Ok(PreparedOperation {
-        wire,
-        context,
-        reply_shape,
-        motion,
-        settlement,
-        applied_state,
-        marker: PhantomData,
-    })
-}
-
-/// A movement whose speed and packet have already been lowered together.
-pub(crate) struct PreparedMovement {
-    wire: PreparedWire,
-    requires_extended_pan_tilt_speed: bool,
-}
-
-pub(crate) fn prepare_lowered_movement<R: Request>(
+fn encode<R: Request + ?Sized, T>(
     request: &R,
     registration: &crate::TargetRegistration,
-) -> Result<PreparedMovement> {
-    Ok(PreparedMovement {
-        wire: encode(request, registration)?,
-        requires_extended_pan_tilt_speed: requires_extended_pan_tilt_speed(
-            request,
-            registration.profile(),
-        ),
-    })
-}
-
-fn requires_extended_pan_tilt_speed<R: Request + ?Sized>(
-    request: &R,
-    profile: &ProfileSpec,
-) -> bool {
-    profile
-        .capabilities()
-        .pan_tilt
-        .as_ref()
-        .is_some_and(|pan_tilt| pan_tilt.variable_speed)
-        && crate::requests::pan_tilt_max_speed(request)
-            .is_some_and(|speed| speed > crate::command::PanTiltSpeedMode::STANDARD_MAXIMUM)
-}
-
-fn encode<R>(request: &R, registration: &crate::TargetRegistration) -> Result<PreparedWire>
-where
-    R: Request + ?Sized,
-{
-    let target = registration.slot();
-    let profile = registration.profile();
-    let declared_max = crate::requests::declared_max_size(request);
-    let capacity = declared_max.min(MAX_BYTES);
-    if capacity < 2 {
-        return Err(Error::InvalidRequest {
-            reason: "MAX_SIZE must allow a VISCA target address and message body".into(),
-        });
-    }
-    let message = EncodedMessage::encode(capacity, |bytes| {
-        let written = match crate::requests::write_for_target(request, registration, bytes) {
-            Err(Error::BufferTooSmall { required, .. }) if required > capacity => {
-                return Err(Error::InvalidRequest { reason: format!("encoded request needs {required} bytes, exceeding MAX_SIZE ({declared_max}) or raw::MAX_BYTES ({MAX_BYTES})").into() });
-            }
-            result => result?,
-        };
-        if written > capacity {
-            return Err(Error::InvalidRequest { reason: format!("write_into reported {written} bytes, exceeding MAX_SIZE ({declared_max}) or raw::MAX_BYTES ({MAX_BYTES})").into() });
-        }
-        if written < 2 {
-            return Err(Error::InvalidRequest {
-                reason: "encoded request must contain a VISCA target address and message body"
-                    .into(),
-            });
-        }
-        if bytes[0] != target.camera().to_address_byte() {
-            return Err(Error::InvalidRequest { reason: format!(
-                "request targets VISCA address 0x{:02x}, but the selected camera target is {} (0x{:02x})",
-                bytes[0],
-                target.camera(),
-                target.camera().to_address_byte()
-            )
-            .into() });
-        }
-        Ok(written)
+    before_write: impl FnOnce() -> Result<T>,
+) -> Result<(PreparedWire, crate::requests::LoweredRequest, T)> {
+    let capacity = crate::requests::declared_max_size(request).min(MAX_BYTES);
+    let (message, (lowered, result)) = EncodedMessage::encode(capacity, |bytes| {
+        let (lowered, result) =
+            crate::requests::encode_for_target(request, registration, bytes, before_write)?;
+        Ok((lowered.written, (lowered, result)))
     })?;
-    // The raw namespace and downstream `Request` implementations share this
-    // final owner-only primitive guard.  Constructing the inert message first
-    // preserves the existing terminator/size validation order; a rejection
-    // here returns before the prepared request can be admitted or written to a
-    // transport.
-    crate::raw::reject_owner_only_primitive(message.as_bytes())?;
-    let maximum = profile.maximum_request_bytes();
-    if message.as_bytes().len() > maximum {
-        return Err(Error::InvalidRequest { reason: format!(
-            "encoded request has {} bytes, exceeding this profile's supported envelope payload bound ({maximum})",
-            message.as_bytes().len(),
-        ).into() });
-    }
-    Ok(PreparedWire::Owned(message))
+    Ok((PreparedWire::Owned(message), lowered, result))
 }
 
 /// The timing and admission facts shared by every lowered request class.
@@ -824,24 +701,32 @@ struct LoweredPolicy {
     control: ControlPolicy,
 }
 
+/// Command-only response and rejection facts selected alongside its timing.
+struct LoweredCommand {
+    reply_shape: CommandReply,
+    not_executable: bool,
+}
+
 /// Only the sealed, class-specific public policies can select a lowering path.
 trait LowerPolicy: crate::request::policy::Sealed {
     type Reply;
 
     fn lower(
         self,
-        class: ControlClass,
+        admission: Self::Admission,
+        selection: ClassSelection,
         tuning: OperationalTuning,
         resolved: ResolvedTiming,
     ) -> (LoweredPolicy, Self::Reply);
 }
 
 impl LowerPolicy for crate::request::CommandPolicy {
-    type Reply = CommandReply;
+    type Reply = LoweredCommand;
 
     fn lower(
         self,
-        class: ControlClass,
+        admission: Self::Admission,
+        selection: ClassSelection,
         tuning: OperationalTuning,
         resolved: ResolvedTiming,
     ) -> (LoweredPolicy, Self::Reply) {
@@ -849,7 +734,7 @@ impl LowerPolicy for crate::request::CommandPolicy {
             self.timeout_class(),
             self.retry_class(),
             self.reply_shape(),
-            class,
+            selection.resolve(admission),
             tuning,
             resolved,
         )
@@ -857,11 +742,12 @@ impl LowerPolicy for crate::request::CommandPolicy {
 }
 
 impl LowerPolicy for crate::request::OperationPolicy {
-    type Reply = CommandReply;
+    type Reply = LoweredCommand;
 
     fn lower(
         self,
-        class: ControlClass,
+        admission: Self::Admission,
+        selection: ClassSelection,
         tuning: OperationalTuning,
         resolved: ResolvedTiming,
     ) -> (LoweredPolicy, Self::Reply) {
@@ -869,7 +755,7 @@ impl LowerPolicy for crate::request::OperationPolicy {
             self.timeout_class(),
             self.retry_class(),
             self.reply_shape(),
-            class,
+            selection.resolve(admission),
             tuning,
             resolved,
         )
@@ -881,12 +767,18 @@ impl LowerPolicy for crate::request::InquiryPolicy {
 
     fn lower(
         self,
-        class: ControlClass,
+        admission: Self::Admission,
+        selection: ClassSelection,
         tuning: OperationalTuning,
         resolved: ResolvedTiming,
     ) -> (LoweredPolicy, Self::Reply) {
         (
-            lower_inquiry(self.retry_class(), class, tuning, resolved),
+            lower_inquiry(
+                self.retry_class(),
+                selection.resolve_ordinary(admission),
+                tuning,
+                resolved,
+            ),
             (),
         )
     }
@@ -896,10 +788,10 @@ fn lower_command(
     timeout: CommandTimeoutClass,
     retry: CommandRetryClass,
     shape: crate::raw::RawReplyShape,
-    class: ControlClass,
+    class: CommandAdmission,
     tuning: OperationalTuning,
     resolved: ResolvedTiming,
-) -> (LoweredPolicy, CommandReply) {
+) -> (LoweredPolicy, LoweredCommand) {
     let (class, reply) = lower_command_policy(class, shape);
     (
         LoweredPolicy {
@@ -916,26 +808,31 @@ fn lower_command(
                 minimum_spacing: resolved.command_spacing,
             },
         },
-        reply,
+        LoweredCommand {
+            reply_shape: reply,
+            not_executable: retries_not_executable(retry),
+        },
+    )
+}
+
+const fn retries_not_executable(retry: CommandRetryClass) -> bool {
+    matches!(
+        retry,
+        CommandRetryClass::Movement | CommandRetryClass::Preset
     )
 }
 
 fn lower_inquiry(
     retry: InquiryRetryClass,
-    class: ControlClass,
+    class: SubmissionClass,
     tuning: OperationalTuning,
     resolved: ResolvedTiming,
 ) -> LoweredPolicy {
-    let class = match class {
-        ControlClass::Background => crate::runtime::engine::ControlClass::Background,
-        ControlClass::Normal => crate::runtime::engine::ControlClass::Normal,
-        ControlClass::User | ControlClass::Urgent => crate::runtime::engine::ControlClass::User,
-    };
     LoweredPolicy {
         timeout: timeout_policy(resolved, resolved.inquiry_completion),
         retry: inquiry_retry_policy(retry, tuning, resolved),
         control: ControlPolicy {
-            class,
+            class: engine_class(class),
             minimum_spacing: resolved.inquiry_spacing,
         },
     }
@@ -971,13 +868,14 @@ where
     let profile = registration.profile();
     let resolved = tuning.resolve(&profile.timing());
     let (policy, reply) = request.policy().lower(
-        class.resolve(crate::requests::admission_control_class(request)),
+        crate::requests::admission(request),
+        class,
         tuning.get(),
         resolved,
     );
     (
         RequestContext {
-            requires_extended_pan_tilt_speed: requires_extended_pan_tilt_speed(request, profile),
+            requires_extended_pan_tilt_speed: false,
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,
@@ -1059,15 +957,6 @@ fn command_retry_policy(
         initial_backoff: bounds.initial_backoff,
         maximum_backoff: bounds.maximum_backoff,
         total_budget: Some(bounds.total_budget),
-        ack_timeout: replayable,
-        completion_timeout: replayable,
-        inquiry_timeout: false,
-        buffer_full: replayable,
-        movement_not_executable: matches!(
-            retry_class,
-            CommandRetryClass::Movement | CommandRetryClass::Preset
-        ),
-        builtin_inquiry_syntax: false,
     }
 }
 
@@ -1089,12 +978,6 @@ fn inquiry_retry_policy(
         initial_backoff: bounds.initial_backoff,
         maximum_backoff: bounds.maximum_backoff,
         total_budget: Some(bounds.total_budget),
-        ack_timeout: replayable,
-        completion_timeout: replayable,
-        inquiry_timeout: replayable,
-        buffer_full: replayable,
-        movement_not_executable: false,
-        builtin_inquiry_syntax: false,
     }
 }
 
@@ -1102,25 +985,26 @@ fn inquiry_retry_policy(
 /// command can carry reviewed STOP authority; the engine has no independent
 /// urgency flag that could disagree with this class.
 fn lower_command_policy(
-    class: ControlClass,
+    admission: CommandAdmission,
     shape: crate::raw::RawReplyShape,
-) -> (crate::runtime::engine::ControlClass, CommandReply) {
-    use crate::runtime::engine::ControlClass as EngineControlClass;
-    let ordinary = match class {
-        ControlClass::Background => EngineControlClass::Background,
-        ControlClass::Normal => EngineControlClass::Normal,
-        ControlClass::User => EngineControlClass::User,
-        // Only the private built-in hook can return Urgent. Its const-checked
-        // ledger rows are ACK-bearing STOPs; public policies carry an ordinary
-        // SubmissionClass, so no urgency/reply validation remains here.
-        ControlClass::Urgent => return (EngineControlClass::User, CommandReply::Stop),
+) -> (ControlClass, CommandReply) {
+    let CommandAdmission::Ordinary(class) = admission else {
+        return (ControlClass::User, CommandReply::Stop);
     };
     let reply = match shape {
         crate::raw::RawReplyShape::AckThenCompletion => CommandReply::AckThenCompletion,
         crate::raw::RawReplyShape::CompletionOnly => CommandReply::CompletionOnly,
         crate::raw::RawReplyShape::NoReply => CommandReply::NoReply,
     };
-    (ordinary, reply)
+    (engine_class(class), reply)
+}
+
+fn engine_class(class: SubmissionClass) -> ControlClass {
+    match class {
+        SubmissionClass::Background => ControlClass::Background,
+        SubmissionClass::Normal => ControlClass::Normal,
+        SubmissionClass::User => ControlClass::User,
+    }
 }
 
 impl PreparedCommand {
@@ -1137,6 +1021,7 @@ impl PreparedCommand {
             self.wire.into_shared(),
             self.context,
             self.applied_state,
+            self.not_executable,
         );
         admit(request, timeout)
     }
@@ -1182,6 +1067,7 @@ impl<R> PreparedInquiry<R> {
             wire: self.wire.into_shared(),
             context: self.context,
             payload_shape: self.payload_shape,
+            syntax: self.syntax,
             decoder: self.decoder,
         }
     }
@@ -1191,8 +1077,12 @@ impl<R> PreparedInquiry<R> {
         admit: impl FnOnce(LaneRequest<InquiryOutcome>, ResponseDecoder<R>, Duration) -> T,
     ) -> T {
         let timeout = observation_timeout(&self.context, self.context.timeout.inquiry.get());
-        let request =
-            LaneRequest::inquiry(self.wire.into_shared(), self.context, self.payload_shape);
+        let request = LaneRequest::inquiry(
+            self.wire.into_shared(),
+            self.context,
+            self.payload_shape,
+            self.syntax,
+        );
         admit(request, self.decoder, timeout)
     }
 }
@@ -1239,6 +1129,7 @@ where
             self.wire.into_shared(),
             context,
             self.applied_state,
+            self.not_executable,
         );
         admit(
             request,
@@ -1336,6 +1227,7 @@ pub(crate) mod test_support {
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::panic, unused_qualifications)]
 mod tests {
+    use crate::tuning::RetryLimit;
     // Existing retry-policy scenarios supply independent response/busy facts;
     // lower them through ResolvedTiming rather than rebuilding retry bounds.
     fn retry_policy_fixture(
@@ -1373,7 +1265,7 @@ mod tests {
     };
     use super::*;
     use crate::{
-        capabilities::{Capabilities, InquirySupport, TypedSupportSet},
+        capabilities::{Capabilities, TypedSupportSet},
         command::{
             BrightnessInquiry, ExposureModeInquiry, FocusNearLimitInquiry, FocusZoneInquiry,
             IrisInquiry, NdFilterDensity, PanTilt, PanTiltLimitCorner, PanTiltPositionInquiry,
@@ -1431,7 +1323,7 @@ mod tests {
             OperationalTuning::new(),
             ClassSelection::Request,
         )
-        .expect("prepare the inquiry lane");
+        .expect("prepare the inquiry");
         inquiry
             .into_template()
             .instantiate()
@@ -1530,7 +1422,7 @@ mod tests {
 
     #[test]
     fn fr7_extended_pan_tilt_speeds_carry_a_dispatch_prerequisite() {
-        use crate::request::builtin::PanTiltDrive;
+        use crate::command::pan_tilt::{Absolute, Drive, Relative};
         let registration = crate::TargetRegistration::new(
             crate::IndividualCameraId::CAMERA_1,
             ProfileSpec::from_compile_time::<crate::profiles::SonyFr7>().expect("FR7"),
@@ -1538,7 +1430,10 @@ mod tests {
         for speed in [1, 24, 25, 50] {
             let pan = PanSpeed::new(speed).expect("pan syntax");
             let tilt = TiltSpeed::new(speed).expect("tilt syntax");
-            let drive = PanTiltDrive::new(crate::command::PanTiltDirection::Up, pan, tilt);
+            let drive = Drive::new(
+                crate::command::PanTiltDirection::Up,
+                crate::types::PanTiltSpeed::new(pan, tilt),
+            );
             let prepared = prepare_operation::<completion::AppliedOnly, _>(
                 &drive,
                 &registration,
@@ -1550,14 +1445,10 @@ mod tests {
                 prepared.context.requires_extended_pan_tilt_speed,
                 speed > crate::command::PanTiltSpeedMode::STANDARD_MAXIMUM
             );
-            let absolute = PanTiltAbsolute::for_target(
-                Degrees::new(1.0).expect("finite degrees"),
-                Degrees::new(1.0).expect("finite degrees"),
-                pan,
-                tilt,
-                &registration,
-            )
-            .expect("target");
+            let absolute = Absolute::new(
+                crate::types::PanTiltPosition::from_degrees(1.0, 1.0).expect("finite degrees"),
+                crate::types::PanTiltSpeed::new(pan, tilt),
+            );
             let prepared = prepare_operation::<completion::Targeted, _>(
                 &absolute,
                 &registration,
@@ -1569,14 +1460,10 @@ mod tests {
                 prepared.context.requires_extended_pan_tilt_speed,
                 speed > crate::command::PanTiltSpeedMode::STANDARD_MAXIMUM
             );
-            let relative = PanTiltRelative::for_target(
-                Degrees::new(1.0).expect("finite degrees"),
-                Degrees::new(1.0).expect("finite degrees"),
-                pan,
-                tilt,
-                &registration,
-            )
-            .expect("offset");
+            let relative = Relative::new(
+                crate::types::PanTiltPosition::from_degrees(1.0, 1.0).expect("finite degrees"),
+                crate::types::PanTiltSpeed::new(pan, tilt),
+            );
             let prepared = prepare_operation::<completion::Targeted, _>(
                 &relative,
                 &registration,
@@ -1593,10 +1480,12 @@ mod tests {
             crate::IndividualCameraId::CAMERA_1,
             ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2"),
         );
-        let drive = PanTiltDrive::new(
+        let drive = Drive::new(
             crate::command::PanTiltDirection::Up,
-            PanSpeed::new(25).expect("syntax"),
-            TiltSpeed::new(25).expect("syntax"),
+            crate::types::PanTiltSpeed::new(
+                PanSpeed::new(25).expect("syntax"),
+                TiltSpeed::new(25).expect("syntax"),
+            ),
         );
         assert!(prepare_operation::<completion::AppliedOnly, _>(
             &drive,
@@ -1610,7 +1499,7 @@ mod tests {
     #[test]
     fn fine_speed_prerequisite_follows_the_fact_instead_of_the_coordinate_codec() {
         use crate::capabilities::PanTiltWireCodec;
-        use crate::request::builtin::PanTiltDrive;
+        use crate::command::pan_tilt::Drive;
         for codec in [PanTiltWireCodec::StandardVisca, PanTiltWireCodec::SonyFr7] {
             for variable_speed in [false, true] {
                 let mut facts = crate::profiles::ProfileId::SonyFr7.raw_facts();
@@ -1647,10 +1536,12 @@ mod tests {
                 let registration =
                     crate::TargetRegistration::from_profile(TargetSlot::CAMERA_1, profile);
                 for speed in [24, if variable_speed { 40 } else { 1 }] {
-                    let drive = PanTiltDrive::new(
+                    let drive = Drive::new(
                         crate::command::PanTiltDirection::Right,
-                        PanSpeed::new(speed).expect("pan"),
-                        TiltSpeed::new(speed).expect("tilt"),
+                        crate::types::PanTiltSpeed::new(
+                            PanSpeed::new(speed).expect("pan"),
+                            TiltSpeed::new(speed).expect("tilt"),
+                        ),
                     );
                     let prepared = prepare_operation::<completion::AppliedOnly, _>(
                         &drive,
@@ -1729,7 +1620,7 @@ mod tests {
     impl Request for CountingInquiry {
         type Class = crate::request::InquiryClass;
 
-        const MAX_SIZE: usize = 2;
+        const MAX_SIZE: usize = 3;
         fn policy(&self) -> crate::request::InquiryPolicy {
             crate::request::InquiryPolicy::new(
                 crate::request::InquiryRetryClass::Inquiry,
@@ -1739,8 +1630,8 @@ mod tests {
 
         fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
             increment_write_count();
-            buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
-            Ok(2)
+            buffer[..3].copy_from_slice(&[target.to_address_byte(), 0x01, VISCA_TERMINATOR]);
+            Ok(3)
         }
     }
 
@@ -1761,7 +1652,7 @@ mod tests {
     impl Request for CountingTargeted {
         type Class = crate::request::OperationClass<completion::Targeted>;
 
-        const MAX_SIZE: usize = 2;
+        const MAX_SIZE: usize = 3;
         fn policy(&self) -> crate::request::OperationPolicy {
             crate::request::OperationPolicy::new(
                 crate::profiles::CommandTimeoutClass::Movement,
@@ -1772,8 +1663,8 @@ mod tests {
 
         fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
             increment_write_count();
-            buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
-            Ok(2)
+            buffer[..3].copy_from_slice(&[target.to_address_byte(), 0x01, VISCA_TERMINATOR]);
+            Ok(3)
         }
     }
 
@@ -1790,7 +1681,7 @@ mod tests {
             impl Request for $name {
                 type Class = crate::request::PlainClass;
 
-                const MAX_SIZE: usize = 2;
+                const MAX_SIZE: usize = 3;
                 fn policy(&self) -> crate::request::CommandPolicy {
                     crate::request::CommandPolicy::new(
                         $timeout,
@@ -1800,8 +1691,12 @@ mod tests {
                 }
 
                 fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
-                    buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
-                    Ok(2)
+                    buffer[..3].copy_from_slice(&[
+                        target.to_address_byte(),
+                        0x01,
+                        VISCA_TERMINATOR,
+                    ]);
+                    Ok(3)
                 }
             }
         };
@@ -1820,7 +1715,7 @@ mod tests {
     impl Request for RetryingQuickCommand {
         type Class = crate::request::PlainClass;
 
-        const MAX_SIZE: usize = 2;
+        const MAX_SIZE: usize = 3;
         fn policy(&self) -> crate::request::CommandPolicy {
             crate::request::CommandPolicy::new(
                 crate::profiles::CommandTimeoutClass::Quick,
@@ -1830,8 +1725,8 @@ mod tests {
         }
 
         fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
-            buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
-            Ok(2)
+            buffer[..3].copy_from_slice(&[target.to_address_byte(), 0x01, VISCA_TERMINATOR]);
+            Ok(3)
         }
     }
 
@@ -1841,7 +1736,7 @@ mod tests {
     impl Request for RetryingMovementCommand {
         type Class = crate::request::PlainClass;
 
-        const MAX_SIZE: usize = 2;
+        const MAX_SIZE: usize = 3;
         fn policy(&self) -> crate::request::CommandPolicy {
             crate::request::CommandPolicy::new(
                 crate::profiles::CommandTimeoutClass::Movement,
@@ -1851,8 +1746,8 @@ mod tests {
         }
 
         fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
-            buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
-            Ok(2)
+            buffer[..3].copy_from_slice(&[target.to_address_byte(), 0x01, VISCA_TERMINATOR]);
+            Ok(3)
         }
     }
 
@@ -1861,7 +1756,7 @@ mod tests {
     impl Request for CountingAppliedOnly {
         type Class = crate::request::OperationClass<completion::AppliedOnly>;
 
-        const MAX_SIZE: usize = 2;
+        const MAX_SIZE: usize = 3;
         fn policy(&self) -> crate::request::OperationPolicy {
             crate::request::OperationPolicy::new(
                 crate::profiles::CommandTimeoutClass::Movement,
@@ -1872,8 +1767,8 @@ mod tests {
 
         fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
             increment_write_count();
-            buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
-            Ok(2)
+            buffer[..3].copy_from_slice(&[target.to_address_byte(), 0x01, VISCA_TERMINATOR]);
+            Ok(3)
         }
     }
 
@@ -1888,7 +1783,7 @@ mod tests {
     impl Request for WrongAddress {
         type Class = crate::request::PlainClass;
 
-        const MAX_SIZE: usize = 2;
+        const MAX_SIZE: usize = 3;
         fn policy(&self) -> crate::request::CommandPolicy {
             crate::request::CommandPolicy::new(
                 crate::profiles::CommandTimeoutClass::Quick,
@@ -1898,8 +1793,12 @@ mod tests {
         }
 
         fn write_into(&self, _target: CameraId, buffer: &mut [u8]) -> Result<usize> {
-            buffer[..2].copy_from_slice(&[CameraId::CAMERA_1.to_address_byte(), VISCA_TERMINATOR]);
-            Ok(2)
+            buffer[..3].copy_from_slice(&[
+                CameraId::CAMERA_1.to_address_byte(),
+                0x01,
+                VISCA_TERMINATOR,
+            ]);
+            Ok(3)
         }
     }
 
@@ -1922,9 +1821,8 @@ mod tests {
             )
         }
 
-        fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
+        fn write_into(&self, _: CameraId, buffer: &mut [u8]) -> Result<usize> {
             buffer[..self.frame.len()].copy_from_slice(self.frame);
-            buffer[0] = target.to_address_byte();
             Ok(self.frame.len())
         }
     }
@@ -2035,7 +1933,7 @@ mod tests {
             OperationalTuning::new(),
             ClassSelection::Request,
         )
-        .expect_err("a frame needs at least two bytes");
+        .expect_err("a frame needs an address, body, and terminator");
         assert!(matches!(error, Error::InvalidRequest { .. }));
     }
 
@@ -2126,15 +2024,20 @@ mod tests {
         ));
     }
 
-    /// Owner-only byte patterns must be rejected for every typed request
-    /// implementation, not only for values from `crate::raw`.
+    /// All typed requests must satisfy the same grammar as `crate::raw`.
     #[test]
-    fn generic_plain_request_rejects_owner_only_primitives_before_admission() {
+    fn generic_plain_request_validates_wire_before_admission() {
         let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
             .expect("generic profile");
         let target = TargetSlot::CAMERA_1;
 
-        for (name, frame) in [
+        for (reason, frame) in [
+            ("message body", &[0x81, VISCA_TERMINATOR][..]),
+            (
+                "individual address",
+                &[0x88, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR][..],
+            ),
+            ("0xff terminator", &[0x81, 0x01, 0x02][..]),
             ("socket cancel", &[0x81, 0x20, VISCA_TERMINATOR][..]),
             (
                 "interface clear",
@@ -2147,8 +2050,11 @@ mod tests {
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
-            .expect_err("owner-only primitive must not be prepared");
-            assert!(matches!(error, Error::InvalidRequest { .. }), "{name}");
+            .expect_err("invalid wire must fail preparation");
+            assert!(
+                matches!(error, Error::InvalidRequest { reason: message } if message.contains(reason)),
+                "{reason}"
+            );
             // Encoding a custom request into preparation scratch is necessary
             // to inspect its bytes; no PreparedCommand is returned, so no
             // owner admission or transport write can follow this rejection.
@@ -2178,7 +2084,7 @@ mod tests {
             .expect("valid built-in profile");
         let mut no_inquiry = baseline.capabilities().clone();
         no_inquiry.profile_id = None;
-        no_inquiry.inquiry_support = InquirySupport::None;
+        no_inquiry.inquiries = false;
         no_inquiry.typed_support = no_inquiry
             .typed_support
             .iter()
@@ -2392,7 +2298,7 @@ mod tests {
                 Capabilities::runtime_baseline("Downstream capability probe", 1).expect("baseline");
             // Grant inquiry support so the base-domain gate under test is the
             // only thing that can refuse a query.
-            capabilities.inquiry_support = InquirySupport::Full;
+            capabilities.inquiries = true;
             mutate(&mut capabilities);
             ProfileSpec::builder(capabilities)
                 .transports(TransportCompatibility::new().with_tcp(5678))
@@ -2460,11 +2366,7 @@ mod tests {
         let power_only = minimal_profile(|capabilities| {
             capabilities.power = Some(crate::capabilities::PowerCaps {
                 status_query: crate::capabilities::PowerStatusQuery::Standard,
-                on_time: Duration::from_millis(750),
-                standby: None,
-                wake_on_lan: false,
-                retains_settings: false,
-                home_on_up: false,
+                standby: false,
             });
         });
         assert!(admits(&PowerInquiry, &power_only));
@@ -2577,6 +2479,7 @@ mod tests {
             wire: template.wire,
             context: template.context,
             payload_shape: template.payload_shape,
+            syntax: template.syntax,
             decoder: ResponseDecoder::from_fn(|_| Err(Error::InvalidResponseFormat)),
         })
     }
@@ -2588,14 +2491,11 @@ mod tests {
         let start = Instant::now();
         let deadline = start + Duration::from_secs(30);
         let mut position = position_query::<ZoomPosition>();
-        assert!(position.record(ZoomPosition::new(baseline)?, query.tolerance));
+        assert!(position.record(ZoomPosition::new(baseline)?, query.tolerance()));
         let window = MotionWindow::new(query)?.observe_baseline(start, deadline)?;
-        let not_before = window.final_not_before();
-        assert_eq!(not_before, start + query.window);
-        window.observe_final(
-            position.record(ZoomPosition::new(last)?, query.tolerance),
-            not_before,
-        )
+        assert_eq!(window.remaining(start), Some(query.window()));
+        assert_eq!(window.remaining(start + query.window()), None);
+        Ok(position.record(ZoomPosition::new(last)?, query.tolerance()))
     }
 
     /// Issue #802: the one settlement-polling decision both owners drive.
@@ -2665,17 +2565,13 @@ mod tests {
             .expect("valid window")
             .observe_baseline(start, start + Duration::from_secs(30))
             .expect("baseline");
-        let not_before = window.final_not_before();
-        // A pair taken back to back cannot report "no movement" for a window
-        // it did not span, even when the readings are identical.
-        let early = not_before - Duration::from_nanos(1);
-        assert!(matches!(
-            window.observe_final(false, early),
-            Err(Error::InvalidState { .. })
-        ));
-        assert!(!window
-            .observe_final(false, not_before)
-            .expect("a sample at the window edge is valid"));
+        let not_before = start + query.window();
+        let one_nanosecond = Duration::from_nanos(1);
+        assert_eq!(
+            window.remaining(not_before - one_nanosecond),
+            Some(one_nanosecond)
+        );
+        assert_eq!(window.remaining(not_before), None);
     }
 
     #[test]
@@ -2724,6 +2620,7 @@ mod tests {
                     wire: Arc::new(EncodedMessage::new(&[0x81, 0x09, 0xff]).expect("inert wire")),
                     context,
                     payload_shape: crate::PayloadShape::Unknown,
+                    syntax: false,
                     decoder: ResponseDecoder::from_fn(|_| Err(Error::InvalidResponseFormat)),
                 })
             }
@@ -2797,10 +2694,7 @@ mod tests {
 
     #[test]
     fn motion_window_compares_endpoints_across_the_whole_window() {
-        let tolerance = MovementTolerance {
-            zoom: 10,
-            ..MovementTolerance::default()
-        };
+        let tolerance = MovementTolerance::DEFAULT;
         let query = MotionQuery::new(AffectedAxes::ZOOM)
             .with_tolerance(tolerance)
             .with_window(Duration::from_millis(500));
@@ -2843,13 +2737,7 @@ mod tests {
 
     #[test]
     fn position_queries_compare_typed_values_without_overflow() {
-        let tolerance = MovementTolerance {
-            pan_tilt: 2,
-            zoom: 10,
-            focus: 5,
-            iris: 0,
-            nd_filter: 0,
-        };
+        let tolerance = MovementTolerance::DEFAULT;
         let mut pan_tilt = position_query::<PanTiltUnits>();
         assert!(pan_tilt.record(PanTiltUnits::new(i32::MIN, i32::MAX), tolerance));
         assert!(pan_tilt.record(PanTiltUnits::new(i32::MAX, i32::MIN), tolerance));
@@ -2866,10 +2754,7 @@ mod tests {
 
     #[test]
     fn position_queries_preserve_brc300_width_pan_tilt_tolerances() {
-        let tolerance = MovementTolerance {
-            pan_tilt: 40_000,
-            ..MovementTolerance::default()
-        };
+        let tolerance = MovementTolerance::DEFAULT.with_pan_tilt(40_000);
         let endpoint = PanTiltUnits::new(0x08A58, 0x493D);
         let mut stable = position_query::<PanTiltUnits>();
         assert!(stable.record(endpoint, tolerance));
@@ -3121,8 +3006,8 @@ mod tests {
             ClassSelection::Request,
         )
         .expect("custom inquiry preparation");
-        assert!(custom.context.retry.inquiry_timeout);
-        assert!(!custom.context.retry.builtin_inquiry_syntax);
+        assert!(custom.context.retry.max_retries > 0);
+        assert!(!custom.syntax);
 
         let builtin = prepare_inquiry(
             &PowerInquiry,
@@ -3134,8 +3019,8 @@ mod tests {
             ClassSelection::Request,
         )
         .expect("generic built-in inquiry preparation");
-        assert!(builtin.context.retry.inquiry_timeout);
-        assert!(builtin.context.retry.builtin_inquiry_syntax);
+        assert!(builtin.context.retry.max_retries > 0);
+        assert!(builtin.syntax);
 
         let settlement_builtin = prepare_inquiry(
             &PowerInquiry,
@@ -3147,7 +3032,7 @@ mod tests {
             ClassSelection::Request,
         )
         .expect("settlement built-in inquiry preparation");
-        assert!(settlement_builtin.context.retry.builtin_inquiry_syntax);
+        assert!(settlement_builtin.syntax);
     }
 
     #[test]
@@ -3310,9 +3195,12 @@ mod tests {
             prepared.context.timeout.inquiry =
                 crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(1))
                     .expect("positive fixture timeout");
-            prepared.context.retry.total_budget = total_budget.map(|budget| {
-                crate::runtime::engine::NonZeroDuration::new(budget).expect("positive budget")
-            });
+            prepared.context.retry = RetryPolicy {
+                total_budget: total_budget.map(|budget| {
+                    crate::runtime::engine::NonZeroDuration::new(budget).expect("positive budget")
+                }),
+                ..prepared.context.retry
+            };
             prepared
         }
 
@@ -3573,7 +3461,8 @@ mod tests {
 
     #[test]
     fn never_retry_class_ignores_retry_limit_tuning() {
-        let tuning = OperationalTuning::new().with_retry_limit(2);
+        let tuning = OperationalTuning::new()
+            .with_retry_limit(RetryLimit::new(2).expect("valid retry limit"));
         let never = retry_policy_fixture(
             CommandRetryClass::Never,
             CommandTimeoutClass::Quick,
@@ -3810,11 +3699,9 @@ mod tests {
                 if !exact_completion {
                     if let Some(axes) = recall_axes {
                         let prepared = prepare_position_queries(&target, OperationalTuning::default(), axes);
-                        if target.profile().pan_tilt_coordinates().is_none() && axes.contains(AffectedAxes::PAN_TILT) {
-                            proptest::prop_assert!(matches!(prepared, Err(Error::FeatureNotSupported { .. })), "{id:?} lacks sourced pan/tilt settlement");
-                        } else {
-                            proptest::prop_assert!(prepared.is_ok(), "{id:?} recall queries: {prepared:?}");
-                        }
+                        let settleable = target.profile().settlement_axes()
+                            .is_some_and(|available| available.contains(axes));
+                        proptest::prop_assert_eq!(prepared.is_ok(), settleable, "{:?} recall queries: {:?}", id, prepared);
                     }
                 }
             }
@@ -3964,7 +3851,8 @@ mod tests {
             let policy = retry_policy_fixture(
                 CommandRetryClass::Standard,
                 CommandTimeoutClass::Network,
-                OperationalTuning::new().with_retry_limit(base),
+                OperationalTuning::new()
+                    .with_retry_limit(RetryLimit::new(base).expect("valid retry limit")),
                 Duration::ZERO,
                 Duration::from_secs(5),
                 Duration::ZERO,
@@ -3974,11 +3862,9 @@ mod tests {
         }
     }
 
-    /// Issue #566: a lost ACK and a post-ACK completion timeout are retryable
-    /// for every retry class except `Never`. The rewrite had gated ACK retries
-    /// to `Standard` and disabled completion retries for everything.
+    /// Each replayable class enables retries through a nonzero count.
     #[test]
-    fn every_replayable_class_retries_lost_acks_and_completion_timeouts() {
+    fn every_replayable_class_lowers_a_positive_retry_count() {
         let tuning = OperationalTuning::new();
         for class in [
             CommandRetryClass::Standard,
@@ -3994,12 +3880,6 @@ mod tests {
                 Duration::ZERO,
             )
             .expect("valid retry policy");
-            assert!(policy.ack_timeout, "{class:?} must retry a lost ACK");
-            assert!(
-                policy.completion_timeout,
-                "{class:?} must retry a post-ACK completion timeout"
-            );
-            assert!(policy.buffer_full, "{class:?} must retry a busy camera");
             assert!(policy.max_retries > 0, "{class:?} must have a budget");
         }
 
@@ -4012,9 +3892,6 @@ mod tests {
             Duration::ZERO,
         )
         .expect("valid retry policy");
-        assert!(!never.ack_timeout);
-        assert!(!never.completion_timeout);
-        assert!(!never.buffer_full);
         assert_eq!(never.max_retries, 0);
     }
 
@@ -4031,11 +3908,9 @@ mod tests {
             let target =
                 crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile);
             reset_request_validation_count();
-            let request = crate::command::presets::SetRecallSpeed::selected_for_target(
-                &target,
-                crate::types::PresetSpeed::new(12).expect("speed"),
-            )
-            .expect("selected encoding");
+            let request = crate::command::presets::SetRecallSpeed::new(
+                crate::types::PresetSpeed::new(12).expect("checked preset speed"),
+            );
             prepare_builtin_command(&request, &target, OperationalTuning::new())
                 .expect("recall speed");
             assert_eq!(
@@ -4069,20 +3944,7 @@ mod tests {
     /// retries above.
     #[test]
     fn movement_not_executable_retry_is_reserved_for_movement_and_preset() {
-        let tuning = OperationalTuning::new();
-        let policy = |class| {
-            retry_policy_fixture(
-                class,
-                CommandTimeoutClass::Movement,
-                tuning,
-                Duration::ZERO,
-                Duration::from_secs(5),
-                Duration::ZERO,
-            )
-            .expect("valid retry policy")
-            .movement_not_executable
-        };
-
+        let policy = super::retries_not_executable;
         assert!(policy(CommandRetryClass::Movement));
         assert!(policy(CommandRetryClass::Preset));
         assert!(!policy(CommandRetryClass::Standard));
@@ -4127,9 +3989,7 @@ mod tests {
                 crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile);
             let paths = target.profile().stop_paths();
             if paths.pan_tilt.is_some() {
-                let stop = crate::command::pan_tilt::Stop::for_target(&target)
-                    .expect("profile-safe pan/tilt STOP");
-                check(&stop, &target);
+                check(&crate::command::pan_tilt::Stop, &target);
             }
             if paths.zoom.is_some() {
                 check(&crate::command::zoom::Stop, &target);
@@ -4174,8 +4034,8 @@ mod tests {
         ];
         for prepared in &stop_policies {
             assert_eq!(prepared.reply_shape, CommandReply::Stop);
-            assert!(!prepared.context.retry.movement_not_executable);
-            assert!(prepared.context.retry.buffer_full);
+            assert!(!prepared.not_executable);
+            assert!(prepared.context.retry.max_retries > 0);
         }
         let drive = prepare_builtin_operation::<completion::AppliedOnly, _>(
             &ZoomDrive::Tele,
@@ -4187,7 +4047,7 @@ mod tests {
         )
         .expect("zoom drive");
         assert_ne!(drive.reply_shape, CommandReply::Stop);
-        assert!(drive.context.retry.movement_not_executable);
+        assert!(drive.not_executable);
     }
 
     /// Issue #566: the default retry budget is at least the ten-second
@@ -4550,19 +4410,13 @@ mod tests {
             .expect("built-in profile");
         let generic = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
             .expect("generic built-in profile");
-        let pan_tilt = PanTiltAbsolute::for_target(
-            Degrees::new(100.0).expect("finite degrees"),
-            Degrees::new(0.0).expect("finite degrees"),
-            PanSpeed::new(18).expect("conservative range"),
-            TiltSpeed::new(17).expect("conservative range"),
-            &crate::TargetRegistration::new(
-                crate::IndividualCameraId::CAMERA_1,
-                crate::profiles::ProfileId::PtzOpticsG2
-                    .spec()
-                    .expect("positioning profile"),
+        let pan_tilt = crate::command::pan_tilt::Absolute::new(
+            crate::types::PanTiltPosition::from_degrees(100.0, 0.0).expect("finite degrees"),
+            crate::types::PanTiltSpeed::new(
+                PanSpeed::new(18).expect("conservative range"),
+                TiltSpeed::new(17).expect("conservative range"),
             ),
-        )
-        .expect("valid for the source profile");
+        );
         reset_request_write_count();
         assert!(prepare_operation::<completion::Targeted, _>(
             &pan_tilt,
@@ -4672,7 +4526,7 @@ mod tests {
         impl Request for BackgroundPlain {
             type Class = crate::request::PlainClass;
 
-            const MAX_SIZE: usize = 2;
+            const MAX_SIZE: usize = 3;
             fn policy(&self) -> crate::request::CommandPolicy {
                 crate::request::CommandPolicy::new(
                     crate::profiles::CommandTimeoutClass::Quick,
@@ -4682,8 +4536,8 @@ mod tests {
             }
 
             fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
-                buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
-                Ok(2)
+                buffer[..3].copy_from_slice(&[target.to_address_byte(), 0x01, VISCA_TERMINATOR]);
+                Ok(3)
             }
         }
 
@@ -4738,35 +4592,27 @@ mod tests {
             .reply_shape
         }
 
-        /// Both public QoS sources preserve an urgent intrinsic class and
-        /// replace only ordinary intrinsic classes.
         #[test]
         fn resolution_table_is_exact() {
-            for request in [
-                ControlClass::Background,
-                ControlClass::Normal,
-                ControlClass::User,
-                ControlClass::Urgent,
-            ] {
+            let classes = [
+                SubmissionClass::Background,
+                SubmissionClass::Normal,
+                SubmissionClass::User,
+            ];
+            for request in classes {
+                let admission = CommandAdmission::Ordinary(request);
+                assert_eq!(ClassSelection::Request.resolve(admission), admission);
+                for selected in classes {
+                    assert_eq!(
+                        ClassSelection::Handle(selected).resolve(admission),
+                        CommandAdmission::Ordinary(selected),
+                    );
+                }
+            }
+            for selected in classes {
                 assert_eq!(
-                    ClassSelection::Request.resolve(request),
-                    request,
-                    "an unselected submission keeps the request's own class",
-                );
-                let expected = if matches!(request, ControlClass::Urgent) {
-                    ControlClass::Urgent
-                } else {
-                    ControlClass::Background
-                };
-                assert_eq!(
-                    ClassSelection::Handle(SubmissionClass::Background).resolve(request),
-                    expected,
-                    "a class-selected view preserves the safety floor",
-                );
-                assert_eq!(
-                    ClassSelection::Handle(SubmissionClass::Background).resolve(request),
-                    expected,
-                    "a handle default never demotes an urgent request",
+                    ClassSelection::Handle(selected).resolve(CommandAdmission::Stop),
+                    CommandAdmission::Stop,
                 );
             }
         }
@@ -4894,10 +4740,7 @@ mod tests {
                 axes: AffectedAxes::ZOOM,
             })
         );
-        assert_eq!(
-            declared.context.control.class,
-            crate::runtime::engine::ControlClass::Normal
-        );
+        assert_eq!(declared.context.control.class, ControlClass::Normal);
     }
 
     /// #909: the typed construction boundary preserves every previously valid
@@ -5026,13 +4869,10 @@ mod tests {
                 let actual = prepare_inquiry(&inquiry, &target, tuning, ClassSelection::Request)
                     .expect("inquiry prepares");
                 assert_eq!(
-                    actual.context.retry.inquiry_timeout,
+                    actual.context.retry.max_retries > 0,
                     matches!(retry, InquiryRetryClass::Inquiry)
                 );
-                assert_eq!(
-                    actual.context.control.class,
-                    lower_command_policy(class.control_class(), RawReplyShape::AckThenCompletion).0
-                );
+                assert_eq!(actual.context.control.class, engine_class(class));
                 assert_eq!(actual.wire.as_bytes(), wire);
             }
         }

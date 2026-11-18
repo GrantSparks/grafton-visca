@@ -1,8 +1,9 @@
 #![cfg(feature = "blocking")]
 
 use grafton_visca::{
-    config::{TransportKind, TransportOptions},
+    config::{CameraConfig, TransportOptions},
     profiles::{ProfileId, SonyFr7},
+    transport::StandardTransport,
     Error,
 };
 
@@ -25,8 +26,8 @@ fn dynamic_tcp_for_sony_fr7_fails_before_address_resolution() {
     assert!(matches!(
         error,
         Error::UnsupportedTransport {
-            profile: ProfileId::SonyFr7,
-            transport: TransportKind::Tcp,
+            profile: Some(ProfileId::SonyFr7),
+            transport: StandardTransport::Tcp,
             ..
         }
     ));
@@ -34,41 +35,20 @@ fn dynamic_tcp_for_sony_fr7_fails_before_address_resolution() {
 
 #[test]
 fn dynamic_transport_validation_reports_profile_and_transport() {
-    let transport = TransportOptions::serial("/dev/issue-527-no-open", 9600);
-    let error = transport
-        .validate_for_profile(ProfileId::SonyFr7)
+    let config = CameraConfig::new(
+        ProfileId::SonyFr7,
+        TransportOptions::serial("/dev/issue-527-no-open", 9600),
+    );
+    let error = config
+        .validate()
         .expect_err("SonyFr7 serial support is not source-backed");
 
     assert!(matches!(
         error,
         Error::UnsupportedTransport {
-            profile: ProfileId::SonyFr7,
-            transport: TransportKind::Serial,
+            profile: Some(ProfileId::SonyFr7),
+            transport: StandardTransport::Serial,
             ..
         }
     ));
-}
-
-#[test]
-fn registry_default_ports_exist_only_for_supported_network_transports() {
-    for profile in ProfileId::all() {
-        assert_eq!(
-            profile.default_tcp_port().is_some(),
-            profile
-                .spec()
-                .expect("registered profile")
-                .transports()
-                .tcp_port()
-                .is_some()
-        );
-        assert_eq!(
-            profile.default_udp_port().is_some(),
-            profile
-                .spec()
-                .expect("registered profile")
-                .transports()
-                .udp_port()
-                .is_some()
-        );
-    }
 }

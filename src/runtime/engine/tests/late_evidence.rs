@@ -469,7 +469,7 @@ proptest! {
             let input = match action {
                 0 => {
                     ticket += 1;
-                    Input::Admit { ticket: AdmissionTicket(ticket), request: command(1), slot: AdmissionSlot::Ordinary }
+                    Input::Admit { ticket: AdmissionTicket(ticket), request: command(1) }
                 }
                 1 => Input::ReceiveFault { error: Error::transport_error(std::io::Error::other("model receive fault")) },
                 2 | 3 if !written.is_empty() => {

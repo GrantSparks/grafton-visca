@@ -150,13 +150,6 @@ impl ManualRuntime {
 
 #[cfg(feature = "runtime-tokio")]
 impl crate::executor::Executor for ManualRuntime {
-    type Join<T>
-        = <TokioRuntime as crate::executor::Executor>::Join<T>
-    where
-        T: Send + 'static;
-
-    type Detach = <TokioRuntime as crate::executor::Executor>::Detach;
-
     type Timer = manual_timer::ManualTimer;
 
     fn timer(&self, deadline: Instant) -> Self::Timer {
@@ -164,16 +157,11 @@ impl crate::executor::Executor for ManualRuntime {
         manual_timer::ManualTimer::new(self.clone(), deadline)
     }
 
-    fn spawn_with_detach<F>(&self, future: F) -> (Self::Join<F::Output>, Self::Detach)
+    fn spawn_detached<F>(&self, future: F)
     where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
+        F: Future<Output = ()> + Send + 'static,
     {
-        crate::executor::Executor::spawn_with_detach(&self.executor, future)
-    }
-
-    fn block_on<F: Future>(&self, future: F) -> F::Output {
-        crate::executor::Executor::block_on(&self.executor, future)
+        crate::executor::Executor::spawn_detached(&self.executor, future);
     }
 
     fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
@@ -220,11 +208,12 @@ impl Runtime for ManualRuntime {
     type SerialTransport = std::convert::Infallible;
 
     #[allow(clippy::manual_async_fn)]
-    fn connect_tcp<'a>(
-        &'a self,
-        _addr: &'a str,
-        _cfg: crate::transport::builder::TransportConfig,
-    ) -> impl Future<Output = Result<Self::TcpTransport, Error>> + Send + 'a {
+    fn connect_tcp(
+        &self,
+        _endpoint: crate::transport::NetworkEndpoint,
+        _options: crate::transport::TcpConnect,
+        _io_bounds: crate::transport::IoBounds,
+    ) -> impl Future<Output = Result<Self::TcpTransport, Error>> + Send + '_ {
         async {
             Err(Error::FeatureNotSupported {
                 feature: "network transport for manual runtime",
@@ -233,14 +222,29 @@ impl Runtime for ManualRuntime {
     }
 
     #[allow(clippy::manual_async_fn)]
-    fn connect_udp<'a>(
-        &'a self,
-        _addr: &'a str,
-        _cfg: crate::transport::builder::TransportConfig,
-    ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + 'a {
+    fn connect_udp(
+        &self,
+        _endpoint: crate::transport::NetworkEndpoint,
+        _options: crate::transport::UdpConnect,
+        _io_bounds: crate::transport::IoBounds,
+    ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + '_ {
         async {
             Err(Error::FeatureNotSupported {
                 feature: "network transport for manual runtime",
+            })
+        }
+    }
+
+    #[cfg(feature = "transport-serial-tokio")]
+    #[allow(clippy::manual_async_fn)]
+    fn connect_serial(
+        &self,
+        _config: crate::transport::SerialConfig,
+        _io_bounds: crate::transport::IoBounds,
+    ) -> impl Future<Output = Result<Self::SerialTransport, Error>> + Send + '_ {
+        async {
+            Err(Error::FeatureNotSupported {
+                feature: "serial transport for this test runtime",
             })
         }
     }
@@ -375,6 +379,7 @@ fn command_with_ack_timeout(timeout: Duration) -> RuntimeRequest {
 
 fn command_for(target: TargetSlot) -> RuntimeRequest {
     RuntimeRequest::Command {
+        not_executable: false,
         reply_shape: CommandReply::AckThenCompletion,
         wire: Arc::new(
             EncodedMessage::new(&[
@@ -414,6 +419,7 @@ fn command_for(target: TargetSlot) -> RuntimeRequest {
 /// in flight settles quickly on the fix's success path (#675).
 fn command_with_short_deadlines() -> RuntimeRequest {
     RuntimeRequest::Command {
+        not_executable: false,
         reply_shape: CommandReply::AckThenCompletion,
         wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, 0x00, 0xff]).unwrap()),
         context: RequestContext {
@@ -452,6 +458,7 @@ fn command_with_short_deadlines() -> RuntimeRequest {
 #[cfg(feature = "runtime-tokio")]
 fn raw_command_with_completion_deadline(marker: u8, completion: Duration) -> RuntimeRequest {
     RuntimeRequest::Command {
+        not_executable: false,
         reply_shape: CommandReply::AckThenCompletion,
         wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, marker, 0xff]).unwrap()),
         context: RequestContext {
@@ -553,6 +560,7 @@ async fn reject_raw_stream_predecessor<R: Executor, D: AsyncOwnerDriver>(
 
 fn inquiry_for(target: TargetSlot) -> RuntimeRequest {
     RuntimeRequest::Inquiry {
+        syntax: false,
         payload_shape: crate::PayloadShape::Unknown,
         wire: Arc::new(
             EncodedMessage::new(&[
@@ -992,7 +1000,7 @@ where
 #[derive(Debug)]
 struct ChunkedStreamTransport {
     addressing: crate::transport::AddressingMode,
-    config: crate::transport::ValidatedTransportConfig,
+    config: crate::transport::IoBounds,
     chunks: flume::Receiver<Vec<u8>>,
     sent: flume::Sender<Vec<u8>>,
 }
@@ -1006,7 +1014,7 @@ impl crate::transport::HasTransportConfig for ChunkedStreamTransport {
         }
     }
 
-    fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
+    fn io_bounds(&self) -> &crate::transport::IoBounds {
         &self.config
     }
 }
@@ -1869,18 +1877,18 @@ async fn enter_production_s2_quarantine(handle: &AsyncOwnerHandle, runtime: &Man
 #[cfg(feature = "runtime-tokio")]
 fn retrying_command() -> RuntimeRequest {
     let mut request = command();
-    if let RuntimeRequest::Command { context, .. } = &mut request {
+    if let RuntimeRequest::Command {
+        context,
+        not_executable,
+        ..
+    } = &mut request
+    {
+        *not_executable = true;
         context.retry = RetryPolicy {
             max_retries: 2,
             initial_backoff: Duration::ZERO,
             maximum_backoff: Duration::ZERO,
             total_budget: None,
-            ack_timeout: true,
-            completion_timeout: true,
-            inquiry_timeout: true,
-            buffer_full: true,
-            movement_not_executable: true,
-            builtin_inquiry_syntax: true,
         };
     }
     request
@@ -2009,7 +2017,7 @@ impl RetainedStreamInput for UngatedDriver {}
 #[cfg(feature = "runtime-tokio")]
 #[derive(Debug)]
 struct ScriptedDatagramTransport {
-    config: crate::transport::ValidatedTransportConfig,
+    config: crate::transport::IoBounds,
     datagrams: flume::Receiver<Vec<u8>>,
     sent: flume::Sender<Vec<u8>>,
 }
@@ -2023,7 +2031,7 @@ impl crate::transport::HasTransportConfig for ScriptedDatagramTransport {
         }
     }
 
-    fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
+    fn io_bounds(&self) -> &crate::transport::IoBounds {
         &self.config
     }
 }
@@ -2052,7 +2060,7 @@ impl crate::transport::AsyncTransport for ScriptedDatagramTransport {
 #[cfg(feature = "runtime-tokio")]
 #[derive(Debug)]
 struct AlternatingFaultAndTruncatedDatagrams {
-    config: crate::transport::ValidatedTransportConfig,
+    config: crate::transport::IoBounds,
     reads: Arc<std::sync::atomic::AtomicUsize>,
     faults: Arc<std::sync::atomic::AtomicUsize>,
     truncated: Arc<std::sync::atomic::AtomicUsize>,
@@ -2085,7 +2093,7 @@ impl crate::transport::HasTransportConfig for AlternatingFaultAndTruncatedDatagr
         }
     }
 
-    fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
+    fn io_bounds(&self) -> &crate::transport::IoBounds {
         &self.config
     }
 }
@@ -2108,7 +2116,7 @@ impl crate::transport::AsyncTransport for AlternatingFaultAndTruncatedDatagrams 
 #[cfg(feature = "runtime-tokio")]
 #[derive(Debug)]
 struct ClosedSendDatagramTransport {
-    config: crate::transport::ValidatedTransportConfig,
+    config: crate::transport::IoBounds,
 }
 
 #[cfg(feature = "runtime-tokio")]
@@ -2120,7 +2128,7 @@ impl crate::transport::HasTransportConfig for ClosedSendDatagramTransport {
         }
     }
 
-    fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
+    fn io_bounds(&self) -> &crate::transport::IoBounds {
         &self.config
     }
 }

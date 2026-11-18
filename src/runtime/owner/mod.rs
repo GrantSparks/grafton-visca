@@ -60,8 +60,10 @@ pub(crate) use adapter::BlockingTransportAdapter;
 #[cfg(feature = "test-utils")]
 pub(crate) use adapter::ReceiveProbe;
 #[cfg(all(feature = "test-utils", feature = "blocking"))]
-pub(crate) use adapter::{decode_response_target, RoutingState, TargetRegistry};
-pub(crate) use adapter::{validate_profile_registry_topology, validate_profile_transport};
+pub(crate) use adapter::{decode_response_target, Routing, TargetRegistry};
+pub(crate) use adapter::{
+    validate_profile_registry_topology, validate_profile_transport, ValidatedRouting,
+};
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 use turn::{clamp_receive_pause, transient_receive_pause, IdleReceiveRun, TransientFaultRun};
@@ -97,16 +99,16 @@ use crate::{
 use crate::{raw::MAX_BYTES, CancellationOutcome, Error, ErrorKind};
 
 use super::engine::{
-    AdmissionSlot, AdmittedId, AppliedStateProjection, CancellationConclusion,
-    CancellationObservation, CommandOutcome, CommandRequestId, DeadlineKind, DecodedFrame,
-    DecodedResponse, Effect, EngineTurn, IgnoreReason, Input, InputTurn, InquiryOutcome, Lane,
-    Lifecycle, MotionEffect, ProtocolEngine, ProtocolPolicy, RequestId, RuntimeOutcome,
-    RuntimeRequest, SessionState, ShutdownReason, TargetPolicy, Transmission, TransmissionId,
-    TransmissionMeta, TransportKind, WriteFraming, WriteOutcome,
+    AdmittedId, AppliedStateProjection, CancellationConclusion, CancellationObservation,
+    CommandOutcome, CommandRequestId, DeadlineKind, DecodedFrame, DecodedResponse, Effect,
+    EngineTurn, IgnoreReason, Input, InputTurn, InquiryOutcome, Lane, Lifecycle, MotionEffect,
+    ProtocolEngine, ProtocolPolicy, RequestId, RuntimeOutcome, RuntimeRequest, SessionState,
+    ShutdownReason, TargetPolicy, Transmission, TransmissionId, TransmissionMeta, WriteFraming,
+    WriteOutcome,
 };
 
 #[cfg(test)]
-use super::engine::{CancelState, FrameSequence, Phase};
+use super::engine::{CancelState, FrameSequence, Phase, TransportKind};
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 use super::engine::{RawCorrelationReleaseSet, RawPrefixEvidence, RawReleaseGateAction};
@@ -208,7 +210,6 @@ pub(crate) struct OwnerLimits {
     pub(crate) staged_diagnostics: std::num::NonZeroUsize,
     pub(crate) control_requests: std::num::NonZeroUsize,
     pub(crate) diagnostic_subscribers: std::num::NonZeroUsize,
-    pub(crate) diagnostic_events_per_subscription: std::num::NonZeroUsize,
     pub(crate) frames_per_receive: std::num::NonZeroUsize,
     pub(crate) receive_bytes: std::num::NonZeroUsize,
 }
@@ -221,7 +222,6 @@ impl Default for OwnerLimits {
             staged_diagnostics: const { std::num::NonZeroUsize::new(128).unwrap() },
             control_requests: const { std::num::NonZeroUsize::new(16).unwrap() },
             diagnostic_subscribers: const { std::num::NonZeroUsize::new(4).unwrap() },
-            diagnostic_events_per_subscription: const { std::num::NonZeroUsize::new(128).unwrap() },
             frames_per_receive: const { std::num::NonZeroUsize::new(64).unwrap() },
             receive_bytes: const { std::num::NonZeroUsize::new(4_096).unwrap() },
         }
@@ -326,9 +326,9 @@ pub(crate) struct OwnerPolicy {
     /// runtime-agnostic async transports have no timer of their own; the
     /// blocking worker reports no data once its sliced reads have been idle
     /// this long (#780). Lowered
-    /// from the transport [`TransportConfig`](crate::transport::TransportConfig)
+    /// from the transport [`IoBounds`](crate::transport::IoBounds)
     /// by the production policy builder; [`Self::with_targets`] starts it at
-    /// the `TransportConfig` default.
+    /// the `IoBounds` default.
     pub(crate) read_timeout: crate::timeout::NonZeroDuration,
     /// Maximum time one transport write may take before the owner
     /// abandons it as a stalled write (#675). A byte-stream write that cannot
@@ -352,7 +352,6 @@ pub(crate) struct OwnerFacts {
 
 impl OwnerPolicy {
     /// Creates one immutable policy from target-local protocol facts.
-    #[allow(clippy::expect_used)] // Shared transport defaults are fixed positive intervals.
     pub(crate) fn with_targets(
         protocol: ProtocolPolicy,
         targets: PerTarget<Option<TargetPolicy>>,
@@ -362,17 +361,15 @@ impl OwnerPolicy {
         // The read and write bounds start from the one transport default
         // (#799); the production builder lowers the caller's configured
         // values over them (#675).
-        let transport = crate::transport::TransportConfig::default();
+        let transport = crate::transport::IoBounds::default();
         Self {
             protocol,
             targets,
             limits: OwnerLimits::default(),
             tuning,
             baseline,
-            read_timeout: crate::timeout::NonZeroDuration::new(transport.read_timeout)
-                .expect("default transport read timeout is positive"),
-            write_timeout: crate::timeout::NonZeroDuration::new(transport.write_timeout)
-                .expect("default transport write timeout is positive"),
+            read_timeout: transport.read_timeout_bound(),
+            write_timeout: transport.write_timeout_bound(),
         }
     }
 
@@ -480,6 +477,13 @@ struct PermitCounts {
     reserve: PerTarget<u8>,
 }
 
+/// Which admission budget a permit holds (D26, #778).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AdmissionSlot {
+    Ordinary,
+    ControlReserve,
+}
+
 /// The admission limit covering boundary work and authoritative engine
 /// entries. A permit moves from pending admission to the active record and is
 /// released only when admission is rejected or a request reaches terminal.
@@ -492,7 +496,7 @@ struct PermitCounts {
 pub(crate) struct AdmissionPermitPool(Arc<PermitPoolInner>);
 
 impl AdmissionPermitPool {
-    fn new(capacity: usize, reserves: PerTarget<u8>) -> Self {
+    pub(in crate::runtime) fn new(capacity: usize, reserves: PerTarget<u8>) -> Self {
         Self(Arc::new(PermitPoolInner {
             available: Mutex::new(PermitCounts {
                 ordinary: capacity,
@@ -555,7 +559,7 @@ impl AdmissionPermitPool {
 
     /// Takes an ordinary slot, as any non-urgent request on camera 1 would.
     #[cfg(test)]
-    pub(crate) fn try_acquire_ordinary(&self) -> Result<AdmissionPermit, Error> {
+    pub(in crate::runtime) fn try_acquire_ordinary(&self) -> Result<AdmissionPermit, Error> {
         let mut available = self.0.available.lock().unwrap_or_else(|p| p.into_inner());
         if available.ordinary == 0 {
             return Err(Error::RuntimeQueueFull {
@@ -589,8 +593,14 @@ pub(crate) struct AdmissionPermit {
 }
 
 impl AdmissionPermit {
+    /// Whether this permit holds a target's control reserve.
+    pub(in crate::runtime) const fn is_reserved(&self) -> bool {
+        matches!(self.slot, AdmissionSlot::ControlReserve)
+    }
+
     /// The admission budget this permit holds a slot in.
-    pub(crate) const fn slot(&self) -> AdmissionSlot {
+    #[cfg(test)]
+    const fn slot(&self) -> AdmissionSlot {
         self.slot
     }
 }
@@ -724,7 +734,9 @@ pub(crate) enum ReceiveFatal {
 }
 
 impl OwnerReceive {
-    /// A failed read consumed no bytes. Preserve the full original cause.
+    /// Classify a read that consumed no bytes. Owner timeouts, `WouldBlock`,
+    /// and `Interrupted` are idle reads. Preserve the full cause of transport
+    /// faults, including OS-level `TimedOut` from a failed TCP keepalive.
     pub(crate) fn read_error(error: Error) -> Self {
         enum Class {
             Idle,
@@ -763,18 +775,10 @@ impl OwnerReceive {
 
     #[cfg(test)]
     pub(crate) fn consumed_error(error: Error, transport: TransportKind) -> Self {
-        Self::consumed_error_with_discards(error, transport, 0)
-    }
-
-    pub(crate) fn consumed_error_with_discards(
-        error: Error,
-        transport: TransportKind,
-        discarded: usize,
-    ) -> Self {
         match transport {
             TransportKind::Stream => Self::Fatal(ReceiveFatal::FramingFailure {
                 cause: error,
-                discarded,
+                discarded: 0,
             }),
             TransportKind::Datagram => Self::NoProgress(NoProgressReason::MalformedDatagram),
         }
@@ -1509,7 +1513,7 @@ impl OwnerBuffers {
                 self.send.extend_from_slice(wire.as_bytes());
             }
             Transmission::Cancel { target, socket, .. } => {
-                let max_size = <CommandCancelCommand as crate::Request>::MAX_SIZE;
+                let max_size = CommandCancelCommand::MAX_SIZE;
                 if max_size > self.send.capacity() {
                     return Err(Error::ResponseTooLarge {
                         max_size: self.send.capacity(),
@@ -1797,12 +1801,7 @@ impl OwnerState {
             protocol.capacity.get(),
             PerTarget::from_fn(|target| targets[target].map_or(0, |policy| policy.control_reserve)),
         );
-        let mut engine = ProtocolEngine::new(protocol, now)?;
-        for (target, target_policy) in targets.iter() {
-            if let Some(target_policy) = target_policy {
-                engine.register_target(target, *target_policy)?;
-            }
-        }
+        let engine = ProtocolEngine::new(protocol, targets, now)?;
         let buffers = OwnerBuffers::new(limits);
         let tuning = LiveTuning::new(tuning);
         Ok(Self {
@@ -2214,9 +2213,7 @@ impl OwnerState {
                 self.motion
                     .begin_admission(context.target, motion.axes, context.submission_order)
             });
-            let verdict = self
-                .engine
-                .admit_owner_in_turn(&turn.0, request, permit.slot());
+            let verdict = self.engine.admit_owner_in_turn(&turn.0, request);
             match motion_admission {
                 Some(admission) => admission.admit(verdict),
                 None => verdict,
@@ -2239,9 +2236,7 @@ impl OwnerState {
         let admission =
             self.motion
                 .begin_admission(context.target, motion.axes, context.submission_order);
-        let verdict = self
-            .engine
-            .admit_owner_in_turn(&turn.0, request, permit.slot());
+        let verdict = self.engine.admit_owner_in_turn(&turn.0, request);
         let verdict = admission.admit_operation(verdict);
         let (admitted, motion) = self.finish_admission(verdict, summary, permit, observer)?;
         Ok(AdmittedOperation { admitted, motion })
@@ -2257,12 +2252,12 @@ impl OwnerState {
         let (identity, retained) = verdict.inspect_err(|error| {
             self.record_admission_rejection(summary.target, summary.lane, error);
         })?;
-        let slot = permit.slot();
+        let reserved = permit.is_reserved();
         let id = identity.request_id();
         self.active
             .insert(id, ActiveRequest::new(permit, observer.into(), summary));
         self.metrics.admitted = self.metrics.admitted.saturating_add(1);
-        if slot == AdmissionSlot::ControlReserve {
+        if reserved {
             self.metrics.control_reserve_admitted =
                 self.metrics.control_reserve_admitted.saturating_add(1);
         }
@@ -2327,16 +2322,9 @@ impl OwnerState {
     #[cfg(any(feature = "async", feature = "blocking", test))]
     fn subscribe_diagnostics(
         &mut self,
-        event_capacity: usize,
+        event_capacity: crate::observability::DiagnosticCapacity,
         lifecycle: Arc<boundary::OwnerLifecycle>,
     ) -> Result<DiagnosticSubscription, Error> {
-        if event_capacity == 0
-            || event_capacity > self.facts.limits.diagnostic_events_per_subscription.get()
-        {
-            return Err(Error::InvalidRequest {
-                reason: "diagnostic subscription capacity is outside owner bounds".into(),
-            });
-        }
         self.diagnostic_subscribers
             .retain(|_, value| !value.sender.is_disconnected());
         if self.diagnostic_subscribers.len() >= self.facts.limits.diagnostic_subscribers.get() {
@@ -2348,7 +2336,7 @@ impl OwnerState {
             &mut self.next_diagnostic_subscription,
             &self.diagnostic_subscribers,
         );
-        let (sender, receiver) = flume::bounded(event_capacity);
+        let (sender, receiver) = flume::bounded(usize::from(event_capacity.value()));
         self.diagnostic_subscribers
             .insert(id, DiagnosticSubscriber { sender });
         Ok(DiagnosticSubscription {
@@ -2566,9 +2554,8 @@ impl OwnerState {
                 AppliedEffect::None
             }
             Effect::SessionEnded(end) => {
-                self.record(DiagnosticEvent::SessionChanged {
-                    from: crate::observability::SessionStatus::Running,
-                    to: crate::observability::SessionStatus::from_engine(end.status.state()),
+                self.record(DiagnosticEvent::SessionEnded {
+                    status: diagnostics::end_status(end.status),
                     reason: end.cause.kind(),
                 });
                 AppliedEffect::SessionEnded(end.cause)
@@ -2673,30 +2660,9 @@ pub(crate) fn settlement_error(error: Error, id: RequestId) -> Error {
     }
 }
 
-/// Whether one receive-side transport error means "no bytes arrived" rather
-/// than "this read failed".
-///
-/// A transport with an internal read timeout is the natural custom
-/// implementation — it is exactly the shape [`crate::transport::BlockingTransport::recv_into_with_timeout`]
-/// documents — and an expired idle timeout consumed nothing and proved nothing.
-/// Treating it as a receive fault would retransmit every command still waiting
-/// for its ACK, burning whole retry budgets in milliseconds, and on the async
-/// owner it would spin the actor's transient-fault arm (#625, #637).
-///
-/// Both owners therefore normalize any [`Error::Timeout`] and the
-/// non-fatal raw `WouldBlock` / `Interrupted` spellings to "this read produced
-/// no frames" and keep pumping. A raw `io::ErrorKind::TimedOut` is different:
-/// on a connected TCP socket it is the first error Linux commonly reports when
-/// keepalive exhausts, so it remains a fatal receive fault rather than being
-/// mistaken for an application-owned idle timer (#719).
-/// Normalize one datagram send failure into a per-request error.
-///
-/// A datagram send failure fails exactly one request and the session keeps
-/// running, so the value the caller observes must not claim that a replacement
-/// session is required: that combination is self-contradictory and a custom
-/// transport can reach it just by returning [`Error::ConnectionClosed`] from
-/// `send` (#637). The receive side is the authority on session death — it is
-/// always pumping, and a socket that is genuinely gone fails its next read.
+/// Convert a datagram send failure into a per-request error (#637). The
+/// receive side determines whether the session needs replacement. A closed
+/// transport will also fail a read, and the owner publishes that terminal verdict.
 pub(crate) fn normalize_datagram_send_error(error: Error) -> Error {
     fn transport_failure(error: &Error) -> bool {
         match error {
