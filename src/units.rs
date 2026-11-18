@@ -274,7 +274,7 @@ mod tests {
 
     #[cfg(feature = "schemars")]
     #[test]
-    fn floating_generator_keeps_schema_bounds() {
+    fn floating_generator_keeps_schema_bounds() -> Result<(), Box<dyn std::error::Error>> {
         let schema = schemars::schema_for!(UnitInterval);
         assert_eq!(schema.get("minimum"), Some(&serde_json::json!(0.0)));
         assert_eq!(schema.get("maximum"), Some(&serde_json::json!(1.0)));
@@ -284,15 +284,17 @@ mod tests {
         let maximum = schema.get("maximum").and_then(serde_json::Value::as_f64);
         assert_eq!(minimum, Some(-3.402_823_5e38));
         assert_eq!(maximum, Some(3.402_823_5e38));
+        let bounds = minimum.ok_or("schema minimum")?..=maximum.ok_or("schema maximum")?;
         for angle in [Degrees::MIN, Degrees::MAX] {
-            let value = serde_json::to_value(angle).unwrap().as_f64().unwrap();
-            assert!(value >= minimum.unwrap() && value <= maximum.unwrap());
-            let json = serde_json::to_string(&angle).unwrap();
-            let decimal = json.parse::<f64>().unwrap();
-            assert!(decimal >= minimum.unwrap() && decimal <= maximum.unwrap());
+            let value = serde_json::to_value(angle)?
+                .as_f64()
+                .ok_or("a finite angle serializes as a JSON number")?;
+            assert!(bounds.contains(&value));
+            let json = serde_json::to_string(&angle)?;
+            assert!(bounds.contains(&json.parse::<f64>()?));
         }
 
-        #[crate::value(valid_values = [-0.0, 0.0, 0.1, 0.100000001, 1.5])]
+        #[crate::value(valid_values = [-0.0, 0.0, 0.1, 0.10, 1.5])]
         struct HalfSteps(f32);
 
         let schema = schemars::schema_for!(HalfSteps);
@@ -300,6 +302,7 @@ mod tests {
             schema.get("enum"),
             Some(&serde_json::json!([0.0, 0.1, 1.5]))
         );
+        Ok(())
     }
 
     #[test]
