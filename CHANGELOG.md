@@ -882,6 +882,30 @@ verification.
 
 ### Fixed
 
+- Pan/tilt motion queries and targeted settlement validate sampled raw positions
+  against the registered mount and axis ranges. An invalid sample fails the
+  observation with the original response bytes. Direct raw-unit position
+  inquiries retain their existing behavior (#1120).
+- Raw and downstream requests reject standard VISCA command frames declared as
+  inquiries, and standard inquiry frames declared as commands or operations,
+  before admission. Other wire categories retain their declared policy (#1121).
+- A targeted settlement wait checks for supersession before each position
+  inquiry, including between axes, and retains its superseded result (#1122).
+- Abnormal owner teardown invalidates uncertain cached writes before releasing
+  waiters. All external closers share one verdict, and clean shutdown succeeds
+  only after the owned transport is released (#1123, #1124).
+- Within each priority, commands and inquiries share one ready queue. A retry
+  that becomes ready goes behind work already queued at that priority (#1125).
+- DNS resolution and socket setup spend one connection timeout across all
+  address attempts, using the clock that drives the async runtime's timer (#1126).
+- FR7 pan/tilt drive socket cancellation waits at least 200 ms after the drive
+  write. A subsequent drive waits for terminal evidence and at least 200 ms
+  after the cancel write (#1127).
+- Sony sequence and message-type errors reach diagnostics as control commands
+  and leave active VISCA requests unchanged (#1128).
+- Sony-framed version inquiries use device-setting payload type `01 20`,
+  including on retry (#1129).
+
 - An applied or cancellation wait that observes a late terminal returns
   `ObservationTimeout`. A fresh wait on that handle can recover the terminal
   result (#1107).
