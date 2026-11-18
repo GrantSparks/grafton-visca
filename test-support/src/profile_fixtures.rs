@@ -26,6 +26,8 @@ const SYNTHETIC_TRANSPORTS: TransportCompatibility = TransportCompatibility::new
     .with_tcp(5678)
     .with_udp(1259)
     .with_serial();
+const PAN_TILT_POSITIONING: TypedSupportSet =
+    TypedSupportSet::from_surface(TypedSupportSurface::PanTiltPositioning);
 
 fn synthetic_spec(
     model: &str,
@@ -35,7 +37,7 @@ fn synthetic_spec(
 ) -> grafton_visca::Result<ProfileSpec> {
     use TypedSupportSurface as S;
     let mut caps = Capabilities::runtime_baseline(model, 1)?;
-    caps.typed_support = typed_support;
+    caps.typed_support = typed_support.union(PAN_TILT_POSITIONING);
     caps.inquiry_support = InquirySupport::Full;
     caps.pan_tilt = Some(PanTiltCaps {
         geometry: Some(grafton_visca::capabilities::PanTiltGeometry {
@@ -259,10 +261,10 @@ macro_rules! synthetic_profile_impl {
                 domains
             };
             const TRANSPORTS: TransportSet = SYNTHETIC_TRANSPORTS.transport_set();
-            const TYPED_SUPPORT: TypedSupportSet = $typed_support.union(TypedSupportSet::from_surface(TypedSupportSurface::PanTiltPositioning));
+            const TYPED_SUPPORT: TypedSupportSet = $typed_support.union(PAN_TILT_POSITIONING);
             const ID: Option<ProfileId> = None;
             fn spec() -> grafton_visca::Result<ProfileSpec> {
-                synthetic_spec($model, <Self as CompileTimeProfile>::TYPED_SUPPORT, $ambiguity_timeout,
+                synthetic_spec($model, $typed_support, $ambiguity_timeout,
                     synthetic_command_timeouts!($($command_timeouts)?))
             }
         }
@@ -547,7 +549,10 @@ mod tests {
                 Duration::from_secs(1),
                 CommandTimeouts::DEFAULT,
             )?;
-            assert_eq!(profile.capabilities().typed_support, support);
+            assert_eq!(
+                profile.capabilities().typed_support,
+                support.union(PAN_TILT_POSITIONING)
+            );
             assert_eq!(profile.position_inquiries(), Some(queries));
             assert!(!profile.supports_operation_complete());
         }
