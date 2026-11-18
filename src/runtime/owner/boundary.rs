@@ -198,12 +198,58 @@ impl<T: TerminalLane> PendingAdmission<T> {
 pub(super) type QueuedAdmission<T, R> = (TerminalObserver<T>, flume::Receiver<Result<R, Error>>);
 
 #[derive(Debug)]
-pub(super) enum AdmissionReplySink {
+pub(crate) enum AdmissionReplySink {
     Request(flume::Sender<Result<Admitted, Error>>),
     Operation {
         motion: MotionEffect,
         reply: flume::Sender<Result<AdmittedOperation, Error>>,
     },
+}
+
+/// Select the owner's reply and the receipt's settlement storage together.
+pub(crate) trait SettlementAdmission: std::fmt::Debug + Sized + Send + Sync + Unpin {
+    type Admission: Send;
+    type Observation: std::fmt::Debug + Send + Sync + Unpin;
+
+    fn reply(
+        motion: MotionEffect,
+        sender: flume::Sender<Result<Self::Admission, Error>>,
+    ) -> AdmissionReplySink;
+    fn observe(admitted: Self::Admission) -> (Admitted, Self::Observation);
+}
+
+impl SettlementAdmission for () {
+    type Admission = Admitted;
+    type Observation = ();
+
+    fn reply(
+        _motion: MotionEffect,
+        sender: flume::Sender<Result<Admitted, Error>>,
+    ) -> AdmissionReplySink {
+        // The request already carries the motion effect. Plain admission
+        // publishes its generations under the lock and returns only the ID.
+        AdmissionReplySink::Request(sender)
+    }
+
+    fn observe(admitted: Admitted) -> (Admitted, Self::Observation) {
+        (admitted, ())
+    }
+}
+
+impl SettlementAdmission for crate::completion::TargetedSettlementPlan {
+    type Admission = AdmittedOperation;
+    type Observation = super::TargetedObservation;
+
+    fn reply(
+        motion: MotionEffect,
+        reply: flume::Sender<Result<AdmittedOperation, Error>>,
+    ) -> AdmissionReplySink {
+        AdmissionReplySink::Operation { motion, reply }
+    }
+
+    fn observe(admitted: AdmittedOperation) -> (Admitted, Self::Observation) {
+        (admitted.admitted, Self::Observation::new(admitted.motion))
+    }
 }
 
 impl AdmissionReplySink {
@@ -1006,15 +1052,12 @@ impl OwnerHandleCore {
         }
     }
 
-    pub(super) fn enqueue_operation(
+    pub(super) fn enqueue_operation<S: SettlementAdmission>(
         &self,
         request: LaneRequest<CommandOutcome>,
         motion: MotionEffect,
-    ) -> Result<QueuedAdmission<CommandOutcome, AdmittedOperation>, Error> {
-        self.enqueue_with_reply(request, None, |reply| AdmissionReplySink::Operation {
-            motion,
-            reply,
-        })
+    ) -> Result<QueuedAdmission<CommandOutcome, S::Admission>, Error> {
+        self.enqueue_with_reply(request, None, |reply| S::reply(motion, reply))
     }
 
     /// Reserve a permit and enqueue one admission, returning the request's

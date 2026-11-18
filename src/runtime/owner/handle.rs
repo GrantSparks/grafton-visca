@@ -158,19 +158,23 @@ macro_rules! owner_handle_methods {
             where
                 K: crate::completion::Kind,
             {
+                use crate::completion::KindPlan;
+                use super::SettlementAdmission;
+
                 self.off_worker("submit_operation")?;
                 prepared
                     .admit_with(|request, motion, settlement, timeouts| $($block)* {
-                        let (completion, reply) = self.core.enqueue_operation(request, motion)?;
+                        let (completion, reply) =
+                            self.core.enqueue_operation::<KindPlan<K>>(request, motion)?;
                         let admitted = self.boundary_reply(&reply) $($await)* ??;
-                        let core = super::ReceiptCore::admitted(admitted.admitted, completion, timeouts.applied)?;
+                        let (admitted, observed_settlement) = KindPlan::<K>::observe(admitted);
+                        let core = super::ReceiptCore::admitted(admitted, completion, timeouts.applied)?;
                         Ok(super::receipt::OperationReceipt {
                             observation: super::OperationObservation::new(
                                 core,
-                                admitted.motion,
                                 timeouts.cancellation,
                             ),
-                            affected_axes: motion.axes,
+                            observed_settlement,
                             settlement,
                             owner: self.clone(),
                         })
@@ -505,14 +509,17 @@ macro_rules! owner_handle_methods {
                 &self,
                 observation: &mut super::OperationObservation,
                 deadline: std::time::Instant,
-                verdict: impl Fn(&mut super::OperationObservation, std::time::Instant) -> Option<T>,
+                verdict: impl Fn(
+                    &mut super::OperationObservation,
+                    std::time::Instant,
+                ) -> Option<Result<T, crate::Error>>,
             ) -> Result<T, crate::Error> {
                 self.off_worker("observe_until")?;
                 let mut wait = super::receipt::OperationWait::new(observation, verdict, deadline);
+                if let Some(value) = wait.verdict() {
+                    return value;
+                }
                 loop {
-                    if let Some(value) = wait.verdict() {
-                        return Ok(value);
-                    }
                     let (terminal, cancellation) = wait.slots();
                     let wake = self
                         .next_observation(terminal, cancellation, deadline)
@@ -594,7 +601,7 @@ macro_rules! owner_handle_methods {
                         deadline,
                         super::OperationObservation::applied,
                     )
-                    $($await)* ?
+                    $($await)*
             }
 
             /// Cancels the operation and waits for the cancellation's
@@ -629,7 +636,7 @@ macro_rules! owner_handle_methods {
                         deadline,
                         super::OperationObservation::cancellation,
                     )
-                    $($await)* ?
+                    $($await)*
             }
         }
 
@@ -644,7 +651,7 @@ macro_rules! owner_handle_methods {
                 &mut self,
                 timeout: Option<std::time::Duration>,
             ) -> Result<crate::Settlement, crate::Error> {
-                if let Some(cached) = self.observation.settled() {
+                if let Some(cached) = self.observed_settlement.settled.clone() {
                     return cached;
                 }
                 let budget = super::receipt::settlement_budget(&self.settlement, timeout);
@@ -654,23 +661,24 @@ macro_rules! owner_handle_methods {
                     &self.settlement,
                 )? {
                     Some(poll) => {
-                        self.observation.check_settlement()?;
+                        let id = crate::OperationId::from_nonzero(self.id());
+                        self.observed_settlement.check(id)?;
                         let result = self
                             .owner
                             .poll_settlement(poll, deadline)
                             $($await)*
                             .map(|()| {
                                 crate::Settlement::observed_stable(
-                                    self.affected_axes,
+                                    self.observed_settlement.axes(),
                                     poll.interval,
                                     poll.tolerance,
                                 )
                             })
                             .map_err(|error| super::settlement_error(error, self.observation.id()));
-                        self.observation.commit_position_observation(result)
+                        self.observed_settlement.commit_position_observation(id, result)
                     }
-                    None => Ok(self.observation.commit_completion(
-                        crate::Settlement::profile_completion(self.affected_axes),
+                    None => Ok(self.observed_settlement.commit_completion(
+                        crate::Settlement::profile_completion(self.observed_settlement.axes()),
                     )),
                 }
             }

@@ -17,7 +17,7 @@ pub(crate) fn lower_settlement<K: Kind>(
     registration: &crate::TargetRegistration,
     tuning: ValidatedTuning,
     axes: AffectedAxes,
-    default_budget: Duration,
+    default_budget: impl FnOnce() -> Duration,
 ) -> Result<SettlementPlan<K>> {
     <K as private::Sealed>::lower(registration, tuning, axes, default_budget)
 }
@@ -40,14 +40,15 @@ mod private {
     /// implementation obligation or supported API surface.
     pub trait Sealed {
         #[cfg(any(feature = "blocking", feature = "async"))]
-        type Plan: std::fmt::Debug + Send + Sync + Unpin;
+        #[allow(private_bounds)] // Only the owner selects the admission reply.
+        type Plan: crate::runtime::owner::SettlementAdmission;
 
         #[cfg(any(feature = "blocking", feature = "async"))]
         fn lower(
             registration: &crate::TargetRegistration,
             tuning: crate::session_config::ValidatedTuning,
             axes: crate::AffectedAxes,
-            default_budget: std::time::Duration,
+            default_budget: impl FnOnce() -> std::time::Duration,
         ) -> crate::Result<super::SettlementPlan<Self>>
         where
             Self: super::Kind + Sized;
@@ -62,7 +63,7 @@ mod private {
             registration: &crate::TargetRegistration,
             tuning: crate::session_config::ValidatedTuning,
             axes: crate::AffectedAxes,
-            default_budget: std::time::Duration,
+            default_budget: impl FnOnce() -> std::time::Duration,
         ) -> crate::Result<super::SettlementPlan<Self>> {
             super::lowering::targeted(registration, tuning, axes, default_budget)
         }
@@ -75,17 +76,24 @@ mod private {
         #[cfg(any(feature = "blocking", feature = "async"))]
         fn lower(
             registration: &crate::TargetRegistration,
-            tuning: crate::session_config::ValidatedTuning,
+            _tuning: crate::session_config::ValidatedTuning,
             axes: crate::AffectedAxes,
-            default_budget: std::time::Duration,
+            _default_budget: impl FnOnce() -> std::time::Duration,
         ) -> crate::Result<super::SettlementPlan<Self>> {
-            super::lowering::applied_only(registration, tuning, axes, default_budget)
+            super::lowering::applied_only(registration, axes)
         }
     }
 }
 
 #[cfg(any(feature = "blocking", feature = "async"))]
-pub(crate) use lowering::SettlementPlan;
+pub(crate) use lowering::{SettlementPlan, TargetedSettlementPlan};
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+pub(crate) type KindPlan<K> = <K as private::Sealed>::Plan;
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+pub(crate) type Observation<K> =
+    <KindPlan<K> as crate::runtime::owner::SettlementAdmission>::Observation;
 
 /// SettlementPlan lowering into the owner-private plan; it exists only where an
 /// owner does.
@@ -141,11 +149,9 @@ mod lowering {
 
     pub(super) fn applied_only(
         registration: &crate::TargetRegistration,
-        tuning: ValidatedTuning,
         axes: AffectedAxes,
-        default_budget: Duration,
     ) -> Result<SettlementPlan<AppliedOnly>> {
-        crate::prepared::lower_applied_only_settlement(registration, tuning, axes, default_budget)?;
+        crate::prepared::lower_applied_only_settlement(registration, axes)?;
         Ok(SettlementPlan::new(()))
     }
 
@@ -153,12 +159,21 @@ mod lowering {
         registration: &crate::TargetRegistration,
         tuning: ValidatedTuning,
         axes: AffectedAxes,
-        default_budget: Duration,
+        default_budget: impl FnOnce() -> Duration,
     ) -> Result<SettlementPlan<Targeted>> {
-        crate::prepared::lower_targeted_settlement(registration, tuning, axes, default_budget)
+        crate::prepared::lower_targeted_settlement(registration, tuning, axes, default_budget())
             .map(|inner| SettlementPlan::new(TargetedSettlementPlan { inner }))
     }
 }
 
 pub use crate::operation_id::OperationId;
 pub use crate::outcome::{CancellationOutcome, HaltOutcome, HaltReport, Settlement};
+
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
+#[test]
+fn applied_only_settlement_storage_is_zero_sized() {
+    assert_eq!(
+        size_of::<(SettlementPlan<AppliedOnly>, Observation<AppliedOnly>)>(),
+        0
+    );
+}

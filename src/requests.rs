@@ -420,7 +420,7 @@ enum DecoderInner<R> {
     },
     #[cfg(any(feature = "blocking", feature = "async"))]
     PanTiltPosition {
-        coordinates: crate::profiles::PanTiltCoordinateConversion,
+        coordinates: crate::profiles::TargetPanTiltCoordinates,
         lift: fn(crate::types::PanTiltPosition) -> Result<R>,
     },
     ColorTemperature {
@@ -533,16 +533,12 @@ impl<R> ResponseDecoder<R> {
                 inquiry_structs::dispatch_with_framing(
                     InquiryKind::PanTiltPosition,
                     Payload::new(payload),
-                    PanTiltFraming::for_conversion(*coordinates),
+                    PanTiltFraming::for_conversion(coordinates.conversion),
                 )
                 .and_then(|response| match response {
-                    Response::Inquiry(InquiryData::PanTiltPosition { pan, tilt }) => {
-                        crate::types::PanTiltPosition::from_degrees(
-                            coordinates.pan_degrees(pan),
-                            coordinates.tilt_degrees(tilt),
-                        )
-                        .and_then(lift)
-                    }
+                    Response::Inquiry(InquiryData::PanTiltPosition { pan, tilt }) => coordinates
+                        .position_degrees(crate::types::PanTiltUnits::new(pan, tilt))
+                        .and_then(lift),
                     _ => Err(Error::UnexpectedResponseType),
                 })
                 .map_err(|error| inquiry_structs::reply_value_error(error, payload))
@@ -592,10 +588,10 @@ fn require_pan_tilt_coordinates(
 
 #[cfg(any(feature = "blocking", feature = "async"))]
 impl ResponseDecoder<crate::types::PanTiltPosition> {
-    pub(crate) fn for_pan_tilt_position(profile: &crate::ProfileSpec) -> Result<Self> {
+    pub(crate) fn for_pan_tilt_position(target: &crate::TargetRegistration) -> Result<Self> {
         Ok(Self {
             inner: DecoderInner::PanTiltPosition {
-                coordinates: require_pan_tilt_coordinates(profile)?,
+                coordinates: target.pan_tilt_coordinates()?,
                 lift: Ok,
             },
         })

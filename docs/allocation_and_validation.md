@@ -18,6 +18,9 @@ The following boundaries are release gates:
   query, and later waits reuse those templates. Dropping or only awaiting
   `applied()` never builds the polling plan. The plan retains the registration
   and tuning captured at submission, even after `Session::set_tuning`.
+* An applied-only operation publishes its motion generation on admission.
+  Its receipt uses zero bytes for settlement state. Only targeted receipts
+  retain a generation snapshot, a motion-registry reference and a settlement cache.
 * `Response::parse_with_profile` reads built-in position framing directly from
   constant registry facts without constructing or allocating a `ProfileSpec`.
   Caller-defined compile-time profiles still construct and validate their facts.

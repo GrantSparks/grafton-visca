@@ -93,6 +93,12 @@ facade_matrix! {
         }, SpeedLevel::Slowest)).expect("ceiling lower endpoint");
         wait!(operation.applied()).expect("ceiling application");
         assert_eq!(&fake.take_only_payload()[11..16], [15, 3, 14, 7, 13]);
+
+        // The fixture returns a desktop-only tilt of +46000 units.
+        let error = wait!(camera.pan_tilt().position()).expect_err("outside this mount's tilt range");
+        assert!(matches!(error, grafton_visca::Error::InvalidResponse { actual, .. } if actual == POSITION[2..12]));
+        let raw = wait!(camera.inquire(&grafton_visca::command::pan_tilt::PositionInquiry)).expect("raw position");
+        assert_eq!(raw.raw_values(), (40103, 46000));
         wait!(session.close()).expect("close single-camera ceiling session");
     }
 

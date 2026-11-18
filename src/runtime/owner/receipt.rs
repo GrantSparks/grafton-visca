@@ -14,7 +14,7 @@ use crate::{
     camera::MovementTolerance,
     completion,
     prepared::{PositionQueryPlan, SettlementPlan},
-    AffectedAxes, Error,
+    Error,
 };
 
 use super::boundary::OwnerHandleCore;
@@ -54,7 +54,7 @@ where
     K: completion::Kind,
 {
     pub(super) observation: OperationObservation,
-    pub(super) affected_axes: AffectedAxes,
+    pub(super) observed_settlement: completion::Observation<K>,
     pub(super) settlement: completion::SettlementPlan<K>,
     pub(super) owner: H,
 }
@@ -142,7 +142,7 @@ pub(super) struct OperationWait<'a, V> {
 
 impl<'a, T, V> OperationWait<'a, V>
 where
-    V: Fn(&mut OperationObservation, Instant) -> Option<T>,
+    V: Fn(&mut OperationObservation, Instant) -> Option<Result<T, Error>>,
 {
     pub(super) fn new(
         observation: &'a mut OperationObservation,
@@ -158,7 +158,7 @@ where
     }
 
     /// The verdict, once the cache holds it.
-    pub(super) fn verdict(&mut self) -> Option<T> {
+    pub(super) fn verdict(&mut self) -> Option<Result<T, Error>> {
         (self.verdict)(self.observation, self.deadline)
     }
 
@@ -182,40 +182,26 @@ where
         owner: &OwnerHandleCore,
     ) -> ControlFlow<Result<T, Error>> {
         match wake {
-            ObservationWake::Terminal(Some(outcome)) => {
-                let late = !outcome.within(self.deadline);
-                self.observation.record_terminal(outcome);
-                if late {
-                    return ControlFlow::Break(
-                        self.verdict()
-                            .ok_or_else(|| super::observation_timeout(self.observation.id())),
-                    );
-                }
-            }
+            ObservationWake::Terminal(Some(outcome)) => self.observation.record_terminal(outcome),
             ObservationWake::Cancellation(Some(error)) => {
-                let late = !error.within(self.deadline);
                 self.observation.record_cancellation_failure(error);
-                if late {
-                    return ControlFlow::Break(
-                        self.verdict()
-                            .ok_or_else(|| super::observation_timeout(self.observation.id())),
-                    );
-                }
             }
             ObservationWake::Cancellation(None) => self.cancellation_open = false,
             ObservationWake::Terminal(None) | ObservationWake::OwnerGone => {
                 return ControlFlow::Break(
-                    self.verdict().ok_or_else(|| owner.disconnected_error()),
+                    self.verdict()
+                        .unwrap_or_else(|| Err(owner.disconnected_error())),
                 );
             }
             ObservationWake::Deadline => {
-                let id = self.observation.id();
                 return ControlFlow::Break(
-                    self.verdict().ok_or_else(|| super::observation_timeout(id)),
+                    self.verdict()
+                        .unwrap_or_else(|| Err(super::observation_timeout(self.observation.id()))),
                 );
             }
         }
-        ControlFlow::Continue(())
+        self.verdict()
+            .map_or(ControlFlow::Continue(()), ControlFlow::Break)
     }
 }
 

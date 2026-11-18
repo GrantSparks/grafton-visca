@@ -974,10 +974,13 @@ or fatal failure), retaining original fatal causes. The shell executes that
 verdict without classifying OS errors again. Retained stream inspection and
 raw discard are infallible. Each raw discard consumes a nonzero byte span and
 retains any later input. The Sony framer supplies the decoded payload type
-and sequence with its validated frame span. A single stream read that decodes more than `frames_per_receive` frames stops at the limit and
-leaves the remaining complete frames buffered for the next receive (the framer
-retains bytes across reads, bounded by `max_buffer_size + recv_buffer_size`), rather than failing
-`ResponseTooLarge` over a large-but-valid burst. An IP session attributes every
+and sequence with its validated frame span. A valid burst that exceeds
+`frames_per_receive` leaves the remaining frames buffered for the next
+receive. The framer retains at most `max_buffer_size + recv_buffer_size`
+bytes across reads. If buffered Sony headers already prove position loss,
+the owner drains the verified prefix in bounded batches at the original
+receive instant and poisons the session before running due work. A pending
+cancellation stays unsent if an ACK in that prefix first identifies its socket. An IP session attributes every
 `0x9y..=0xFy` reply source to the single target established at preflight.
 This also lets a camera with a non-default chain address settle its commands
 (#590/#598).

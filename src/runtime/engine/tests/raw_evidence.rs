@@ -2188,7 +2188,7 @@ fn an_inquiry_reply_ends_a_stop_debt_cascade() {
 /// Whether the dispatch gate itself, not pacing, holds queued `id` back.
 fn dispatch_gated(engine: &ProtocolEngine, id: RequestId, now: Instant) -> bool {
     let entry = engine.entry(id).expect("queued request");
-    matches!(entry.phase(), Phase::Ready) && engine.dispatch_blocked(entry, now)
+    matches!(entry.phase(), Phase::Ready) && engine.dispatch_blocked(id, entry, now)
 }
 
 /// The gate blocks a queued ordinary command on a latched lane, not only one

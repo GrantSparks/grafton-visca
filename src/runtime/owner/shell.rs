@@ -763,19 +763,26 @@ impl OwnerShellCore {
         // Real bytes decoded: the transport is not idle, so restart the
         // no-data escalation (#675).
         self.idle_receives.reset();
-        // #672: a stream tolerates a delimited frame that did not classify by
-        // discarding it and staying Running, exactly as a datagram already
-        // does: an invalid frame is counted and discarded, and the session
-        // continues. Record one Ignored per
-        // discarded frame so the discard stays observable; the session is
-        // never poisoned for it.
+        let mut turn = self.state.begin_input_turn(received_at);
+        if frames.framing_failure.is_some() || driver.has_terminal_prefix() {
+            turn.0.mark_terminal_prefix();
+        }
+        self.begin_frame_batch(turn, frames, driver)
+    }
+
+    fn begin_frame_batch(
+        &mut self,
+        turn: OwnerInputTurn,
+        frames: super::FrameBatch,
+        driver: &mut impl RetainedStreamInput,
+    ) -> TurnStep {
         for _ in 0..frames.discarded {
             self.state.record_ignored(IgnoreReason::MalformedFrame);
         }
-        if frames.is_empty() {
+        if frames.is_empty() && frames.framing_failure.is_none() {
             self.state.buffers().recycle_frames(frames);
             // The read carried bytes that did not finish a frame, or only
-            // frames that were discarded above. The framer holds any partial
+            // frames that were discarded. The framer holds any partial
             // frame; keep pumping so the rest of it can arrive in a later read.
             return TurnStep::Done(if driver.retained().is_some() {
                 TurnOutcome::ContinueBuffered
@@ -783,11 +790,7 @@ impl OwnerShellCore {
                 TurnOutcome::YieldBoundaries
             });
         }
-        let frames = FrameTurn {
-            turn: self.state.begin_input_turn(received_at),
-            frames,
-        };
-        self.next_frame(frames, driver)
+        self.next_frame(FrameTurn { turn, frames }, driver)
     }
 
     fn next_frame(
@@ -801,8 +804,26 @@ impl OwnerShellCore {
                 then: Resume(Continuation::NextFrame(frames)),
             };
         }
-        let FrameTurn { turn, frames } = frames;
+        let FrameTurn { turn, mut frames } = frames;
+        let failure = frames.framing_failure.take();
         self.state.buffers().recycle_frames(frames);
+        if let Some(cause) = failure {
+            // Apply the trailing verdict at the same receive instant. No due work
+            // may observe the newly freed sockets before the session ends.
+            let mut effects = self.state.input_in_turn(
+                &turn,
+                Input::Shutdown(ShutdownReason::FramingFailure { cause }),
+            );
+            self.state
+                .finish_input_turn_into(turn, EngineTurn::InputOnly, &mut effects);
+            return TurnStep::Drive {
+                effects,
+                then: Resume::done(TurnOutcome::Stop),
+            };
+        }
+        if let Some(prefix) = driver.drain_terminal_prefix(self.state.buffers()) {
+            return self.begin_frame_batch(turn, prefix, driver);
+        }
         let buffered = driver.retained().is_some();
         // A frame-limit batch can leave a complete frame followed by an
         // incomplete stale prefix in the production framer. Do not run due
@@ -882,14 +903,9 @@ impl OwnerShellCore {
             super::ReceiveFatal::TransportClosed { cause } => ShutdownReason::TransportClosed {
                 cause: cause.map(Arc::new),
             },
-            super::ReceiveFatal::FramingFailure { cause, discarded } => {
-                for _ in 0..discarded {
-                    self.state.record_ignored(IgnoreReason::MalformedFrame);
-                }
-                ShutdownReason::FramingFailure {
-                    cause: Arc::new(cause),
-                }
-            }
+            super::ReceiveFatal::FramingFailure { cause } => ShutdownReason::FramingFailure {
+                cause: Arc::new(cause),
+            },
         };
         self.terminate(reason, received_at)
     }
@@ -1212,14 +1228,26 @@ mod tests {
     }
 
     fn owner_with_capacity(capacity: usize) -> (OwnerHandleCore, OwnerShellCore) {
+        owner_for(
+            capacity,
+            EnvelopeKind::Raw,
+            crate::runtime::engine::TransportKind::Datagram,
+        )
+    }
+
+    fn owner_for(
+        capacity: usize,
+        envelope: EnvelopeKind,
+        transport: crate::runtime::engine::TransportKind,
+    ) -> (OwnerHandleCore, OwnerShellCore) {
         let policy = OwnerPolicy::single_target(
             ProtocolPolicy {
                 capacity: std::num::NonZeroUsize::new(capacity).unwrap(),
                 wire: crate::runtime::engine::WireProtocol::new(
-                    EnvelopeKind::Raw,
+                    envelope,
                     crate::transport::AddressingMode::Ip,
                 ),
-                transport: crate::runtime::engine::TransportKind::Datagram,
+                transport,
                 command_spacing: Duration::ZERO,
                 inquiry_spacing: Duration::ZERO,
                 inquiry_cooldown: Duration::ZERO,
@@ -1596,29 +1624,106 @@ mod tests {
     }
 
     #[test]
-    fn fatal_receive_records_every_preceding_malformed_discard_before_poison() {
-        let (_handle, mut core) = owner();
-        let diagnostics = super::super::tests::DiagnosticRecorder::new(&mut core.state);
-        let step = core.handle(
-            receive(
-                OwnerReceive::Fatal(super::super::ReceiveFatal::FramingFailure {
-                    cause: Error::ResponseTooLarge { max_size: 16 },
-                    discarded: 3,
-                }),
-                Instant::now(),
-            ),
+    fn fatal_receive_delivers_the_prefix_before_poison_without_sending_a_pending_cancel() {
+        use super::super::{FrameBatch, OwnerBuffers};
+        use crate::runtime::engine::{DecodedFrame, DecodedResponse};
+
+        struct TerminalPrefix(Option<FrameBatch>);
+        impl RetainedStreamInput for TerminalPrefix {
+            fn has_terminal_prefix(&self) -> bool {
+                self.0.is_some()
+            }
+
+            fn drain_terminal_prefix(&mut self, _: &mut OwnerBuffers) -> Option<FrameBatch> {
+                self.0.take()
+            }
+        }
+
+        let (handle, mut core) = owner_for(
+            1,
+            EnvelopeKind::Sony,
+            crate::runtime::engine::TransportKind::Stream,
+        );
+        let sequence = 0x1234_5678;
+        let at = Instant::now();
+        let (terminal, admitted) = handle
+            .enqueue_admission::<super::super::RuntimeOutcome>(declared_request(false), None)
+            .unwrap();
+        let admission = core.receivers.admissions.recv().unwrap();
+        let TurnStep::Drive { mut effects, then } = core.handle(
+            OwnerEvent::Admission(Ok(admission)),
             &mut Datagrams,
-            Instant::now(),
+            at,
+            false,
+        ) else {
+            panic!("admission must dispatch");
+        };
+        let staged = core.next_transmit(&mut effects, at).unwrap();
+        core.finish_transmit(
+            None,
+            &staged,
+            WriteOutcome::Sent(TransmissionMeta::Allocated { sequence }),
+            at,
+            &mut effects,
+        );
+        assert!(core.next_transmit(&mut effects, at).is_none());
+        assert!(matches!(
+            core.resume(then, &mut Datagrams),
+            TurnStep::Done(_)
+        ));
+        let id = core
+            .state
+            .engine
+            .command_id(admitted.recv().unwrap().unwrap().id());
+        let (_cancelled, observer) = super::super::CancellationObserver::pair();
+        let (mut effects, accepted) = core
+            .state
+            .begin_cancellation(super::super::CancellationRequest { id, observer }, at);
+        accepted.unwrap();
+        assert!(core.next_transmit(&mut effects, at).is_none());
+
+        let diagnostics = super::super::tests::DiagnosticRecorder::new(&mut core.state);
+        let frame = |response| DecodedFrame {
+            target: TargetSlot::CAMERA_1,
+            sequence: Some(crate::transport::envelope::FrameSequence::Full32(sequence)),
+            response,
+        };
+        let socket = Some(crate::ViscaSocket::S1);
+        let mut last = FrameBatch::from(vec![frame(DecodedResponse::Completion { socket })]);
+        last.discarded = 3;
+        last.framing_failure = Some(Arc::new(Error::ResponseTooLarge { max_size: 16 }));
+        let mut driver = TerminalPrefix(Some(last));
+        let first = vec![frame(DecodedResponse::Ack { socket })].into();
+        let mut step = core.handle(
+            receive(OwnerReceive::Frames(first), at),
+            &mut driver,
+            at,
             false,
         );
-        run_turn(&mut core, step);
+        // A full first batch cannot yield a selection (including an admission
+        // or due timer) when the adapter already knows this read ends in loss.
+        while let TurnStep::Drive { mut effects, then } = step {
+            assert!(core.next_transmit(&mut effects, at).is_none());
+            step = core.resume(then, &mut driver);
+        }
+        assert!(matches!(step, TurnStep::Done(TurnOutcome::Stop)));
+        assert!(matches!(
+            terminal.try_observed().unwrap().value,
+            super::super::RuntimeOutcome::Command(super::super::CommandOutcome::Applied)
+        ));
+        assert!(
+            matches!(handle.closed_result(), Err(Error::StreamPoisoned { source }) if matches!(*source, Error::ResponseTooLarge { max_size: 16 }))
+        );
         let events = diagnostics.events();
         let relevant: Vec<_> = events
             .iter()
             .filter(|event| {
                 matches!(
                     event,
-                    DiagnosticEvent::Ignored { .. } | DiagnosticEvent::SessionEnded { .. }
+                    DiagnosticEvent::Ignored {
+                        reason: crate::observability::DiagnosticIgnoreReason::MalformedFrame,
+                        ..
+                    } | DiagnosticEvent::SessionEnded { .. }
                 )
             })
             .collect();

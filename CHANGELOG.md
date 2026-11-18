@@ -89,6 +89,10 @@ verification.
 
 ### Changed
 
+- Applied-only operation handles retain just the state needed to observe
+  application and cancellation. Continuous drives and STOPs still supersede
+  earlier position polling on the same target and axes (#1111).
+
 - **BREAKING**: `Error::UnsupportedTransport` describes mismatches for both
   built-in and custom profiles. It carries the model name, an optional
   `ProfileId`, and a `StandardTransport`. Use `CameraConfig::validate()` in
@@ -875,6 +879,16 @@ verification.
 
 ### Fixed
 
+- An applied or cancellation wait that observes a late terminal returns
+  `ObservationTimeout`. A fresh wait on that handle can recover the terminal
+  result (#1107).
+- Extended pan/tilt speeds wait for a pending speed-mode write on the same
+  camera to resolve. The owner checks for confirmed `Fine50` at the drive's
+  write, including retries (#1108).
+- A Sony byte stream delivers complete replies preceding a framing failure in
+  the same read. Underlying command outcomes and confirmed state now agree
+  across read boundaries (#1109).
+
 - Raw stream correlation keeps a waiting command's possible rejection out of
   another command's disputed ACK follow when the camera may omit completion
   sockets (#1069).
@@ -909,8 +923,10 @@ verification.
   validated shared range (#1040).
 
 - Sony EVI-H100 admits its documented −20° and +90° tilt endpoints and
-  preserves their sourced wire words. Regenerate saved EVI-H100 profile specs
-  to use the corrected endpoint quantization (#1045).
+  preserves their sourced wire words. Degree inquiries and confirmed limits
+  return endpoint positions that can be sent back to the same camera.
+  Regenerate saved EVI-H100 profile specs to use the corrected endpoint
+  quantization (#1045, #1110).
 
 - Extending a disputed raw-stream ACK deadline emits a phase transition.
   If the extended deadline expires, it emits one `DeadlineExpired` and

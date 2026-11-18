@@ -176,7 +176,10 @@ macro_rules! noun_table {
             /// `PanTiltPosition` stores checked degrees on both axes: pan is positive
             /// right and tilt positive up. The target's registered
             /// `PanTiltCoordinateConversion` maps its profile's `PanTiltGeometry::pan_range`
-            /// and mount-selected `tilt_ranges` into degree limits.
+            /// and mount-selected `tilt_ranges` into degree limits. A quantized endpoint
+            /// beyond the nominal degree limit is reported at the limit if both encode
+            /// the same wire word. Other valid positions retain their measured degrees.
+            /// A reply outside the registered wire bounds returns `InvalidResponse`.
             inquiry [PositionInquiry] position() -> types::PanTiltPosition where HasPanTiltPositioning
                 = [with_decoder [command::pan_tilt::PositionInquiry] => crate::ResponseDecoder::for_pan_tilt_position];
             /// Moves the pan/tilt mechanism to its home position.

@@ -174,8 +174,10 @@ match cache.value(grafton_visca::state_cache::StateKey::ImageFreeze) {
 speeds, and the typed `PanTiltLimitUpdate`. Tally flashing stores
 `TallyMode::Flash`, and `cache.motion_sync().speed()` stores `MotionSyncSpeed`.
 A limit set records the corner and the applied `PanTiltPosition` in degrees
-decoded from the units sent to the camera. A cleared limit retains its corner
-as `StateEntry::Set` with `position() == None`. The owner
+decoded from the units sent to the camera. At a raw endpoint, both the cache
+and the position inquiry use the nominal degree bound when the inverse falls
+outside it and the bound encodes the same wire word. A cleared limit retains
+its corner as `StateEntry::Set` with `position() == None`. The owner
 registry has seven target slots and one inline slot per `StateKey`, without
 allocation, eviction, or a separate capacity limit. A view contains one target
 index and a shared registry reference; cloning it shares the table.
@@ -189,6 +191,12 @@ leaves the previous value intact. Preparing a command and an ACK alone cannot
 establish a value. The owner commits effects before notifying observers or
 resolving the terminal outcome, independently of observer attachment. A fresh
 session starts every target at `Unknown`; target views remain isolated.
+
+On an FR7, a pan/tilt drive using speed 25–50 waits for an in-flight
+speed-mode change on that target, including when the drive is ready to retry.
+The write requires a confirmed `Fine50`. An applied `Standard24` or an
+uncertain mode change removes that permission. A conclusively rejected
+change preserves the prior confirmation.
 
 ## What is retried, and for how long
 
@@ -495,9 +503,11 @@ has already delimited at its `FF` boundary but the strict decoder cannot
 classify is discarded and recorded as `Ignored(MalformedFrame)`; it does not
 poison the session. Only a genuine loss of the framing position — for example
 an unrecoverable buffer overflow or a boundary-free read beyond the configured
-limit — becomes `Error::StreamPoisoned`. On a datagram transport one undecodable
-datagram is one bad datagram: nothing else was consumed and the next datagram
-frames independently, so it is discarded while the session keeps running.
+limit — becomes `Error::StreamPoisoned`. Complete Sony replies preceding that
+failure in a stream read reach the owner in wire order. A completion can
+therefore confirm a command and update its cache before the session terminates.
+The owner discards an undecodable datagram as a whole. Each subsequent
+datagram frames independently, and the session keeps running.
 
 Writes are classified by transport too. A failed datagram write fails exactly
 one request and the session continues. Bytes may have reached the camera:

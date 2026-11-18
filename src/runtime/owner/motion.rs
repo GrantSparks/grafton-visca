@@ -20,19 +20,13 @@ pub(crate) struct MotionStamp {
     generations: [u64; 5],
 }
 
-fn stamp(
-    bank: &mut PerTarget<[u64; 5]>,
-    target: TargetSlot,
-    axes: AffectedAxes,
-    token: u64,
-) -> [u64; 5] {
+fn stamp(bank: &mut PerTarget<[u64; 5]>, target: TargetSlot, axes: AffectedAxes, token: u64) {
     let current = &mut bank[target];
     for (index, value) in current.iter_mut().enumerate() {
         if axes.bits() & (1 << index) != 0 {
             *value = token;
         }
     }
-    *current
 }
 
 fn superseded(bank: &PerTarget<[u64; 5]>, stamp: &MotionStamp) -> bool {
@@ -82,12 +76,12 @@ impl MotionRegistry {
             .generations
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let generations = stamp(&mut bank, target, axes, token);
+        stamp(&mut bank, target, axes, token);
         MotionStamp {
             registry: Arc::clone(self),
             target,
             axes,
-            generations,
+            generations: bank[target],
         }
     }
 }
@@ -110,7 +104,7 @@ impl MotionAdmission<'_> {
         Ok(id)
     }
 
-    fn publish(&mut self) -> [u64; 5] {
+    fn publish(&mut self) {
         stamp(&mut self.bank, self.target, self.axes, self.token)
     }
 
@@ -119,12 +113,12 @@ impl MotionAdmission<'_> {
         verdict: Result<T, Error>,
     ) -> Result<(T, MotionStamp), Error> {
         let id = verdict?;
-        let generations = self.publish();
+        self.publish();
         let stamp = MotionStamp {
             registry: Arc::clone(self.registry),
             target: self.target,
             axes: self.axes,
-            generations,
+            generations: self.bank[self.target],
         };
         Ok((id, stamp))
     }
@@ -175,13 +169,53 @@ impl MotionStamp {
     }
 }
 
+/// Settlement evidence owned only by a targeted receipt. The stamp supplies
+/// the affected axes used for both attribution and the public verdict.
+#[derive(Debug)]
+pub(crate) struct TargetedObservation {
+    motion: MotionStamp,
+    pub(super) settled: Option<Result<Settlement, Error>>,
+}
+
+impl TargetedObservation {
+    pub(super) fn new(motion: MotionStamp) -> Self {
+        Self {
+            motion,
+            settled: None,
+        }
+    }
+
+    pub(super) fn axes(&self) -> AffectedAxes {
+        self.motion.axes
+    }
+
+    pub(super) fn check(&mut self, id: OperationId) -> Result<(), Error> {
+        self.motion
+            .check(id)
+            .inspect_err(|error| self.settled = Some(Err(error.clone())))
+    }
+
+    pub(super) fn commit_position_observation(
+        &mut self,
+        id: OperationId,
+        result: Result<Settlement, Error>,
+    ) -> Result<Settlement, Error> {
+        self.motion.commit(id, result, &mut self.settled)
+    }
+
+    pub(super) fn commit_completion(&mut self, evidence: Settlement) -> Settlement {
+        self.settled = Some(Ok(evidence));
+        evidence
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct Admitted {
     pub(crate) identity: super::AdmittedId,
 }
-/// A successful operation admission owns its exact motion generation.
+/// A successful targeted admission owns its exact motion generation.
 #[derive(Debug)]
-pub(super) struct AdmittedOperation {
+pub(crate) struct AdmittedOperation {
     pub(super) admitted: Admitted,
     pub(super) motion: MotionStamp,
 }
@@ -215,7 +249,9 @@ mod tests {
                     for token in [7, 3, 11] {
                         let registry = Arc::new(MotionRegistry::default());
                         let original = registry.establish(TargetSlot::CAMERA_1, original_axes, 7);
-                        registry.establish(changed_target, changed_axes, token);
+                        registry
+                            .begin_admission(changed_target, changed_axes, token)
+                            .admit(Ok(()))?;
                         let expected = changed_target == TargetSlot::CAMERA_1
                             && original_bits & changed_bits != 0
                             && token != 7;

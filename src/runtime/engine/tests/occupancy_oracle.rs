@@ -139,8 +139,8 @@ pub(super) fn assert_agrees<E: EngineMethods + ?Sized>(engine: &E, now: Instant)
         .filter(|(_, entry)| matches!(entry.lifecycle(), Lifecycle::Ready { .. }))
     {
         assert_eq!(
-            engine.dispatch_blocked_in(entry, now, &occupancy),
-            engine.dispatch_blocked(entry, now),
+            engine.dispatch_blocked_in(*id, entry, now, &occupancy),
+            engine.dispatch_blocked(*id, entry, now),
             "gate for {id:?} at {now:?}, lifecycle {:?}",
             entry.lifecycle()
         );

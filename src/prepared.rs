@@ -517,9 +517,7 @@ pub(crate) fn lower_targeted_settlement(
 
 pub(crate) fn lower_applied_only_settlement(
     registration: &crate::TargetRegistration,
-    _tuning: ValidatedTuning,
     axes: AffectedAxes,
-    _default_budget: Duration,
 ) -> Result<()> {
     let profile = registration.profile();
     if profile.supports_axes(axes) {
@@ -585,8 +583,8 @@ pub(crate) fn prepare_inquiry<Q>(
 where
     Q: Inquiry + ?Sized,
 {
-    prepare_inquiry_with_decoder(inquiry, registration, tuning, class, |profile| {
-        inquiry.decoder_for_profile(profile)
+    prepare_inquiry_with_decoder(inquiry, registration, tuning, class, |target| {
+        inquiry.decoder_for_profile(target.profile())
     })
 }
 
@@ -595,7 +593,7 @@ pub(crate) fn prepare_inquiry_with_decoder<Q, R>(
     registration: &crate::TargetRegistration,
     tuning: ValidatedTuning,
     class: ClassSelection,
-    bind_decoder: impl FnOnce(&ProfileSpec) -> Result<ResponseDecoder<R>>,
+    bind_decoder: impl FnOnce(&crate::TargetRegistration) -> Result<ResponseDecoder<R>>,
 ) -> Result<PreparedInquiry<R>>
 where
     Q: Inquiry + ?Sized,
@@ -606,7 +604,7 @@ where
             feature: "VISCA inquiries",
         });
     }
-    let (wire, _, decoder) = encode(inquiry, registration, || bind_decoder(profile))?;
+    let (wire, _, decoder) = encode(inquiry, registration, || bind_decoder(registration))?;
     let (context, _) = lower_request_context(inquiry, registration, tuning, class);
     Ok(PreparedInquiry {
         wire,
@@ -642,15 +640,12 @@ where
             registration,
             crate::requests::RequestContractAuthority::new(),
         )?;
-        let settlement = completion::lower_settlement::<K>(
-            registration,
-            tuning,
-            axes,
+        let settlement = completion::lower_settlement::<K>(registration, tuning, axes, || {
             observation_timeout(
                 &context,
                 settlement_budget(operation.policy().timeout_class(), profile, tuning),
-            ),
-        )?;
+            )
+        })?;
         Ok((crate::runtime::engine::MotionEffect { axes }, settlement))
     })?;
     context.requires_extended_pan_tilt_speed = lowered.requires_extended_pan_tilt_speed;

@@ -473,21 +473,32 @@ facade_matrix! {
     /// A later conflicting admission supersedes unfinished polled settlement
     /// evidence and preserves the cached application.
     fn later_admission_supersedes_polled_settlement() {
-        let (camera, _) = scripted_camera();
-        let session = open!(camera, config()).expect("owner session");
-        let view = session.camera::<Raw>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("raw camera");
-        let mut first = wait!(view.submit::<Targeted, _>(&grafton_visca::command::pan_tilt::Home)).expect("first home");
-        wait_for_writes!(camera, 1);
-        camera.push(frames::ack(1));
-        camera.push(frames::complete(1));
-        wait!(first.applied()).expect("first applied");
-        let later = wait!(view.submit::<Targeted, _>(&grafton_visca::command::pan_tilt::Home)).expect("later admitted");
-        assert!(
-            matches!(wait!(first.settled()), Err(Error::SettlementSuperseded { operation, .. }) if operation == first.id())
-        );
-        wait!(first.applied()).expect("supersession preserves application");
-        later.detach();
-        session.shutdown().expect("shutdown");
+        use grafton_visca::types::{PanSpeed, PanTiltDirection, PanTiltSpeed, TiltSpeed};
+        for drive in [false, true] {
+            let (camera, _) = scripted_camera();
+            let session = open!(camera, config()).expect("owner session");
+            let view = session.camera::<Raw>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("raw camera");
+            let mut first = wait!(view.submit::<Targeted, _>(&grafton_visca::command::pan_tilt::Home)).expect("first home");
+            wait_for_writes!(camera, 1);
+            camera.push(frames::ack(1));
+            camera.push(frames::complete(1));
+            wait!(first.applied()).expect("first applied");
+            if drive {
+                let speed = PanTiltSpeed::new(
+                    PanSpeed::new(1).expect("valid pan speed"),
+                    TiltSpeed::new(1).expect("valid tilt speed"),
+                );
+                let drive = grafton_visca::command::pan_tilt::Drive::new(PanTiltDirection::Right, speed);
+                wait!(view.submit::<AppliedOnly, _>(&drive)).expect("drive admitted").detach();
+            } else {
+                wait!(view.submit::<Targeted, _>(&grafton_visca::command::pan_tilt::Home)).expect("later home admitted").detach();
+            }
+            assert!(
+                matches!(wait!(first.settled()), Err(Error::SettlementSuperseded { operation, .. }) if operation == first.id())
+            );
+            wait!(first.applied()).expect("supersession preserves application");
+            session.shutdown().expect("shutdown");
+        }
     }
 }
 
@@ -809,5 +820,52 @@ mod async_facade {
             () = tokio::time::sleep(WAIT_BUDGET) => panic!("the completion was lost"),
         }
         session.shutdown().expect("owner shutdown");
+    }
+
+    #[cfg(feature = "test-utils")]
+    #[test]
+    fn late_completion_while_cancel_caller_is_paused() {
+        use grafton_visca::{
+            error::Recovery,
+            testing::testkit::{ManualClock, ManualClockExecutor},
+        };
+
+        let clock = ManualClock::new();
+        let executor = ManualClockExecutor::local(&clock);
+        executor.run_until(async {
+            let (session, camera) = open(&executor).await;
+            let mut moving = running_zoom(&executor, &session, &camera).await;
+            let id = moving.id();
+            let budget = Duration::from_millis(10);
+            let deadline = clock.now() + budget;
+            let error = {
+                let mut cancel = std::pin::pin!(moving.cancel_with_timeout(budget));
+                assert!(future::poll_once(&mut cancel).await.is_none());
+                camera.wait_for_writes_async(&executor, 2).await;
+                assert!(clock.now() <= deadline, "owner accepted the cancel in time");
+
+                // Keep the caller suspended until the owner has delivered the
+                // original command's completion and released its terminal sender.
+                clock.advance(deadline + Duration::from_millis(1) - clock.now());
+                camera.push(frames::complete(1));
+                camera.wait_for_reads_async(&executor, 2).await;
+                assert_eq!(session.metrics().await.expect("owner metrics").active, 0);
+                cancel.await.expect_err("completion missed this wait")
+            };
+            assert!(
+                matches!(error, Error::ObservationTimeout { operation, .. } if operation == id),
+                "observed {error:?}"
+            );
+            assert_eq!(error.recovery(), Recovery::WaitAgain);
+            moving
+                .applied_with_timeout(Duration::ZERO)
+                .await
+                .expect("fresh wait recovers the cached completion");
+            assert_eq!(
+                camera.writes(),
+                vec![ZOOM_TELE.to_vec(), CANCEL_SOCKET_ONE.to_vec()]
+            );
+            session.close().await.expect("owner remains healthy");
+        });
     }
 }

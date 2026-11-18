@@ -15,7 +15,8 @@ mod motion;
 use crate::observability::DiagnosticEvent;
 mod diagnostics;
 
-use motion::{Admitted, AdmittedOperation, MotionRegistry, MotionStamp};
+pub(crate) use boundary::SettlementAdmission;
+use motion::{Admitted, AdmittedOperation, MotionRegistry, TargetedObservation};
 #[cfg(feature = "async")]
 mod async_actor;
 #[cfg(feature = "async")]
@@ -634,6 +635,8 @@ pub(crate) struct FrameBatch {
     frames: VecDeque<DecodedFrame>,
     limit: usize,
     pub(crate) discarded: usize,
+    /// Stream position was lost after the last verified frame in this batch.
+    framing_failure: Option<Arc<Error>>,
 }
 
 impl FrameBatch {
@@ -645,7 +648,7 @@ impl FrameBatch {
         Self {
             frames: VecDeque::with_capacity(capacity.get()),
             limit: capacity.get(),
-            discarded: 0,
+            ..Self::default()
         }
     }
 
@@ -671,6 +674,7 @@ impl FrameBatch {
     fn clear(&mut self) {
         self.frames.clear();
         self.discarded = 0;
+        self.framing_failure = None;
     }
 }
 
@@ -695,7 +699,7 @@ impl From<Vec<DecodedFrame>> for FrameBatch {
         Self {
             limit: frames.len(),
             frames: frames.into(),
-            discarded: 0,
+            ..Self::default()
         }
     }
 }
@@ -705,7 +709,7 @@ impl From<VecDeque<DecodedFrame>> for FrameBatch {
         Self {
             limit: frames.len(),
             frames,
-            discarded: 0,
+            ..Self::default()
         }
     }
 }
@@ -730,7 +734,7 @@ pub(crate) enum NoProgressReason {
 #[derive(Debug)]
 pub(crate) enum ReceiveFatal {
     TransportClosed { cause: Option<Error> },
-    FramingFailure { cause: Error, discarded: usize },
+    FramingFailure { cause: Error },
 }
 
 impl OwnerReceive {
@@ -776,10 +780,7 @@ impl OwnerReceive {
     #[cfg(test)]
     pub(crate) fn consumed_error(error: Error, transport: TransportKind) -> Self {
         match transport {
-            TransportKind::Stream => Self::Fatal(ReceiveFatal::FramingFailure {
-                cause: error,
-                discarded: 0,
-            }),
+            TransportKind::Stream => Self::Fatal(ReceiveFatal::FramingFailure { cause: error }),
             TransportKind::Datagram => Self::NoProgress(NoProgressReason::MalformedDatagram),
         }
     }
@@ -1192,35 +1193,44 @@ pub(crate) fn cancellation_outcome(
     terminal.verdict()
 }
 
+/// A cached observation is pending only while its slot can still supply a
+/// verdict for this deadline. A late event remains available to a fresh wait.
+enum OperationDecision {
+    Timely(Result<CancellationOutcome, Error>),
+    Late,
+    Pending,
+}
+
+impl OperationDecision {
+    fn conclude(self, id: RequestId) -> Option<Result<CancellationOutcome, Error>> {
+        match self {
+            Self::Timely(outcome) => Some(outcome),
+            Self::Late => Some(Err(observation_timeout(id))),
+            Self::Pending => None,
+        }
+    }
+}
+
 /// The handle-side observation state of one admitted operation (#777).
 ///
 /// Every wait borrows it, so an abandoned or timed-out wait releases only that
-/// wait. The authoritative terminal outcome, a failed cancellation, and the
-/// handle's own settlement verdict are cached here once received, so later
-/// waits return them without touching the owner.
+/// wait. Later waits read the cached terminal outcome or cancellation failure
+/// without touching the owner.
 #[derive(Debug)]
 pub(crate) struct OperationObservation {
     core: ReceiptCore,
-    motion: MotionStamp,
     cancellation_timeout: Duration,
     terminal: Option<Observed<CommandOutcome>>,
-    settled: Option<Result<crate::Settlement, Error>>,
     cancellation: Option<CancellationObserver>,
     cancellation_failure: Option<Observed<Error>>,
 }
 
 impl OperationObservation {
-    pub(crate) fn new(
-        core: ReceiptCore,
-        motion: MotionStamp,
-        cancellation_timeout: Duration,
-    ) -> Self {
+    pub(crate) fn new(core: ReceiptCore, cancellation_timeout: Duration) -> Self {
         Self {
             core,
-            motion,
             cancellation_timeout,
             terminal: None,
-            settled: None,
             cancellation: None,
             cancellation_failure: None,
         }
@@ -1258,35 +1268,39 @@ impl OperationObservation {
         }
     }
 
-    /// The application verdict, once the terminal outcome is known.
-    pub(crate) fn applied(&mut self, deadline: Instant) -> Option<Result<(), Error>> {
-        self.poll();
-        self.terminal
-            .as_ref()
-            .filter(|event| event.within(deadline))
-            .map(|event| application_outcome(cancellation_outcome(&event.value)))
+    /// A timely terminal outcome takes precedence. A cancellation wait may
+    /// also conclude from an attempt failure delivered within its window.
+    fn decision(
+        &self,
+        deadline: Instant,
+        cancellation_failure: Option<&Observed<Error>>,
+    ) -> OperationDecision {
+        match (&self.terminal, cancellation_failure) {
+            (Some(terminal), _) if terminal.within(deadline) => {
+                OperationDecision::Timely(cancellation_outcome(&terminal.value))
+            }
+            (_, Some(failure)) if failure.within(deadline) => {
+                OperationDecision::Timely(Err(failure.value.clone()))
+            }
+            (None, None) => OperationDecision::Pending,
+            _ => OperationDecision::Late,
+        }
     }
 
-    /// The cancellation verdict, once known. An on-time terminal outcome
-    /// takes precedence. The cancellation slot answers only when the
-    /// cancellation attempt ended while the operation was still live.
+    pub(crate) fn applied(&mut self, deadline: Instant) -> Option<Result<(), Error>> {
+        self.poll();
+        self.decision(deadline, None)
+            .conclude(self.id())
+            .map(application_outcome)
+    }
+
     pub(crate) fn cancellation(
         &mut self,
         deadline: Instant,
     ) -> Option<Result<CancellationOutcome, Error>> {
         self.poll();
-        match self
-            .terminal
-            .as_ref()
-            .filter(|event| event.within(deadline))
-        {
-            Some(terminal) => Some(cancellation_outcome(&terminal.value)),
-            None => self
-                .cancellation_failure
-                .as_ref()
-                .filter(|event| event.within(deadline))
-                .map(|event| Err(event.value.clone())),
-        }
+        self.decision(deadline, self.cancellation_failure.as_ref())
+            .conclude(self.id())
     }
 
     /// The request to send for this handle's single cancellation intent.
@@ -1325,32 +1339,6 @@ impl OperationObservation {
 
     pub(crate) fn cancellation_observer(&self) -> Option<&CancellationObserver> {
         self.cancellation.as_ref()
-    }
-
-    pub(crate) fn settled(&self) -> Option<Result<crate::Settlement, Error>> {
-        self.settled.clone()
-    }
-
-    pub(crate) fn check_settlement(&mut self) -> Result<(), Error> {
-        self.motion
-            .check(crate::OperationId::from_nonzero(self.id().as_nonzero()))
-            .inspect_err(|error| self.settled = Some(Err(error.clone())))
-    }
-
-    pub(crate) fn commit_position_observation(
-        &mut self,
-        result: Result<crate::Settlement, Error>,
-    ) -> Result<crate::Settlement, Error> {
-        self.motion.commit(
-            crate::OperationId::from_nonzero(self.id().as_nonzero()),
-            result,
-            &mut self.settled,
-        )
-    }
-
-    pub(crate) fn commit_completion(&mut self, evidence: crate::Settlement) -> crate::Settlement {
-        self.settled = Some(Ok(evidence));
-        evidence
     }
 }
 
@@ -1742,8 +1730,18 @@ impl RawRetention<'_> {
     }
 }
 
-/// Infallible inspection of retained stream input. Only discarding mutates it.
+/// Inspect and drain input already retained by the stream framer.
 pub(crate) trait RetainedStreamInput {
+    fn has_terminal_prefix(&self) -> bool {
+        false
+    }
+
+    /// The next bounded batch of a read whose buffered tail already proves
+    /// position loss. No transport I/O or new receive turn is needed.
+    fn drain_terminal_prefix(&mut self, _buffers: &mut OwnerBuffers) -> Option<FrameBatch> {
+        None
+    }
+
     fn retained(&mut self) -> Option<RetainedInput<'_>> {
         None
     }
