@@ -427,7 +427,8 @@ enum DecoderInner<R> {
     #[cfg(any(feature = "blocking", feature = "async"))]
     PanTiltPosition {
         coordinates: crate::profiles::TargetPanTiltCoordinates,
-        lift: fn(crate::types::PanTiltPosition) -> Result<R>,
+        lift:
+            fn(crate::profiles::TargetPanTiltCoordinates, crate::types::PanTiltUnits) -> Result<R>,
     },
     ColorTemperature {
         steps: Arc<[u16]>,
@@ -542,9 +543,9 @@ impl<R> ResponseDecoder<R> {
                     PanTiltFraming::for_conversion(coordinates.conversion),
                 )
                 .and_then(|response| match response {
-                    Response::Inquiry(InquiryData::PanTiltPosition { pan, tilt }) => coordinates
-                        .position_degrees(crate::types::PanTiltUnits::new(pan, tilt))
-                        .and_then(lift),
+                    Response::Inquiry(InquiryData::PanTiltPosition { pan, tilt }) => {
+                        lift(*coordinates, crate::types::PanTiltUnits::new(pan, tilt))
+                    }
                     _ => Err(Error::UnexpectedResponseType),
                 })
                 .map_err(|error| inquiry_structs::reply_value_error(error, payload))
@@ -593,14 +594,40 @@ fn require_pan_tilt_coordinates(
 }
 
 #[cfg(any(feature = "blocking", feature = "async"))]
-impl ResponseDecoder<crate::types::PanTiltPosition> {
-    pub(crate) fn for_pan_tilt_position(target: &crate::TargetRegistration) -> Result<Self> {
+impl<R> ResponseDecoder<R> {
+    fn for_registered_pan_tilt(
+        target: &crate::TargetRegistration,
+        lift: fn(
+            crate::profiles::TargetPanTiltCoordinates,
+            crate::types::PanTiltUnits,
+        ) -> Result<R>,
+    ) -> Result<Self> {
         Ok(Self {
             inner: DecoderInner::PanTiltPosition {
                 coordinates: target.pan_tilt_coordinates()?,
-                lift: Ok,
+                lift,
             },
         })
+    }
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl ResponseDecoder<crate::types::PanTiltPosition> {
+    pub(crate) fn for_pan_tilt_position(target: &crate::TargetRegistration) -> Result<Self> {
+        Self::for_registered_pan_tilt(
+            target,
+            crate::profiles::TargetPanTiltCoordinates::position_degrees,
+        )
+    }
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl ResponseDecoder<crate::types::PanTiltUnits> {
+    pub(crate) fn for_pan_tilt_sample(target: &crate::TargetRegistration) -> Result<Self> {
+        Self::for_registered_pan_tilt(
+            target,
+            crate::profiles::TargetPanTiltCoordinates::position_units,
+        )
     }
 }
 

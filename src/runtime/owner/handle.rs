@@ -25,7 +25,7 @@ macro_rules! sample_positions {
     (
         async: [$($async:tt)*],
         await: $await:tt;
-        $($axis:ident, $field:ident => $inquiry:ident;)*
+        $($axis:ident, $field:ident => $inquiry:ident $(, decoder: $decoder:path)?;)*
     ) => {
         /// Samples exactly the prepared position inquiries, in axis order,
         /// checking attribution before each inquiry and accepting replies

@@ -254,7 +254,7 @@ impl<R: PositionReading> PositionQuery<R> {
 /// Generates typed polling storage, budgeting and preparation from the same
 /// axis-to-inquiry declaration that validates profile settlement availability.
 macro_rules! position_query_plan {
-    ($($axis:ident, $field:ident => $inquiry:ident;)*) => {
+    ($($axis:ident, $field:ident => $inquiry:ident $(, decoder: $decoder:path)?;)*) => {
         /// Complete set of typed position inquiries selected for one operation.
         #[derive(Debug, Clone)]
         pub(crate) struct PositionQueryPlan {
@@ -286,17 +286,25 @@ macro_rules! position_query_plan {
                 Ok(Self {
                     $($field: axes.iter()
                         .any(|axis| axis == crate::requests::AffectedAxis::$axis)
-                        .then(|| prepare_inquiry(
+                        .then(|| position_query_plan!(@prepare
                             &crate::command::inquiry::$inquiry,
                             registration,
-                            tuning,
-                            ClassSelection::Request,
+                            tuning
+                            $(, $decoder)?
                         ))
                         .transpose()?
                         .map(|prepared| PositionQuery::new(prepared.into_template())),)*
                 })
             }
         }
+    };
+    (@prepare $inquiry:expr, $registration:expr, $tuning:expr) => {
+        prepare_inquiry($inquiry, $registration, $tuning, ClassSelection::Request)
+    };
+    (@prepare $inquiry:expr, $registration:expr, $tuning:expr, $decoder:path) => {
+        prepare_inquiry_with_decoder(
+            $inquiry, $registration, $tuning, ClassSelection::Request, $decoder,
+        )
     };
 }
 crate::position_inquiries::settlement_inquiries!(position_query_plan);

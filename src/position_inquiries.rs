@@ -12,7 +12,7 @@ macro_rules! settlement_inquiries {
     ($consumer:path $(, $($context:tt)*)?) => {
         $consumer! {
             $($($context)*)?
-            PanTilt, pan_tilt => PanTiltPositionInquiry;
+            PanTilt, pan_tilt => PanTiltPositionInquiry, decoder: crate::ResponseDecoder::for_pan_tilt_sample;
             Zoom, zoom => ZoomPositionInquiry;
             Focus, focus => FocusPositionInquiry;
             Iris, iris => IrisInquiry;
@@ -24,7 +24,7 @@ macro_rules! settlement_inquiries {
 pub(crate) use settlement_inquiries;
 
 macro_rules! inquiry_gates {
-    ($($axis:ident, $field:ident => $inquiry:ident;)*) => {
+    ($($axis:ident, $field:ident => $inquiry:ident $(, decoder: $decoder:path)?;)*) => {
         // Keep the declaration exhaustive when the closed axis vocabulary grows.
         const fn inquiry_gate(axis: AffectedAxis) -> RowGate {
             match axis {

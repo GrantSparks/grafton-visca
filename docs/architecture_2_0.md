@@ -1668,6 +1668,11 @@ deadline even if their caller resumes later. Admission of another inquiry
 still requires time strictly before the deadline. Idle sampling intervals must
 be positive; a zero interval is refused before I/O and when deserializing an
 `IdleWait` policy.
+
+Pan and tilt samples must fall within the target's registered wire bounds,
+including its mount-specific tilt range. Movement tolerances use raw units
+after validation. Direct `inquire(&PositionInquiry)` returns the decoded raw
+units without checking the registered bounds.
 Late outcomes remain cached for a subsequent borrowing wait. A `cancel` after the
 owner stopped still answers from an outcome delivered before it stopped.
 
