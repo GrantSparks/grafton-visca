@@ -473,21 +473,32 @@ facade_matrix! {
     /// A later conflicting admission supersedes unfinished polled settlement
     /// evidence and preserves the cached application.
     fn later_admission_supersedes_polled_settlement() {
-        let (camera, _) = scripted_camera();
-        let session = open!(camera, config()).expect("owner session");
-        let view = session.camera::<Raw>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("raw camera");
-        let mut first = wait!(view.submit::<Targeted, _>(&grafton_visca::command::pan_tilt::Home)).expect("first home");
-        wait_for_writes!(camera, 1);
-        camera.push(frames::ack(1));
-        camera.push(frames::complete(1));
-        wait!(first.applied()).expect("first applied");
-        let later = wait!(view.submit::<Targeted, _>(&grafton_visca::command::pan_tilt::Home)).expect("later admitted");
-        assert!(
-            matches!(wait!(first.settled()), Err(Error::SettlementSuperseded { operation, .. }) if operation == first.id())
-        );
-        wait!(first.applied()).expect("supersession preserves application");
-        later.detach();
-        session.shutdown().expect("shutdown");
+        use grafton_visca::types::{PanSpeed, PanTiltDirection, PanTiltSpeed, TiltSpeed};
+        for drive in [false, true] {
+            let (camera, _) = scripted_camera();
+            let session = open!(camera, config()).expect("owner session");
+            let view = session.camera::<Raw>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("raw camera");
+            let mut first = wait!(view.submit::<Targeted, _>(&grafton_visca::command::pan_tilt::Home)).expect("first home");
+            wait_for_writes!(camera, 1);
+            camera.push(frames::ack(1));
+            camera.push(frames::complete(1));
+            wait!(first.applied()).expect("first applied");
+            if drive {
+                let speed = PanTiltSpeed::new(
+                    PanSpeed::new(1).expect("valid pan speed"),
+                    TiltSpeed::new(1).expect("valid tilt speed"),
+                );
+                let drive = grafton_visca::command::pan_tilt::Drive::new(PanTiltDirection::Right, speed);
+                wait!(view.submit::<AppliedOnly, _>(&drive)).expect("drive admitted").detach();
+            } else {
+                wait!(view.submit::<Targeted, _>(&grafton_visca::command::pan_tilt::Home)).expect("later home admitted").detach();
+            }
+            assert!(
+                matches!(wait!(first.settled()), Err(Error::SettlementSuperseded { operation, .. }) if operation == first.id())
+            );
+            wait!(first.applied()).expect("supersession preserves application");
+            session.shutdown().expect("shutdown");
+        }
     }
 }
 

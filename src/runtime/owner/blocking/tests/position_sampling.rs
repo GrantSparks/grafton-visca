@@ -91,6 +91,7 @@ fn position_observations_use_delivery_time_even_when_the_caller_wakes_late() {
                         _ => panic!("typed observations use their own terminal lane"),
                     };
                     let turn = state.begin_input_turn(clock.now());
+                    let motion_refs = Arc::strong_count(&state.motion);
                     let answer: Box<dyn FnOnce()> = match reply {
                         AdmissionReplySink::Request(reply) => {
                             let admitted = state
@@ -105,6 +106,13 @@ fn position_observations_use_delivery_time_even_when_the_caller_wakes_late() {
                             Box::new(move || reply.send(Ok(admitted)).unwrap())
                         }
                     };
+                    if matches!(kind, Observation::Applied) {
+                        assert_eq!(
+                            Arc::strong_count(&state.motion),
+                            motion_refs,
+                            "an applied-only admission must not take a motion registry reference"
+                        );
+                    }
                     let last = index + 1 == samples;
                     if last {
                         clock_for_owner.advance(delivered.saturating_duration_since(clock.now()));

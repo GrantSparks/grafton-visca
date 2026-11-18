@@ -1203,22 +1203,17 @@ mod metrics {
     }
     fn admit_observation(
         state: &mut OwnerState,
-        mut request: RuntimeRequest,
+        request: RuntimeRequest,
         now: Instant,
     ) -> (OperationObservation, Arc<ObserverCell<CommandOutcome>>) {
-        let motion = request.context().motion.unwrap_or(MotionEffect {
-            axes: crate::AffectedAxes::ZOOM,
-        });
-        request.context_mut().motion = Some(motion);
         let permit = state.permits.try_acquire(&request).unwrap();
         let (observer, cell) = TerminalObserver::<CommandOutcome>::pair();
         let turn = state.begin_input_turn(now);
-        let admitted =
-            state.admit_operation_in_turn(&turn, request, motion, permit, Arc::clone(&cell));
+        let admitted = state.admit_in_turn(&turn, request, permit, Arc::clone(&cell));
         let _ = state.finish_input_turn(turn, EngineTurn::InputOnly);
         let admitted = admitted.unwrap();
-        let core = ReceiptCore::admitted(admitted.admitted, observer, ACK).unwrap();
-        (OperationObservation::new(core, admitted.motion, ACK), cell)
+        let core = ReceiptCore::admitted(admitted, observer, ACK).unwrap();
+        (OperationObservation::new(core, ACK), cell)
     }
 
     fn observation_fixture() -> (OperationObservation, Arc<ObserverCell<CommandOutcome>>) {
@@ -1577,7 +1572,21 @@ mod metrics {
             axes: AffectedAxes::PAN_TILT,
         });
         request.context_mut().submission_order = 1;
-        let (mut original, _) = admit_observation(&mut state, request.clone(), now);
+        let permit = state.permits.try_acquire(&request).unwrap();
+        let (_receiver, cell) = TerminalObserver::<CommandOutcome>::pair();
+        let turn = state.begin_input_turn(now);
+        let admitted = state
+            .admit_operation_in_turn(
+                &turn,
+                request.clone(),
+                request.context().motion.unwrap(),
+                permit,
+                cell,
+            )
+            .unwrap();
+        let _ = state.finish_input_turn(turn, EngineTurn::InputOnly);
+        let id = crate::OperationId::from_nonzero(admitted.admitted.id().as_nonzero());
+        let mut original = TargetedObservation::new(admitted.motion);
         // A same-target, same-axis request rejected before admission cannot
         // steal attribution from the operation occupying the owner.
         let held: Vec<_> = (0..3)
@@ -1588,27 +1597,22 @@ mod metrics {
             handle.enqueue_admission::<CommandOutcome>(request.clone(), None),
             Err(Error::RuntimeQueueFull { .. })
         ));
-        assert!(original.check_settlement().is_ok());
+        assert!(original.check(id).is_ok());
         drop(held);
         request.context_mut().submission_order = 2;
         let permit = state.permits.try_acquire(&request).unwrap();
         let (completion, observer) = TerminalObserver::<CommandOutcome>::pair();
-        let motion = request.context().motion.unwrap();
         let admission_turn = state.begin_input_turn(now);
         let admitted = state
-            .admit_operation_in_turn(&admission_turn, request, motion, permit, observer)
+            .admit_in_turn(&admission_turn, request, permit, observer)
             .unwrap();
         assert!(
-            matches!(
-                original.check_settlement(),
-                Err(Error::SettlementSuperseded { .. })
-            ),
+            matches!(original.check(id), Err(Error::SettlementSuperseded { .. })),
             "engine admission invalidates attribution before the owner runs due work or dispatches"
         );
         let _ = state.finish_input_turn(admission_turn, EngineTurn::InputOnly);
         let later = OperationObservation::new(
-            ReceiptCore::admitted(admitted.admitted, completion, ACK).unwrap(),
-            admitted.motion,
+            ReceiptCore::admitted(admitted, completion, ACK).unwrap(),
             ACK,
         );
         let turn = state.begin_input_turn(now);
@@ -1622,7 +1626,7 @@ mod metrics {
         }
         let _ = state.finish_input_turn(turn, EngineTurn::InputOnly);
         assert!(matches!(
-            original.check_settlement(),
+            original.check(id),
             Err(Error::SettlementSuperseded { .. })
         ));
         assert!(matches!(
@@ -1851,11 +1855,15 @@ mod metrics {
     fn settlement_attribution_is_axis_local_cached_and_profile_completion_is_exact() {
         use crate::{AffectedAxes, Settlement};
         let registry = Arc::new(MotionRegistry::default());
-        let (mut observation, _) = observation_fixture();
-        observation.motion = registry.establish(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, 1);
+        let id = crate::OperationId::from_raw(1);
+        let mut observation = TargetedObservation::new(registry.establish(
+            TargetSlot::CAMERA_1,
+            AffectedAxes::PAN_TILT,
+            1,
+        ));
         registry.establish(TargetSlot::CAMERA_1, AffectedAxes::ZOOM, 2);
         registry.establish(TargetSlot::CAMERA_2, AffectedAxes::PAN_TILT, 3);
-        assert!(observation.check_settlement().is_ok());
+        assert!(observation.check(id).is_ok());
         let evidence = Settlement::observed_stable(
             AffectedAxes::PAN_TILT,
             ACK,
@@ -1863,25 +1871,31 @@ mod metrics {
         );
         assert_eq!(
             observation
-                .commit_position_observation(Ok(evidence))
+                .commit_position_observation(id, Ok(evidence))
                 .unwrap(),
             evidence
         );
         registry.establish(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, 4);
         assert_eq!(
-            observation.settled().unwrap().unwrap(),
+            observation.settled.unwrap().unwrap(),
             evidence,
             "established evidence persists"
         );
-        let (mut superseded, _) = observation_fixture();
-        superseded.motion = registry.establish(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, 5);
+        let mut superseded = TargetedObservation::new(registry.establish(
+            TargetSlot::CAMERA_1,
+            AffectedAxes::PAN_TILT,
+            5,
+        ));
         registry.establish(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, 6);
         assert!(matches!(
-            superseded.commit_position_observation(Ok(evidence)),
+            superseded.commit_position_observation(id, Ok(evidence)),
             Err(Error::SettlementSuperseded { .. })
         ));
-        let (mut exact, _) = observation_fixture();
-        exact.motion = registry.establish(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, 7);
+        let mut exact = TargetedObservation::new(registry.establish(
+            TargetSlot::CAMERA_1,
+            AffectedAxes::PAN_TILT,
+            7,
+        ));
         registry.establish(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, 8);
         let exact_evidence = Settlement::profile_completion(AffectedAxes::PAN_TILT);
         assert_eq!(exact.commit_completion(exact_evidence), exact_evidence);

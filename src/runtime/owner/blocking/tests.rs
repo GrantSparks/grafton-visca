@@ -1466,12 +1466,7 @@ fn selected_disconnect_preserves_late_terminal_timeout_and_borrowing_cache() {
         ),
         "a linear command receipt also keeps the observer deadline"
     );
-    let motion = Arc::new(super::super::MotionRegistry::default()).establish(
-        crate::target::TargetSlot::CAMERA_1,
-        crate::AffectedAxes::ZOOM,
-        1,
-    );
-    let mut observation = OperationObservation::new(receipt.core, motion, PROMPTLY);
+    let mut observation = OperationObservation::new(receipt.core, PROMPTLY);
     {
         let mut wait =
             OperationWait::new(&mut observation, OperationObservation::applied, deadline);

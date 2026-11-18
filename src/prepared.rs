@@ -517,9 +517,7 @@ pub(crate) fn lower_targeted_settlement(
 
 pub(crate) fn lower_applied_only_settlement(
     registration: &crate::TargetRegistration,
-    _tuning: ValidatedTuning,
     axes: AffectedAxes,
-    _default_budget: Duration,
 ) -> Result<()> {
     let profile = registration.profile();
     if profile.supports_axes(axes) {
@@ -642,15 +640,12 @@ where
             registration,
             crate::requests::RequestContractAuthority::new(),
         )?;
-        let settlement = completion::lower_settlement::<K>(
-            registration,
-            tuning,
-            axes,
+        let settlement = completion::lower_settlement::<K>(registration, tuning, axes, || {
             observation_timeout(
                 &context,
                 settlement_budget(operation.policy().timeout_class(), profile, tuning),
-            ),
-        )?;
+            )
+        })?;
         Ok((crate::runtime::engine::MotionEffect { axes }, settlement))
     })?;
     context.requires_extended_pan_tilt_speed = lowered.requires_extended_pan_tilt_speed;

@@ -14,7 +14,7 @@ use crate::{
     camera::MovementTolerance,
     completion,
     prepared::{PositionQueryPlan, SettlementPlan},
-    AffectedAxes, Error,
+    Error,
 };
 
 use super::boundary::OwnerHandleCore;
@@ -54,7 +54,7 @@ where
     K: completion::Kind,
 {
     pub(super) observation: OperationObservation,
-    pub(super) affected_axes: AffectedAxes,
+    pub(super) observed_settlement: completion::Observation<K>,
     pub(super) settlement: completion::SettlementPlan<K>,
     pub(super) owner: H,
 }

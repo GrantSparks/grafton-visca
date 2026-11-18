@@ -15,7 +15,8 @@ mod motion;
 use crate::observability::DiagnosticEvent;
 mod diagnostics;
 
-use motion::{Admitted, AdmittedOperation, MotionRegistry, MotionStamp};
+pub(crate) use boundary::SettlementAdmission;
+use motion::{Admitted, AdmittedOperation, MotionRegistry, TargetedObservation};
 #[cfg(feature = "async")]
 mod async_actor;
 #[cfg(feature = "async")]
@@ -1213,32 +1214,23 @@ impl OperationDecision {
 /// The handle-side observation state of one admitted operation (#777).
 ///
 /// Every wait borrows it, so an abandoned or timed-out wait releases only that
-/// wait. The authoritative terminal outcome, a failed cancellation, and the
-/// handle's own settlement verdict are cached here once received, so later
-/// waits return them without touching the owner.
+/// wait. Later waits read the cached terminal outcome or cancellation failure
+/// without touching the owner.
 #[derive(Debug)]
 pub(crate) struct OperationObservation {
     core: ReceiptCore,
-    motion: MotionStamp,
     cancellation_timeout: Duration,
     terminal: Option<Observed<CommandOutcome>>,
-    settled: Option<Result<crate::Settlement, Error>>,
     cancellation: Option<CancellationObserver>,
     cancellation_failure: Option<Observed<Error>>,
 }
 
 impl OperationObservation {
-    pub(crate) fn new(
-        core: ReceiptCore,
-        motion: MotionStamp,
-        cancellation_timeout: Duration,
-    ) -> Self {
+    pub(crate) fn new(core: ReceiptCore, cancellation_timeout: Duration) -> Self {
         Self {
             core,
-            motion,
             cancellation_timeout,
             terminal: None,
-            settled: None,
             cancellation: None,
             cancellation_failure: None,
         }
@@ -1347,32 +1339,6 @@ impl OperationObservation {
 
     pub(crate) fn cancellation_observer(&self) -> Option<&CancellationObserver> {
         self.cancellation.as_ref()
-    }
-
-    pub(crate) fn settled(&self) -> Option<Result<crate::Settlement, Error>> {
-        self.settled.clone()
-    }
-
-    pub(crate) fn check_settlement(&mut self) -> Result<(), Error> {
-        self.motion
-            .check(crate::OperationId::from_nonzero(self.id().as_nonzero()))
-            .inspect_err(|error| self.settled = Some(Err(error.clone())))
-    }
-
-    pub(crate) fn commit_position_observation(
-        &mut self,
-        result: Result<crate::Settlement, Error>,
-    ) -> Result<crate::Settlement, Error> {
-        self.motion.commit(
-            crate::OperationId::from_nonzero(self.id().as_nonzero()),
-            result,
-            &mut self.settled,
-        )
-    }
-
-    pub(crate) fn commit_completion(&mut self, evidence: crate::Settlement) -> crate::Settlement {
-        self.settled = Some(Ok(evidence));
-        evidence
     }
 }
 
