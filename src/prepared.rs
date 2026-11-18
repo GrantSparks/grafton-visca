@@ -1633,7 +1633,7 @@ mod tests {
 
         fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
             increment_write_count();
-            buffer[..3].copy_from_slice(&[target.to_address_byte(), 0x01, VISCA_TERMINATOR]);
+            buffer[..3].copy_from_slice(&[target.to_address_byte(), 0x09, VISCA_TERMINATOR]);
             Ok(3)
         }
     }
@@ -4770,7 +4770,8 @@ mod tests {
             ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("profile");
         let target = crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile);
         let tuning = OperationalTuning::new();
-        let wire = [0x81, 1, 2, VISCA_TERMINATOR];
+        let wire = [0x81, 0x01, 0x02, VISCA_TERMINATOR];
+        let inquiry_wire = [0x81, 0x09, 0x02, VISCA_TERMINATOR];
         for class in [
             SubmissionClass::Background,
             SubmissionClass::Normal,
@@ -4864,7 +4865,7 @@ mod tests {
             }
             for retry in [InquiryRetryClass::Never, InquiryRetryClass::Inquiry] {
                 let inquiry = crate::raw::InquiryRequest::with_policy(
-                    wire,
+                    inquiry_wire,
                     ResponseDecoder::from_fn(|bytes| Ok(bytes.to_vec())),
                     InquiryPolicy::new(retry, class),
                 )
@@ -4876,7 +4877,7 @@ mod tests {
                     matches!(retry, InquiryRetryClass::Inquiry)
                 );
                 assert_eq!(actual.context.control.class, engine_class(class));
-                assert_eq!(actual.wire.as_bytes(), wire);
+                assert_eq!(actual.wire.as_bytes(), inquiry_wire);
             }
         }
     }

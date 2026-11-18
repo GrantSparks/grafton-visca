@@ -13,15 +13,16 @@ use std::num::NonZeroUsize;
 use grafton_visca_test_support::{facade_matrix, fake_camera};
 
 use grafton_visca::{
-    config::SessionConfig,
+    config::{SessionConfig, TargetRegistration},
     profiles::{GenericVisca, ProfileSpec},
     raw,
     request::{
-        CommandRetryClass, InquiryRetryClass, PayloadShape, ResponseDecoder, SubmissionClass,
+        CommandRetryClass, Inquiry, InquiryClass, InquiryPolicy, InquiryRetryClass, PayloadShape,
+        Request, ResponseDecoder, SubmissionClass,
     },
     transport::{AddressingMode, BufferConfig, IoBounds, SendSemantics},
-    types::{AffectedAxes, IndividualCameraId},
-    Error,
+    types::{AffectedAxes, CameraId, IndividualCameraId},
+    Error, Result,
 };
 
 use fake_camera::{frames, FakeCamera};
@@ -124,6 +125,58 @@ facade_matrix! {
                 wait!(session.close()).expect("close");
             }
         }
+    }
+}
+
+// This downstream encoder bypasses the typed raw constructors. Its frame is
+// the standard Brightness Up command, even though it declares inquiry retries.
+struct BrightnessUpAsInquiry;
+
+impl Request for BrightnessUpAsInquiry {
+    type Class = InquiryClass;
+    const MAX_SIZE: usize = 6;
+
+    fn policy(&self) -> InquiryPolicy {
+        InquiryPolicy::new(InquiryRetryClass::Inquiry, SubmissionClass::Normal)
+    }
+
+    fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
+        let available = buffer.len();
+        let frame = buffer
+            .get_mut(..Self::MAX_SIZE)
+            .ok_or_else(|| Error::buffer_too_small(Self::MAX_SIZE, available))?;
+        frame.copy_from_slice(&[0x80 | target.value(), 0x01, 0x04, 0x0D, 0x02, 0xFF]);
+        Ok(Self::MAX_SIZE)
+    }
+}
+
+impl Inquiry for BrightnessUpAsInquiry {
+    type Response = u8;
+
+    fn decoder(&self) -> ResponseDecoder<Self::Response> {
+        ResponseDecoder::from_fn(decode_first)
+    }
+}
+
+facade_matrix! {
+    fn standard_command_cannot_enter_inquiry_retry_path() {
+        let peer = raw_camera();
+        let config = SessionConfig::from_compile_time::<GenericVisca>().expect("profile");
+        let registration = TargetRegistration::new(
+            IndividualCameraId::CAMERA_1,
+            ProfileSpec::from_compile_time::<GenericVisca>().expect("profile"),
+        );
+        let request = BrightnessUpAsInquiry;
+        let mut bytes = [0; BrightnessUpAsInquiry::MAX_SIZE];
+        assert!(matches!(registration.encode(&request, &mut bytes), Err(Error::InvalidRequest { .. })));
+
+        let session = open!(peer, config).expect("raw datagram session");
+        let camera = session.camera::<GenericVisca>(IndividualCameraId::CAMERA_1).expect("camera");
+        assert!(matches!(wait!(camera.inquire(&request)), Err(Error::InvalidRequest { .. })));
+        let metrics = wait!(session.metrics()).expect("metrics");
+        assert_eq!((metrics.admitted, metrics.writes, metrics.retries_scheduled), (0, 0, 0));
+        assert_eq!(peer.write_count(), 0);
+        wait!(session.close()).expect("close");
     }
 }
 

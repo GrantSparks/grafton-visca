@@ -19,7 +19,10 @@
 //! (`8x 2y ff`) or a per-camera interface clear (`8x 01 00 01 ff`) would let a
 //! target-scoped `execute` cancel another operation's socket or reset the
 //! shared command buffer, so both are rejected. Broadcast frames also fail
-//! construction. Preparation checks the same grammar and the target address.
+//! construction. A standard command (`0x01`) must use a command or operation
+//! class, and a standard inquiry (`0x09`) must use the inquiry class. Other
+//! message categories retain the caller’s declared class. Preparation checks
+//! the same grammar and class compatibility, along with the target address.
 //! The camera view supplies the authoritative target during preparation, so a
 //! frame addressed to another target is rejected rather than being silently
 //! rewritten or inspected to infer target identity. Frames up to
@@ -47,7 +50,7 @@
 //! protocol application an operation handle promises. Reply shape never
 //! re-admits the owner-only wire primitives rejected above.
 
-use std::fmt;
+use std::{any::TypeId, fmt};
 
 use smallvec::SmallVec;
 
@@ -60,7 +63,10 @@ use crate::{
 };
 
 use crate::{
-    command::bytes::{constants::system, VISCA_TERMINATOR},
+    command::bytes::{
+        constants::{system, COMMAND, INQUIRY},
+        VISCA_TERMINATOR,
+    },
     completion, request, CameraId, Error, Inquiry as InquiryContract, OperationCommand, Request,
     Result,
 };
@@ -194,9 +200,9 @@ impl From<OperationReplyShape> for RawReplyShape {
 struct Wire(SmallVec<[u8; INLINE_BYTES]>);
 
 impl Wire {
-    fn new(bytes: impl AsRef<[u8]>) -> Result<Self> {
+    fn new<C: request::Class>(bytes: impl AsRef<[u8]>) -> Result<Self> {
         let bytes = bytes.as_ref();
-        validate_wire(bytes)?;
+        validate_wire::<C>(bytes)?;
         Ok(Self(SmallVec::from_slice(bytes)))
     }
 
@@ -228,8 +234,8 @@ impl fmt::Debug for Wire {
     }
 }
 
-/// Checks one complete, individually addressed VISCA request frame.
-pub(crate) fn validate_wire(bytes: &[u8]) -> Result<()> {
+/// Checks one complete, individually addressed VISCA frame against its declared class.
+pub(crate) fn validate_wire<C: request::Class>(bytes: &[u8]) -> Result<()> {
     if bytes.len() > MAX_BYTES {
         return Err(Error::InvalidRequest {
             reason: format!(
@@ -255,7 +261,19 @@ pub(crate) fn validate_wire(bytes: &[u8]) -> Result<()> {
             reason: "raw VISCA frame must end with the 0xff terminator".into(),
         });
     }
-    reject_owner_only_primitive(bytes)
+    reject_owner_only_primitive(bytes)?;
+
+    // The class is sealed and statically known at each call site. Only the
+    // standard categories constrain it; vendor messages keep their declared policy.
+    let inquiry = TypeId::of::<C>() == TypeId::of::<request::InquiryClass>();
+    let reason = match (bytes[1], inquiry) {
+        (COMMAND, true) => "a standard VISCA command (0x01) cannot use the inquiry class",
+        (INQUIRY, false) => "a standard VISCA inquiry (0x09) must use the inquiry class",
+        _ => return Ok(()),
+    };
+    Err(Error::InvalidRequest {
+        reason: reason.into(),
+    })
 }
 
 /// Rejects the owner-only wire primitives a target-scoped `execute` must never
@@ -392,7 +410,7 @@ macro_rules! raw_operation {
                 policy: OperationPolicy,
             ) -> Result<Self> {
                 Ok(Self {
-                    wire: Wire::new(bytes)?,
+                    wire: Wire::new::<<Self as Request>::Class>(bytes)?,
                     axes,
                     policy,
                 })
@@ -462,7 +480,7 @@ impl PlainRequest {
     /// Creates a bounded raw plain command from an explicit policy value.
     pub fn with_policy(bytes: impl AsRef<[u8]>, policy: CommandPolicy) -> Result<Self> {
         Ok(Self {
-            wire: Wire::new(bytes)?,
+            wire: Wire::new::<<Self as Request>::Class>(bytes)?,
             policy,
             motion_axes: None,
         })
@@ -525,7 +543,7 @@ impl<R> InquiryRequest<R> {
         policy: InquiryPolicy,
     ) -> Result<Self> {
         Ok(Self {
-            wire: Wire::new(bytes)?,
+            wire: Wire::new::<request::InquiryClass>(bytes)?,
             decoder,
             policy,
             payload_shape: crate::PayloadShape::Unknown,
@@ -1208,6 +1226,55 @@ mod tests {
         assert!(AffectedAxes::from_bits(0).is_err());
     }
 
+    #[test]
+    fn standard_categories_agree_with_the_declared_class_and_vendor_categories_keep_it() {
+        let command = CommandPolicy::new(
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Never,
+            SubmissionClass::Normal,
+        );
+        let operation = OperationPolicy::new(
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Never,
+            SubmissionClass::Normal,
+        );
+        for (frame, command_allowed, inquiry_allowed) in [
+            (&[0x81, 0x01, 0x04, 0x0D, 0x02, 0xFF][..], true, false),
+            (&[0x81, 0x09, 0x04, 0x47, 0xFF][..], false, true),
+            (&[0x81, 0x0A, 0x04, 0x47, 0xFF][..], true, true),
+            (&[0x81, 0x0B, 0x04, 0x47, 0xFF][..], true, true),
+            (&[0x81, 0x2A, 0x02, 0xA0, 0x04, 0x02, 0xFF][..], true, true),
+        ] {
+            let plain = PlainRequest::with_policy(frame, command).map(|_| ());
+            let targeted =
+                TargetedRequest::with_policy(frame, AffectedAxes::PAN_TILT, operation).map(|_| ());
+            let applied =
+                AppliedOnlyRequest::with_policy(frame, AffectedAxes::ZOOM, operation).map(|_| ());
+            let inquiry = InquiryRequest::from_fn(
+                frame,
+                decode_first,
+                InquiryRetryClass::Inquiry,
+                SubmissionClass::Normal,
+            )
+            .map(|_| ());
+            for (result, allowed) in [
+                (plain, command_allowed),
+                (targeted, command_allowed),
+                (applied, command_allowed),
+                (inquiry, inquiry_allowed),
+            ] {
+                if allowed {
+                    result.expect("category compatible with declared class");
+                } else {
+                    assert!(
+                        matches!(result, Err(Error::InvalidRequest { .. })),
+                        "category conflict for {frame:02X?}: {result:?}"
+                    );
+                }
+            }
+        }
+    }
+
     /// An otherwise-valid frame one byte over the bound is rejected *by the
     /// size branch*.
     ///
@@ -1459,7 +1526,7 @@ mod tests {
                         .expect("cancel frame fits");
                 let frame = &frame[..len];
                 assert!(
-                    validate_wire(frame).is_err(),
+                    validate_wire::<request::PlainClass>(frame).is_err(),
                     "encoded cancel {frame:x?} must be refused by raw admission"
                 );
             }

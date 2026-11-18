@@ -39,7 +39,12 @@ Command retry families cannot be constructed or deserialized into an inquiry
 policy, and the inquiry retry family cannot be used on commands or operations.
 All policies take `SubmissionClass`, which has no urgent lane. These restrictions
 are checked by the policy types before submission. Policy construction is
-infallible, and raw request construction validates only wire bytes.
+infallible. Raw constructors and target-bound encoding validate wire bytes
+against the declared class. The standard command category (`0x01`) requires a
+command or operation class, and the standard inquiry category (`0x09`) requires
+the inquiry class. A conflict returns `Error::InvalidRequest` before admission.
+Other categories, including vendor extensions, use the caller’s declared class
+and its policy.
 
 The raw namespace is the explicit escape hatch for callers that need to supply
 wire bytes or a custom response decoder. Public built-in requests live under `command::<noun>::<Request>`, with

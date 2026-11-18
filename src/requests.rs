@@ -860,7 +860,7 @@ pub(crate) fn encode_for_target<R: Request + ?Sized, T>(
         });
     }
     let bytes = &buffer[..written];
-    crate::raw::validate_wire(bytes)?;
+    crate::raw::validate_wire::<R::Class>(bytes)?;
     let camera = CameraId::from(target.target());
     let address = camera.to_address_byte();
     if bytes[0] != address {
@@ -942,7 +942,9 @@ pub trait Request: Send + Sync {
     }
 
     /// Writes the complete terminated VISCA request into `buffer` and returns
-    /// the number of bytes written, at most [`Self::MAX_SIZE`].
+    /// the number of bytes written, at most [`Self::MAX_SIZE`]. Target-bound
+    /// encoding rejects standard command (`0x01`) and inquiry (`0x09`) bytes
+    /// that conflict with [`Self::Class`]. Other categories use the declared class.
     ///
     /// This is only the profile-free encoding hook: it receives the explicit
     /// target address, but not a [`crate::profiles::ProfileSpec`]. Do not use it for
