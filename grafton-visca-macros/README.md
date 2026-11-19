@@ -161,7 +161,7 @@ for value construction and extraction.
 built-in inquiry table.
 
 ```rust
-use grafton_visca::{CameraId, Request, ViscaInquiry};
+use grafton_visca::{request::Request, types::CameraId, wire::VISCA_TERMINATOR, ViscaInquiry};
 
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(opcode = 0x00, response = Power)]
@@ -171,10 +171,7 @@ let mut buffer = [0u8; <PowerInquiry as Request>::MAX_SIZE];
 let len = PowerInquiry
     .write_into(CameraId::CAMERA_1, &mut buffer)
     .expect("inquiry should encode");
-assert_eq!(
-    &buffer[..len],
-    &[0x81, 0x09, 0x04, 0x00, grafton_visca::command::VISCA_TERMINATOR]
-);
+assert_eq!(&buffer[..len], &[0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR]);
 ```
 
 The generated `parse_response()` and `Inquiry::decoder()` share the canonical
@@ -206,9 +203,9 @@ errors. Inquiry `opcode` and `subcode` are unsuffixed integer literals in
 
 ## Requirements and versions
 
-Rust 1.98 or later is required. The `response` attribute must name an existing
-inquiry kind, or `Raw` for a custom inquiry with a manually implemented
-`ResponseParser`. Downstream inquiries use the standard five-byte VISCA form.
+Rust 1.98 or later is required. Set `response` to a built-in inquiry kind for
+decoded data, or to `Raw` to receive the reply bytes as `wire::RawInquiryPayload`.
+Downstream inquiries use the standard five-byte VISCA form.
 
 The macro crate follows the main crate's version. Most applications need only
 the main dependency and its re-exported macros. Direct macro-crate users must
