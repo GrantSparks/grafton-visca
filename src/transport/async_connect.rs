@@ -1,16 +1,11 @@
 //! Async driver of the shared IP connect pipeline.
 //!
 //! [`crate::transport::connect`] owns the pipeline's rules. This module runs
-//! them once for every async runtime: a runtime contributes only its I/O
-//! primitives through [`AsyncNet`], and every connect step is bounded by the
-//! one [`within`] helper instead of a per-runtime timeout wrapper.
+//! them once for every async runtime: a runtime contributes its I/O
+//! primitives and clock through [`AsyncNet`], and every connect step is
+//! bounded by the one [`within`] helper.
 
-use std::{
-    future::Future,
-    io,
-    net::SocketAddr,
-    time::{Duration, Instant},
-};
+use std::{future::Future, io, net::SocketAddr, time::Instant};
 
 use crate::{
     timeout::Deadline,
@@ -23,7 +18,7 @@ use crate::{
     Error, Result,
 };
 
-/// The I/O primitives one async runtime contributes to the connect pipeline.
+/// The I/O primitives and clock one async runtime contributes to the connect pipeline.
 pub trait AsyncNet {
     /// The runtime's connected TCP stream.
     type TcpStream: Send;
@@ -50,13 +45,15 @@ pub trait AsyncNet {
     fn tcp_socket(stream: &Self::TcpStream) -> socket2::SockRef<'_>;
     /// The OS socket behind a UDP socket, for socket options.
     fn udp_socket(socket: &Self::UdpSocket) -> socket2::SockRef<'_>;
-    /// Sleep on the runtime's timer.
-    fn sleep(duration: Duration) -> impl Future<Output = ()> + Send;
+    /// Read the clock that drives the runtime's timer.
+    fn now() -> Instant;
+    /// Sleep until an instant on that clock.
+    fn sleep_until(deadline: Instant) -> impl Future<Output = ()> + Send;
 }
 
-/// Run one connect step within `remaining`; `None` means the budget ran out.
-async fn within<N: AsyncNet, T>(remaining: Duration, step: impl Future<Output = T>) -> Option<T> {
-    crate::timeout::within(step, N::sleep(remaining)).await
+/// Run one connect step until `deadline`; `None` means the budget ran out.
+async fn within<N: AsyncNet, T>(deadline: Instant, step: impl Future<Output = T>) -> Option<T> {
+    crate::timeout::within(step, N::sleep_until(deadline)).await
 }
 
 /// Resolve `endpoint` within the connect budget.
@@ -67,8 +64,8 @@ async fn resolve<N: AsyncNet>(
     if let Some(address) = endpoint.socket_addr() {
         return Ok(vec![address]);
     }
-    let remaining = deadline.remaining_or(Instant::now(), Error::connect_timeout)?;
-    match within::<N, _>(remaining, N::lookup(endpoint.to_string())).await {
+    deadline.remaining_or(N::now(), Error::connect_timeout)?;
+    match within::<N, _>(deadline.instant(), N::lookup(endpoint.to_string())).await {
         Some(lookup) => resolved(endpoint, lookup),
         None => Err(Error::connect_timeout()),
     }
@@ -79,16 +76,20 @@ pub(crate) async fn connect_tcp<N: AsyncNet>(
     endpoint: &NetworkEndpoint,
     options: TcpConnect,
 ) -> Result<N::TcpStream> {
-    let deadline = connect_deadline(Instant::now(), options.connect_timeout())?;
+    let deadline = connect_deadline(N::now(), options.connect_timeout())?;
     let mut attempts = TcpAttempts::new(resolve::<N>(endpoint, deadline).await?, deadline);
-    while let Some((address, remaining)) = attempts.next_attempt(Instant::now()) {
-        match within::<N, _>(remaining, N::connect_tcp(address, options)).await {
+    loop {
+        let now = N::now();
+        let Some((address, share)) = attempts.next_attempt(now) else {
+            return Err(attempts.into_error(endpoint, now));
+        };
+        // The address planner caps the share at the representable session deadline.
+        match within::<N, _>(now + share, N::connect_tcp(address, options)).await {
             Some(Ok(stream)) => return Ok(stream),
             Some(Err(error)) => attempts.failed(AttemptFailure::from_socket(error)),
             None => attempts.failed(AttemptFailure::ShareExpired),
         }
     }
-    Err(attempts.into_error(endpoint, Instant::now()))
 }
 
 /// Bind and connect a configured UDP socket to a canonical endpoint.
@@ -96,20 +97,20 @@ pub(crate) async fn connect_udp<N: AsyncNet>(
     endpoint: &NetworkEndpoint,
     options: UdpConnect,
 ) -> Result<N::UdpSocket> {
-    let deadline = connect_deadline(Instant::now(), options.connect_timeout())?;
+    let deadline = connect_deadline(N::now(), options.connect_timeout())?;
     let target = udp_target(&resolve::<N>(endpoint, deadline).await?)?;
 
-    let remaining = deadline.remaining_or(Instant::now(), Error::connect_timeout)?;
+    deadline.remaining_or(N::now(), Error::connect_timeout)?;
     let socket = socket_setup(
         endpoint,
-        within::<N, _>(remaining, N::bind_udp(bind_address_for(target)))
+        within::<N, _>(deadline.instant(), N::bind_udp(bind_address_for(target)))
             .await
             .ok_or_else(Error::connect_timeout)?,
     )?;
-    let remaining = deadline.remaining_or(Instant::now(), Error::connect_timeout)?;
+    deadline.remaining_or(N::now(), Error::connect_timeout)?;
     socket_setup(
         endpoint,
-        within::<N, _>(remaining, N::connect_udp(&socket, target))
+        within::<N, _>(deadline.instant(), N::connect_udp(&socket, target))
             .await
             .ok_or_else(Error::connect_timeout)?,
     )?;
@@ -127,9 +128,11 @@ mod tests {
     use std::{
         net::{TcpListener, TcpStream, UdpSocket},
         sync::OnceLock,
+        time::Duration,
     };
 
     use super::*;
+    use crate::transport::tokio::connectors::TokioNet;
 
     /// An address that never answers (TEST-NET-1).
     const UNROUTABLE: &str = "192.0.2.1:5678";
@@ -141,16 +144,24 @@ mod tests {
     struct TwoAddressNet<
         const REFUSE: bool = false,
         const ALL_EXPIRED: bool = false,
-        N = crate::transport::tokio::connectors::TokioNet,
+        N = TokioNet,
+        const LOOKUP_MILLIS: u64 = 0,
     >(std::marker::PhantomData<N>);
 
-    impl<const REFUSE: bool, const ALL_EXPIRED: bool, N: AsyncNet + 'static> AsyncNet
-        for TwoAddressNet<REFUSE, ALL_EXPIRED, N>
+    impl<
+            const REFUSE: bool,
+            const ALL_EXPIRED: bool,
+            N: AsyncNet + 'static,
+            const LOOKUP_MILLIS: u64,
+        > AsyncNet for TwoAddressNet<REFUSE, ALL_EXPIRED, N, LOOKUP_MILLIS>
     {
         type TcpStream = TcpStream;
         type UdpSocket = UdpSocket;
 
         async fn lookup(_endpoint: String) -> io::Result<Vec<SocketAddr>> {
+            if LOOKUP_MILLIS != 0 {
+                N::sleep_until(N::now() + Duration::from_millis(LOOKUP_MILLIS)).await;
+            }
             Ok(vec![
                 UNROUTABLE.parse().expect("address"),
                 if REFUSE || ALL_EXPIRED {
@@ -188,8 +199,12 @@ mod tests {
             socket2::SockRef::from(socket)
         }
 
-        async fn sleep(duration: Duration) {
-            N::sleep(duration).await;
+        fn now() -> Instant {
+            N::now()
+        }
+
+        async fn sleep_until(deadline: Instant) {
+            N::sleep_until(deadline).await;
         }
     }
 
@@ -230,8 +245,12 @@ mod tests {
         fn udp_socket(socket: &Self::UdpSocket) -> socket2::SockRef<'_> {
             N::udp_socket(socket)
         }
-        async fn sleep(duration: Duration) {
-            N::sleep(duration).await;
+        fn now() -> Instant {
+            N::now()
+        }
+
+        async fn sleep_until(deadline: Instant) {
+            N::sleep_until(deadline).await;
         }
     }
 
@@ -291,7 +310,7 @@ mod tests {
 
     #[tokio::test]
     async fn resolver_io_sources_survive_the_runtime_connector_boundary() {
-        check_resolver_source::<crate::transport::tokio::connectors::TokioNet>().await;
+        check_resolver_source::<TokioNet>().await;
         #[cfg(feature = "runtime-smol")]
         smol::block_on(check_resolver_source::<
             crate::transport::smol::connectors::SmolNet,
@@ -342,8 +361,12 @@ mod tests {
             N::udp_socket(socket)
         }
 
-        async fn sleep(duration: Duration) {
-            N::sleep(duration).await;
+        fn now() -> Instant {
+            N::now()
+        }
+
+        async fn sleep_until(deadline: Instant) {
+            N::sleep_until(deadline).await;
         }
     }
 
@@ -379,7 +402,7 @@ mod tests {
                 second.local_addr().expect("second"),
             ])
             .expect("set option-test addresses");
-        check_option_failure_fallback::<crate::transport::tokio::connectors::TokioNet>().await;
+        check_option_failure_fallback::<TokioNet>().await;
         #[cfg(feature = "runtime-smol")]
         smol::block_on(check_option_failure_fallback::<
             crate::transport::smol::connectors::SmolNet,
@@ -396,19 +419,24 @@ mod tests {
     /// Inject failures at the real shared connector boundary. The socket
     /// primitives are runtime-independent, so these errors exercise the same
     /// code used by Tokio and smol.
-    struct FailingUdp<const STAGE: u8>;
+    struct FailingUdp<const STAGE: u8, const STEP_MILLIS: u64 = 0>;
 
-    impl<const STAGE: u8> AsyncNet for FailingUdp<STAGE> {
+    impl<const STAGE: u8, const STEP_MILLIS: u64> AsyncNet for FailingUdp<STAGE, STEP_MILLIS> {
         type TcpStream = TcpStream;
         type UdpSocket = UdpSocket;
 
         async fn lookup(_: String) -> io::Result<Vec<SocketAddr>> {
-            unreachable!("numeric test endpoints do not resolve")
+            assert_ne!(STEP_MILLIS, 0, "numeric test endpoints do not resolve");
+            tokio::time::sleep(Duration::from_millis(STEP_MILLIS)).await;
+            Ok(vec![SocketAddr::from(([127, 0, 0, 1], 1259))])
         }
         async fn connect_tcp(_: SocketAddr, _: TcpConnect) -> io::Result<TcpStream> {
             unreachable!("UDP test")
         }
         async fn bind_udp(address: SocketAddr) -> io::Result<UdpSocket> {
+            if STEP_MILLIS != 0 {
+                tokio::time::sleep(Duration::from_millis(STEP_MILLIS)).await;
+            }
             if STAGE == 3 {
                 return std::future::pending().await;
             }
@@ -422,6 +450,9 @@ mod tests {
             }
         }
         async fn connect_udp(socket: &UdpSocket, address: SocketAddr) -> io::Result<()> {
+            if STEP_MILLIS != 0 {
+                tokio::time::sleep(Duration::from_millis(STEP_MILLIS)).await;
+            }
             if STAGE == 1 {
                 Err(io::Error::new(
                     io::ErrorKind::PermissionDenied,
@@ -438,8 +469,12 @@ mod tests {
         fn udp_socket(socket: &UdpSocket) -> socket2::SockRef<'_> {
             socket2::SockRef::from(socket)
         }
-        async fn sleep(duration: Duration) {
-            tokio::time::sleep(duration).await;
+        fn now() -> Instant {
+            TokioNet::now()
+        }
+
+        async fn sleep_until(deadline: Instant) {
+            TokioNet::sleep_until(deadline).await;
         }
     }
 
@@ -504,6 +539,49 @@ mod tests {
                 crate::Certainty::NotAccepted,
             )
         ));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn dns_bind_and_connect_share_the_udp_budget() {
+        let endpoint = NetworkEndpoint::parse("camera.test:1259", None).expect("valid endpoint");
+        let timed_out = Duration::from_millis(400);
+        let completes = Duration::from_millis(450);
+        for budget in [timed_out, completes] {
+            let options = UdpConnect::default()
+                .with_connect_timeout(budget)
+                .expect("valid timeout");
+            let started = tokio::time::Instant::now();
+            let result = connect_udp::<FailingUdp<2, 150>>(&endpoint, options).await;
+            assert_timer_elapsed(started.elapsed(), budget);
+            if budget == timed_out {
+                assert_connect_timeout(result.expect_err("UDP setup exceeds the budget"));
+            } else {
+                let socket = result.expect("a ready connect wins the deadline tie");
+                assert_eq!(
+                    socket.peer_addr().expect("connected peer"),
+                    SocketAddr::from(([127, 0, 0, 1], 1259))
+                );
+            }
+        }
+    }
+
+    fn assert_connect_timeout(error: Error) {
+        assert!(matches!(
+            error,
+            Error::Timeout { context } if context == crate::FailureContext::new(
+                crate::FailureStage::Session,
+                crate::Certainty::NotAccepted,
+            )
+        ));
+    }
+
+    #[track_caller]
+    fn assert_timer_elapsed(elapsed: Duration, expected: Duration) {
+        // Tokio may round a timer up to its one-millisecond resolution.
+        assert!(
+            (expected..=expected + Duration::from_millis(1)).contains(&elapsed),
+            "elapsed {elapsed:?}, expected {expected:?}"
+        );
     }
 
     #[tokio::test]
@@ -571,6 +649,29 @@ mod tests {
         ));
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn dns_and_both_tcp_attempts_share_the_paused_clock_budget() {
+        async fn check<const LOOKUP_MILLIS: u64>() {
+            let endpoint =
+                NetworkEndpoint::parse("camera.test:5678", None).expect("valid endpoint");
+            let budget = Duration::from_millis(400);
+            let config = TcpConnect::default()
+                .with_connect_timeout(budget)
+                .expect("valid timeout");
+            let started = tokio::time::Instant::now();
+            let error = connect_tcp::<TwoAddressNet<false, true, TokioNet, LOOKUP_MILLIS>>(
+                &endpoint, config,
+            )
+            .await
+            .expect_err("both addresses are unresponsive");
+            assert_connect_timeout(error);
+            assert_timer_elapsed(started.elapsed(), budget);
+        }
+
+        check::<0>().await;
+        check::<80>().await;
+    }
+
     #[cfg(feature = "runtime-smol")]
     #[test]
     fn smol_preserves_the_refusal_after_an_expired_first_address_share() {
@@ -592,7 +693,7 @@ mod tests {
 
     /// #798 review: an unroutable first address used to consume the whole
     /// connect budget, so the reachable second address was never tried.
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn an_unroutable_first_address_does_not_starve_the_next() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
         REACHABLE
@@ -602,13 +703,16 @@ mod tests {
             .with_connect_timeout(Duration::from_millis(600))
             .expect("valid connect timeout");
 
-        let stream = connect_tcp::<TwoAddressNet>(
+        let started = tokio::time::Instant::now();
+        let stream = connect_tcp::<TwoAddressNet<false, false, TokioNet, 100>>(
             &NetworkEndpoint::parse("camera.test:5678", None)
                 .expect("valid connector test configuration"),
             config,
         )
         .await
         .expect("the second resolved address connects within the budget");
+        // DNS uses 100 ms, leaving a 250 ms share for the first address.
+        assert_timer_elapsed(started.elapsed(), Duration::from_millis(350));
         assert_eq!(
             stream.peer_addr().expect("peer"),
             *REACHABLE.get().expect("listener address")
@@ -717,7 +821,11 @@ mod deadline_tie_tests {
             socket2::SockRef::from(socket)
         }
 
-        async fn sleep(_: Duration) {}
+        fn now() -> Instant {
+            Instant::now()
+        }
+
+        async fn sleep_until(_: Instant) {}
     }
 
     #[test]
@@ -733,7 +841,7 @@ mod deadline_tie_tests {
         pollster::block_on(async {
             for _ in 0..10_000 {
                 let stream =
-                    within::<ReadyNet, _>(Duration::ZERO, ReadyNet::connect_tcp(address, options))
+                    within::<ReadyNet, _>(ReadyNet::now(), ReadyNet::connect_tcp(address, options))
                         .await
                         .expect("completed step wins")
                         .expect("connected");

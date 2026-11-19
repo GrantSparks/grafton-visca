@@ -211,7 +211,7 @@ For Sony VISCA-over-IP mode, use UDP `52381` and the Sony 8-byte header:
 Byte 0-1: payload type
 Byte 2-3: payload length
 Byte 4-7: sequence number
-Byte 8+:  VISCA payload, ending in FF (FR7 position commands use 17 bytes)
+Byte 8+:  payload (VISCA frames end in FF; FR7 position commands use 17 bytes)
 ```
 
 Common payload types:
@@ -227,15 +227,22 @@ Common payload types:
 
 In Sony VISCA-over-IP, the VISCA device address is fixed as camera `1`, so normal commands use `81 ... FF`.
 
+The typed `CAM_VersionInq` sends `81 09 00 02 FF` under the device-setting
+header `01 20`, with the normal sequence and a payload length of five. Sony
+documents this framing for the FR7 (R7 pp. 4–7) and BRC-H900 (R11 pp. 10–11).
+The camera returns seven data bytes in a sequenced VISCA reply (`01 11`)
+without using a VISCA socket. On raw VISCA transports the inquiry uses only
+the inner frame.
+
 Sony's sequence-number RESET is a control command with a one-byte `01`
 payload: `02 00 00 01 00 00 00 00 01`. The header sequence field is ignored,
-and successful processing resets the next VISCA sequence to zero. A control
-reply uses `02 01`; the documented success payload is `01`, while protocol
-errors use two bytes such as `0F 01` (sequence abnormality) or `0F 02` (message
-type abnormality). These payloads are not terminated VISCA frames and must not
-be used to complete or correlate a VISCA request. The library leaves RESET
-disabled on connect unless the caller opts in, and exposes received control
-codes through diagnostics.
+and successful processing resets the next VISCA sequence to zero. The camera
+acknowledges RESET with payload `01` in a control reply (`02 01`). Camera-issued
+errors use a control command (`02 00`) with payload `0F 01` for a sequence error
+or `0F 02` for a message type error. The library exposes these codes through
+diagnostics independently of VISCA request correlation and completion. Control
+payloads have no `FF` terminator. RESET is disabled on connect unless the caller
+opts in. [Sony ILME-FR7 Command List, pp. 5–7](https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf#page=5)
 
 `DirectMenuControl` deliberately rejects the data pair `FF 81..88`. Other
 `FF` data values, including a final `FF`, remain byte-for-byte and receive a
@@ -966,6 +973,17 @@ pre-ACK pipeline and exact reply correlation.
 | Cancel invalid/empty socket | Camera returns `90 6y 05 FF`. |
 
 Use cancel for explicit user interrupts or emergency stops, not as a normal substitute for command pacing. Owner-issued cancellation is selected ahead of ordinary queued work, but it still obeys the shared profile-specific minimum spacing between sends and advances that spacing deadline. The uploaded unified guide gives `100 ms` as a hardware-tested PTZOptics G2/G3/30X starting point and `35 ms` for Sony FR7/BRC-H900; treat those as scheduler defaults that should be verified per target firmware and network path.
+
+For Sony FR7, the owner waits at least 200 ms after a typed PAN-TILT Drive
+write before sending a socket cancel, and needs an ACK naming the socket.
+After sending the cancel, another typed drive-family write on that target
+(including the STOP encoding) needs both 200 ms and the correlated
+`Command Canceled` response. Natural completion before the cancel goes on the
+wire releases the gate without the second interval. After the cancel is sent,
+natural completion can establish the original command's outcome. The restart
+still requires the cancellation response. If attribution ends without it,
+further typed drive-family writes on that target are refused for the session. Other work retains its
+normal pacing. [Sony ILME-FR7 Command List, pp. 5, 8–9, 18](https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf#page=5).
 
 ### 11.5 Retry policy
 

@@ -189,10 +189,8 @@ impl TargetedObservation {
         self.motion.axes
     }
 
-    pub(super) fn check(&mut self, id: OperationId) -> Result<(), Error> {
-        self.motion
-            .check(id)
-            .inspect_err(|error| self.settled = Some(Err(error.clone())))
+    pub(super) fn check(&self, id: OperationId) -> Result<(), Error> {
+        self.motion.check(id)
     }
 
     pub(super) fn commit_position_observation(

@@ -353,7 +353,7 @@ impl crate::Inquiry for NormalizedInquiry {
     fn builtin_inquiry_syntax_retry(
         &self,
         authority: crate::requests::BuiltinInquiryAuthority,
-    ) -> bool {
+    ) -> crate::requests::BuiltinInquiryProtocol {
         crate::Inquiry::builtin_inquiry_syntax_retry(
             &crate::command::ZoomPositionInquiry,
             authority,

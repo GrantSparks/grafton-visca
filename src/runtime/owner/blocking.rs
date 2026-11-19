@@ -577,18 +577,17 @@ impl BlockingOwnerHandle {
 
     /// Request shutdown and wait for the worker to release its transport.
     ///
-    /// The first close joins the worker thread; a worker panic is reported as
-    /// [`Error::OwnerTerminated`]. Any other clone waits on the liveness lane,
-    /// which the worker drops only after the transport. A close issued on the
-    /// worker thread itself, by a custom transport calling back into its own
+    /// The first close joins the worker thread. All external callers wait on
+    /// the liveness lane, which the worker drops after the transport. A close
+    /// issued on the worker thread itself by a custom transport calling into its
     /// session, requests shutdown but returns [`Error::InvalidState`] because
     /// it cannot wait for its own teardown. An external caller can still join
-    /// it. Otherwise the result is the async `close` contract: an
-    /// explicit shutdown returns `Ok(())`, a transport close or stream poison
-    /// that won the race is returned unchanged, and a failed shutdown signal
-    /// is preserved.
+    /// it. Every external close returns the shared verdict. Successful
+    /// shutdown includes transport release. A panic reports
+    /// [`Error::OwnerTerminated`] unless an earlier failure already set the
+    /// verdict.
     pub(crate) fn close(&self) -> Result<(), Error> {
-        let shutdown = self.shutdown();
+        let _ = self.shutdown();
         if self.worker_id == thread::current().id() {
             return Err(Error::InvalidState {
                 reason: "blocking owner worker cannot close its own session".into(),
@@ -603,14 +602,12 @@ impl BlockingOwnerHandle {
         // has dropped its transport, including on an unwind. Waiting for that
         // first keeps the join itself on the owner's clock.
         self.clock.await_disconnect(&self.core.actor_alive);
-        let teardown = match worker {
-            Some(worker) => match worker.join() {
-                Ok(()) => self.core.closed_result(),
-                Err(_) => Err(Error::OwnerTerminated),
-            },
-            None => self.core.closed_result(),
-        };
-        shutdown.and(teardown)
+        if let Some(worker) = worker {
+            // The owner publishes the close verdict even when the worker
+            // unwinds. Joining is needed only to collect the thread.
+            let _ = worker.join();
+        }
+        self.core.closed_result()
     }
 }
 

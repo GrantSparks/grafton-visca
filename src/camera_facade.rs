@@ -18,7 +18,9 @@ same endpoint after `close` is safe. If shutdown was accepted, the terminal
 owner result is returned after teardown: explicit shutdown returns `Ok(())`,
 while a transport close or stream poison that won the race is returned
 unchanged. If sending this call's shutdown signal fails immediately, that error
-is preserved. An owner that panicked is reported as [`crate::Error::OwnerTerminated`]."#
+is preserved. A panic in the owner or its transport destructor returns
+[`crate::Error::OwnerTerminated`] to all closers unless an earlier terminal
+failure already determined the result."#
     };
     (diagnostics) => {
         r#"Subscribes to the owner's bounded, best-effort diagnostic stream.

@@ -661,10 +661,9 @@ impl OwnerShellCore {
             .finish_write_turn_into(staged, result, finished_at, turn, effects);
     }
 
-    /// End the session: publish its terminal result, answer every boundary
-    /// still queued or retained, and return the final snapshot. The shell then
-    /// drops its driver before this core, so the liveness lane disconnects
-    /// only after transport teardown.
+    /// Publish the engine verdict, answer every queued or retained boundary,
+    /// and return the final snapshot. The driver must be released before an
+    /// orderly shutdown can produce a successful close result.
     pub(super) fn conclude(&mut self) -> OwnerSnapshot {
         // Normal loop exits have an engine verdict. If an owner is stopped
         // before the engine ends, preserve its own published/signalling error;
@@ -681,6 +680,10 @@ impl OwnerShellCore {
         self.drain_boundaries(boundary_error);
         self.publish_metrics();
         self.snapshot()
+    }
+
+    pub(super) fn driver_released(&self) {
+        self.lifecycle.driver_released();
     }
 
     fn terminate(&mut self, reason: ShutdownReason, observed_at: Instant) -> TurnStep {
@@ -1217,8 +1220,17 @@ impl OwnerShellCore {
 
 impl Drop for OwnerShellCore {
     fn drop(&mut self) {
-        // A shell can unwind before it reaches `conclude`, so fail closed
-        // before draining.
+        // A turn can unwind before the engine delivers its terminal effects.
+        // Resolve any uncertain cache values before publishing owner loss or
+        // dropping the observer senders and liveness barrier.
+        self.state.invalidate_uncertain_state();
+        let failure = self
+            .state
+            .boundary_error()
+            .filter(|cause| !matches!(cause, Error::RuntimeShutdown));
+        if let Some(cause) = failure {
+            self.lifecycle.publish_terminal(cause);
+        }
         let error = self.lifecycle.fail_closed();
 
         // The explicit normal-path drain may race with a sender that was
@@ -1293,6 +1305,7 @@ mod tests {
                 command_sockets: crate::types::CommandSocketCount::TWO,
                 physical_command_sockets: crate::types::CommandSocketCount::TWO,
                 cancellation: CancellationPolicy::Supported,
+                pan_tilt_drive_cancellation_ms: None,
                 control_reserve: 0,
             },
         )
@@ -1531,6 +1544,7 @@ mod tests {
             wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, 0x07, 0x00, 0xff]).unwrap()),
             context: RequestContext {
                 requires_extended_pan_tilt_speed: false,
+                pan_tilt_drive: false,
                 motion: Some(MotionEffect {
                     axes: crate::AffectedAxes::ZOOM,
                 }),
@@ -1720,6 +1734,7 @@ mod tests {
             Err(Error::RuntimeShutdown)
         ));
         assert_eq!(handle.terminal_metrics().unwrap().unwrap(), snapshot);
+        core.driver_released();
         drop(core);
         for _ in 0..8 {
             assert_eq!(handle.terminal_metrics().unwrap().unwrap(), snapshot);
@@ -1766,6 +1781,7 @@ mod tests {
         for _ in 0..8 {
             assert_eq!(handle.terminal_metrics().unwrap().unwrap(), published);
         }
+        core.driver_released();
         drop(core);
         assert!(matches!(
             halted.recv().unwrap(),
@@ -1941,6 +1957,75 @@ mod tests {
         core.conclude();
         let metrics = handle.terminal_metrics().unwrap().unwrap();
         assert_eq!(metrics.dropped_boundary_work, acting);
+    }
+
+    #[test]
+    fn interrupted_terminal_effects_preserve_the_cause_and_invalidate_the_pending_key() {
+        use crate::runtime::engine::{AppliedStateEffect, AppliedStateProjection, RuntimeRequest};
+        use crate::state_cache::KnownState;
+
+        let (handle, mut core) = owner();
+        let at = Instant::now();
+        let target = TargetSlot::CAMERA_1;
+        let cache = handle.state_cache(target);
+        let mut request = declared_request(false);
+        let RuntimeRequest::Command { applied_state, .. } = &mut request else {
+            panic!("the fixture must admit a projected command");
+        };
+        *applied_state = Some(AppliedStateProjection::Set(KnownState::ImageFreeze(false)));
+        let (_terminal, admitted) = handle
+            .enqueue_admission::<crate::runtime::engine::CommandOutcome>(request, None)
+            .unwrap();
+        let admission = core.receivers.admissions.recv().unwrap();
+        let TurnStep::Drive { mut effects, then } = core.handle(
+            OwnerEvent::Admission(Ok(admission)),
+            &mut Datagrams,
+            at,
+            false,
+        ) else {
+            panic!("setter must dispatch");
+        };
+        let request = admitted.recv().unwrap().unwrap().identity.request_id();
+        let _ = core.state.apply_effect(
+            Effect::AppliedState {
+                effect: AppliedStateEffect {
+                    request,
+                    target,
+                    projection: AppliedStateProjection::Set(KnownState::ImageFreeze(true)),
+                },
+            },
+            at,
+        );
+        let staged = core.next_transmit(&mut effects, at).unwrap();
+        core.finish_transmit(
+            &staged,
+            WriteOutcome::Sent(TransmissionMeta::Known),
+            at,
+            &mut effects,
+        );
+        assert!(core.next_transmit(&mut effects, at).is_none());
+        assert!(matches!(
+            core.resume(then, &mut Datagrams),
+            TurnStep::Done(_)
+        ));
+
+        // The engine retires the setter before the driver consumes the
+        // terminal decision. Losing that decision must not leave stale state.
+        let effects = core.state.input(
+            Input::Shutdown(ShutdownReason::TransportClosed { cause: None }),
+            at,
+        );
+        assert!(effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::AppliedState { .. })));
+        drop(effects);
+        assert_eq!(cache.image().freeze(), Some(true));
+        drop(core);
+        assert_eq!(cache.image().freeze(), None);
+        assert!(matches!(
+            handle.closed_result(),
+            Err(Error::ConnectionClosed { .. })
+        ));
     }
 
     #[test]

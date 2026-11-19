@@ -10,11 +10,11 @@
 
 use grafton_visca::{
     config::SessionConfig,
-    observability::SessionStatus,
+    observability::{DiagnosticCapacity, DiagnosticEvent, DiagnosticResponse, SessionStatus},
     operation::AppliedOnly,
     profiles::{GenericVisca, ProfileSpec, SonyFr7},
     transport::{IoBounds, SendSemantics},
-    types::{IndividualCameraId, PanTiltSpeedMode},
+    types::{IndividualCameraId, PanTiltSpeedMode, PowerStatus},
     Error,
 };
 use grafton_visca_test_support::{facade_matrix, fake_camera};
@@ -235,6 +235,54 @@ facade_matrix! {
         session.shutdown().unwrap();
     }
 
+    fn sony_control_errors_are_observable_without_resolving_a_live_inquiry() {
+        for stream in [false, true] {
+            let fake = FakeCamera::new(|write, answer| {
+                let (sequence, payload) = frames::sony_split(write).unwrap();
+                assert_eq!(payload, [0x81, 0x09, 0x04, 0x00, 0xff]);
+                for detail in [0x01, 0x02] {
+                    let mut control = vec![0x02, 0x00, 0x00, 0x02];
+                    control.extend_from_slice(&sequence.to_be_bytes());
+                    control.extend_from_slice(&[0x0f, detail]);
+                    answer.reply(control);
+                }
+                answer.reply(frames::sony_reply(sequence, &[0x90, 0x50, 0x02, 0xff]));
+            });
+            let config = SessionConfig::from_compile_time::<SonyFr7>().unwrap();
+            let session = if stream {
+                open!(Stream::new(fake.clone()), config)
+            } else {
+                open!(Datagram::new(fake.clone()), config)
+            }.expect("Sony session");
+            let camera = session.camera::<SonyFr7>(IndividualCameraId::CAMERA_1).unwrap();
+            let diagnostics = wait!(session.subscribe_diagnostics(DiagnosticCapacity::MAX)).unwrap();
+
+            let reply = wait!(camera.power().status())
+                .expect("the sequenced VISCA reply completes the inquiry");
+            assert_eq!(reply, PowerStatus::On);
+            let responses: Vec<_> = std::iter::from_fn(|| diagnostics.try_recv())
+                .filter_map(|event| match event {
+                    DiagnosticEvent::FrameReceived { target, response, .. } => {
+                        assert_eq!(target, IndividualCameraId::CAMERA_1);
+                        Some(response)
+                    }
+                    _ => None,
+                })
+                .collect();
+            assert!(matches!(responses.as_slice(), [
+                DiagnosticResponse::SonyControl { code: 0x0F01, .. },
+                DiagnosticResponse::SonyControl { code: 0x0F02, .. },
+                DiagnosticResponse::InquiryReply,
+            ]), "{responses:?}");
+            let metrics = wait!(session.metrics()).unwrap();
+            assert_eq!(metrics.terminal, 1);
+            assert_eq!(metrics.retries_scheduled, 0);
+            assert_eq!(metrics.protocol_errors, 0);
+            assert_eq!(metrics.ignored_malformed_frames, 0);
+            assert_eq!(fake.write_count(), 1);
+            wait!(session.close()).unwrap();
+        }
+    }
 }
 
 #[cfg(any(

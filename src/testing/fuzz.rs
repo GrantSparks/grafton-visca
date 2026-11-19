@@ -72,7 +72,7 @@ fn drive_framer(mut framer: impl Framer, chunks: &[&[u8]]) {
 pub fn sony_envelope(bytes: &[u8]) {
     let envelope = SonyEncapsulated::new(AddressingMode::Ip);
     let framer = SonyFramer::new(BufferConfig::for_udp());
-    let extract = |input| {
+    let extract = |input: &[u8]| {
         if let FrameScan::Complete(frame) = framer.scan(input) {
             let _ = envelope.extract_owner_response(frame);
         }
@@ -96,8 +96,10 @@ pub fn sony_envelope(bytes: &[u8]) {
         [first] => vec![*first],
         [] => vec![0x01],
     };
-    let framed = sony_frame(PayloadType::ControlReply, sequence_from(bytes), &control);
-    extract(&framed);
+    for kind in [PayloadType::ControlCommand, PayloadType::ControlReply] {
+        let framed = sony_frame(kind, sequence_from(bytes), &control);
+        extract(&framed);
+    }
 
     envelope.frame_sequence_reset_into(&mut out);
 }

@@ -123,6 +123,14 @@ pub(crate) enum BuiltinRequestClass {
     },
 }
 
+impl BuiltinCommand {
+    /// The directional and STOP encodings of the same pan/tilt drive command.
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub(crate) const fn is_pan_tilt_drive(self) -> bool {
+        matches!(self, Self::PanTiltDrive | Self::PanTiltStop)
+    }
+}
+
 impl BuiltinRequestClass {
     /// Whether this ledger row is a reviewed typed STOP.
     pub(crate) const fn is_stop(self) -> bool {

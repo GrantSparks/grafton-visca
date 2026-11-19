@@ -451,6 +451,8 @@ pub(crate) fn check_fact_keys(
 }
 
 macro_rules! __define_builtin_profiles {
+    (@drive_cancel_ms) => { None };
+    (@drive_cancel_ms $ms:literal) => { std::num::NonZeroU16::new($ms) };
     (
         profiles {$(profile $profile:ident {
             doc: $doc:literal,
@@ -459,13 +461,15 @@ macro_rules! __define_builtin_profiles {
             vendor: $vendor:literal,
             description: $description:literal,
             facts: $facts:tt,
+            $(pan_tilt_drive_cancellation_ms: $drive_cancel_ms:literal,)?
             withheld: $withheld:tt,
             evidence: $evidence:tt,
         })*}
     ) => {
         __define_builtin_profiles!(@emit profiles {$(profile $profile {
             doc: $doc, id: $id, id_doc: $id_doc, vendor: $vendor, description: $description,
-            facts: $facts, withheld: $withheld, evidence: $evidence,
+            facts: $facts, $(pan_tilt_drive_cancellation_ms: $drive_cancel_ms,)?
+            withheld: $withheld, evidence: $evidence,
         })*});
         #[cfg(all(test, feature = "serde"))]
         impl ProfileId {
@@ -515,6 +519,7 @@ macro_rules! __define_builtin_profiles {
                     supports_command_cancel: $supports_command_cancel:expr,
                     position_inquiries: $position_inquiries:expr,
                 },
+                $(pan_tilt_drive_cancellation_ms: $drive_cancel_ms:literal,)?
                 withheld: [$( $withheld:ident ),* $(,)?],
                 evidence: [$(($evidence_key:literal, $evidence_text:literal)),* $(,)?],
             })*
@@ -667,6 +672,14 @@ macro_rules! __define_builtin_profiles {
             /// Registry framing without constructing owned profile facts.
             pub(crate) const fn pan_tilt_coordinates(self) -> Option<$crate::profiles::PanTiltCoordinateConversion> {
                 match self { $(Self::$profile => __pan_tilt_coordinates!($pan_tilt_facts),)* }
+            }
+
+            /// Minimum intervals on both sides of a pan/tilt drive cancellation.
+            #[cfg(any(feature = "blocking", feature = "async"))]
+            pub(crate) const fn pan_tilt_drive_cancellation_ms(self) -> Option<std::num::NonZeroU16> {
+                match self {
+                    $(Self::$profile => __define_builtin_profiles!(@drive_cancel_ms $($drive_cancel_ms)?),)*
+                }
             }
 
             /// Returns the pinned snake_case identifier used in configurations.
@@ -2192,8 +2205,10 @@ macro_rules! builtin_profile_registry {
                         supports_command_cancel: true,
                         position_inquiries: Some($crate::AffectedAxes::PAN_TILT.union($crate::AffectedAxes::ZOOM.union($crate::AffectedAxes::FOCUS.union($crate::AffectedAxes::ND_FILTER)))),
                     },
+                    pan_tilt_drive_cancellation_ms: 200,
                     withheld: [],
                     evidence: [
+                        ("command_cancel", "R7 p. 5 specifies 200 ms before cancelling PAN-TILT Drive and 200 ms after issuing the cancel, with Command Canceled response evidence before restarting. R7 p. 18 lists STOP in the PAN-TILT Drive family."),
                         ("shutter", "No model-specific shutter-code inventory has been lowered from R7 into this profile. It advertises no shared shutter codes, so typed shutter positions are refused rather than sent with another model's codes. Use the raw command path."),
                         ("transport", "Sony VISCA-over-IP uses UDP 52381 with Sony's 8-byte encapsulation header."),
                         ("version_inquiry", "The FR7 VISCA command list (R7) documents `CAM_VersionInq` `8X 09 00 02 FF` -> `Y0 50 GG GG HH HH JJ JJ KK FF`: vendor ID (0001 Sony), model ID (051E ILME-FR7/FR7K), ROM revision and maximum socket (02)."),

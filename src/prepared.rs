@@ -254,7 +254,7 @@ impl<R: PositionReading> PositionQuery<R> {
 /// Generates typed polling storage, budgeting and preparation from the same
 /// axis-to-inquiry declaration that validates profile settlement availability.
 macro_rules! position_query_plan {
-    ($($axis:ident, $field:ident => $inquiry:ident;)*) => {
+    ($($axis:ident, $field:ident => $inquiry:ident $(, decoder: $decoder:path)?;)*) => {
         /// Complete set of typed position inquiries selected for one operation.
         #[derive(Debug, Clone)]
         pub(crate) struct PositionQueryPlan {
@@ -286,17 +286,25 @@ macro_rules! position_query_plan {
                 Ok(Self {
                     $($field: axes.iter()
                         .any(|axis| axis == crate::requests::AffectedAxis::$axis)
-                        .then(|| prepare_inquiry(
+                        .then(|| position_query_plan!(@prepare
                             &crate::command::inquiry::$inquiry,
                             registration,
-                            tuning,
-                            ClassSelection::Request,
+                            tuning
+                            $(, $decoder)?
                         ))
                         .transpose()?
                         .map(|prepared| PositionQuery::new(prepared.into_template())),)*
                 })
             }
         }
+    };
+    (@prepare $inquiry:expr, $registration:expr, $tuning:expr) => {
+        prepare_inquiry($inquiry, $registration, $tuning, ClassSelection::Request)
+    };
+    (@prepare $inquiry:expr, $registration:expr, $tuning:expr, $decoder:path) => {
+        prepare_inquiry_with_decoder(
+            $inquiry, $registration, $tuning, ClassSelection::Request, $decoder,
+        )
     };
 }
 crate::position_inquiries::settlement_inquiries!(position_query_plan);
@@ -552,7 +560,7 @@ where
         .motion_axes()
         .map(|axes| crate::runtime::engine::MotionEffect { axes });
     Ok(PreparedCommand {
-        wire,
+        wire: PreparedWire::Owned(wire),
         context,
         reply_shape,
         not_executable,
@@ -606,11 +614,12 @@ where
     }
     let (wire, _, decoder) = encode(inquiry, registration, || bind_decoder(registration))?;
     let (context, _) = lower_request_context(inquiry, registration, tuning, class);
+    let protocol = crate::requests::builtin_inquiry_protocol(inquiry);
     Ok(PreparedInquiry {
-        wire,
+        wire: PreparedWire::Owned(wire.with_sony_payload_type(protocol.sony_payload_type)),
         context,
         payload_shape: inquiry.payload_shape_for_profile(profile),
-        syntax: crate::requests::builtin_inquiry_syntax_retry(inquiry),
+        syntax: protocol.syntax_retry,
         decoder,
     })
 }
@@ -649,8 +658,9 @@ where
         Ok((crate::runtime::engine::MotionEffect { axes }, settlement))
     })?;
     context.requires_extended_pan_tilt_speed = lowered.requires_extended_pan_tilt_speed;
+    context.pan_tilt_drive = lowered.pan_tilt_drive;
     Ok(PreparedOperation {
-        wire,
+        wire: PreparedWire::Owned(wire),
         context,
         reply_shape,
         not_executable,
@@ -679,14 +689,14 @@ fn encode<R: Request + ?Sized, T>(
     request: &R,
     registration: &crate::TargetRegistration,
     before_write: impl FnOnce() -> Result<T>,
-) -> Result<(PreparedWire, crate::requests::LoweredRequest, T)> {
+) -> Result<(EncodedMessage, crate::requests::LoweredRequest, T)> {
     let capacity = crate::requests::declared_max_size(request).min(MAX_BYTES);
     let (message, (lowered, result)) = EncodedMessage::encode(capacity, |bytes| {
         let (lowered, result) =
             crate::requests::encode_for_target(request, registration, bytes, before_write)?;
         Ok((lowered.written, (lowered, result)))
     })?;
-    Ok((PreparedWire::Owned(message), lowered, result))
+    Ok((message, lowered, result))
 }
 
 /// The timing and admission facts shared by every lowered request class.
@@ -871,6 +881,7 @@ where
     (
         RequestContext {
             requires_extended_pan_tilt_speed: false,
+            pan_tilt_drive: false,
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,
@@ -1633,7 +1644,7 @@ mod tests {
 
         fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
             increment_write_count();
-            buffer[..3].copy_from_slice(&[target.to_address_byte(), 0x01, VISCA_TERMINATOR]);
+            buffer[..3].copy_from_slice(&[target.to_address_byte(), 0x09, VISCA_TERMINATOR]);
             Ok(3)
         }
     }
@@ -4770,7 +4781,8 @@ mod tests {
             ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("profile");
         let target = crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile);
         let tuning = OperationalTuning::new();
-        let wire = [0x81, 1, 2, VISCA_TERMINATOR];
+        let wire = [0x81, 0x01, 0x02, VISCA_TERMINATOR];
+        let inquiry_wire = [0x81, 0x09, 0x02, VISCA_TERMINATOR];
         for class in [
             SubmissionClass::Background,
             SubmissionClass::Normal,
@@ -4864,7 +4876,7 @@ mod tests {
             }
             for retry in [InquiryRetryClass::Never, InquiryRetryClass::Inquiry] {
                 let inquiry = crate::raw::InquiryRequest::with_policy(
-                    wire,
+                    inquiry_wire,
                     ResponseDecoder::from_fn(|bytes| Ok(bytes.to_vec())),
                     InquiryPolicy::new(retry, class),
                 )
@@ -4876,7 +4888,7 @@ mod tests {
                     matches!(retry, InquiryRetryClass::Inquiry)
                 );
                 assert_eq!(actual.context.control.class, engine_class(class));
-                assert_eq!(actual.wire.as_bytes(), wire);
+                assert_eq!(actual.wire.as_bytes(), inquiry_wire);
             }
         }
     }

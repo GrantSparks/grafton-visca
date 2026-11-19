@@ -10,8 +10,6 @@ use crate::{transport::SendSemantics, OperationalTuning};
 
 use std::{num::NonZeroUsize, sync::Arc};
 
-#[cfg(test)]
-use bytes::Bytes;
 use smallvec::SmallVec;
 
 use crate::{
@@ -150,8 +148,8 @@ impl Routing {
     }
 }
 
-/// Sony control replies carry no VISCA source. Its payload routing still
-/// follows the transport's addressing for ordinary VISCA replies.
+/// Sony control messages carry no VISCA source. Ordinary VISCA replies use
+/// the transport's addressing for routing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SonyRouting {
     target: TargetSlot,
@@ -258,6 +256,10 @@ pub(super) fn owner_policy_for_registry_with_tuning(
             } else {
                 CancellationPolicy::Unsupported
             },
+            pan_tilt_drive_cancellation_ms: profile
+                .capabilities()
+                .profile_id
+                .and_then(crate::profiles::ProfileId::pan_tilt_drive_cancellation_ms),
             control_reserve: profile.typed_stop_paths(),
         });
     }
@@ -1096,16 +1098,16 @@ mod tests {
     }
 
     #[test]
-    fn sony_control_reply_is_inert_but_preserves_its_diagnostic_code() {
+    fn sony_control_error_is_inert_but_preserves_its_diagnostic_code() {
         let target = TargetSlot::CAMERA_2;
         let profile = ProfileSpec::from_compile_time::<SonyFr7>().unwrap();
         let profiles = PerTarget::from_fn(|slot| (slot == target).then_some(&profile));
-        let control = Bytes::from_static(&[
-            0x02, 0x01, // control reply
+        let control = [
+            0x02, 0x00, // control command
             0x00, 0x02, // two-byte payload
             0x12, 0x34, 0x56, 0x78, // ignored control sequence
             0x0F, 0x01, // sequence-number error
-        ]);
+        ];
         let visca = [0x01, 0x11, 0, 3, 0, 0, 0, 1, 0x90, 0x41, 0xff];
 
         for addressing in [AddressingMode::Ip, AddressingMode::Serial] {
@@ -1127,7 +1129,7 @@ mod tests {
             };
             let decoded = envelope
                 .decode_frame(routing, framed)
-                .expect("valid Sony control reply");
+                .expect("valid Sony control error");
             assert_eq!(decoded.target, target);
             assert_eq!(decoded.sequence, None);
             assert_eq!(

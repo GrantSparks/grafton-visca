@@ -71,19 +71,10 @@ impl SonyHeader {
     /// Header size in bytes.
     pub const SIZE: usize = 8;
 
-    /// Create a new command header with the given sequence.
-    pub const fn new_command(payload_len: usize, sequence: u32) -> Self {
+    /// Create a header with the selected payload type, length, and sequence.
+    pub const fn new(payload_type: PayloadType, payload_len: usize, sequence: u32) -> Self {
         Self {
-            payload_type: PayloadType::ViscaCommand,
-            payload_length: payload_len as u16,
-            sequence_number: sequence,
-        }
-    }
-
-    /// Create a new inquiry header with the given sequence.
-    pub const fn new_inquiry(payload_len: usize, sequence: u32) -> Self {
-        Self {
-            payload_type: PayloadType::ViscaInquiry,
+            payload_type,
             payload_length: payload_len as u16,
             sequence_number: sequence,
         }
@@ -92,11 +83,7 @@ impl SonyHeader {
     /// Create a new reply header with the given sequence.
     #[cfg(test)]
     pub const fn new_reply(payload_len: usize, sequence: u32) -> Self {
-        Self {
-            payload_type: PayloadType::ViscaReply,
-            payload_length: payload_len as u16,
-            sequence_number: sequence,
-        }
+        Self::new(PayloadType::ViscaReply, payload_len, sequence)
     }
 
     /// Encode header to bytes.
@@ -141,7 +128,7 @@ mod tests {
 
     #[test]
     fn test_sony_header_encode_decode() {
-        let header = SonyHeader::new_command(10, 12345);
+        let header = SonyHeader::new(PayloadType::ViscaCommand, 10, 12345);
         let encoded = header.encode();
 
         assert_eq!(encoded[0], 0x01); // PayloadType::ViscaCommand
@@ -279,12 +266,12 @@ mod tests {
     #[test]
     fn test_const_constructors() {
         // Test that constructors can be used in const context
-        const COMMAND_HEADER: SonyHeader = SonyHeader::new_command(42, 1337);
+        const COMMAND_HEADER: SonyHeader = SonyHeader::new(PayloadType::ViscaCommand, 42, 1337);
         assert_eq!(COMMAND_HEADER.payload_type, PayloadType::ViscaCommand);
         assert_eq!(COMMAND_HEADER.payload_length, 42);
         assert_eq!(COMMAND_HEADER.sequence_number, 1337);
 
-        const INQUIRY_HEADER: SonyHeader = SonyHeader::new_inquiry(24, 7331);
+        const INQUIRY_HEADER: SonyHeader = SonyHeader::new(PayloadType::ViscaInquiry, 24, 7331);
         assert_eq!(INQUIRY_HEADER.payload_type, PayloadType::ViscaInquiry);
         assert_eq!(INQUIRY_HEADER.payload_length, 24);
         assert_eq!(INQUIRY_HEADER.sequence_number, 7331);

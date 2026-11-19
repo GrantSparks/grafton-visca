@@ -1,5 +1,5 @@
 //! Inert values crossing the deterministic protocol-engine boundary.
-use crate::protocol::response::CameraErrorCode;
+use crate::protocol::{response::CameraErrorCode, sony::PayloadType};
 use crate::target::{PerTarget, TargetSlot};
 
 use std::{
@@ -32,10 +32,11 @@ impl EngineTurn {
     }
 }
 
-/// Prepared wire data. It has no target, routing, or scheduling authority.
+/// Prepared VISCA bytes and any Sony envelope classification selected for them.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct EncodedMessage {
     bytes: SmallVec<[u8; INLINE_BYTES]>,
+    sony_payload_type: Option<PayloadType>,
 }
 
 impl EncodedMessage {
@@ -54,6 +55,7 @@ impl EncodedMessage {
         }
         Ok(Self {
             bytes: SmallVec::from_slice(bytes),
+            sony_payload_type: None,
         })
     }
 
@@ -76,7 +78,18 @@ impl EncodedMessage {
             });
         }
         bytes.truncate(written);
-        Ok((Self { bytes }, result))
+        Ok((
+            Self {
+                bytes,
+                sony_payload_type: None,
+            },
+            result,
+        ))
+    }
+
+    pub(crate) fn with_sony_payload_type(mut self, payload_type: Option<PayloadType>) -> Self {
+        self.sony_payload_type = payload_type;
+        self
     }
 
     /// Returns the inert wire bytes.
@@ -354,6 +367,7 @@ pub(crate) struct MotionEffect {
 pub(crate) struct RequestContext {
     /// FR7 speeds above 24 require session-confirmed Extended step mode at dispatch.
     pub(crate) requires_extended_pan_tilt_speed: bool,
+    pub(crate) pan_tilt_drive: bool,
     pub(crate) motion: Option<MotionEffect>,
     /// Assigned under the owner ingress lock, independently of engine admission.
     pub(crate) submission_order: u64,
@@ -392,9 +406,9 @@ pub(crate) use crate::request::builtin_contract::AppliedStateProjection;
 
 /// The two kinds of protocol work a camera serves independently.
 ///
-/// Commands and inquiries are admitted, queued, paced and reported on
-/// separate lanes, and the raw stream ledger latches each lane of a camera
-/// separately (a `CompletionOnly` command's debt holds both).
+/// Commands and inquiries have distinct protocol pacing and reporting rules.
+/// The raw stream ledger latches each lane of a camera separately
+/// (a `CompletionOnly` command's debt holds both).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Lane {
     /// Commands: ACK-bearing, `CompletionOnly` and `NoReply` alike.
@@ -470,7 +484,16 @@ impl RuntimeRequest {
         matches!(self, Self::Inquiry { .. })
     }
 
-    /// The lane this request is admitted, queued and reported on.
+    pub(super) fn sony_payload_type(&self) -> PayloadType {
+        match self {
+            Self::Command { .. } => PayloadType::ViscaCommand,
+            Self::Inquiry { wire, .. } => {
+                wire.sony_payload_type.unwrap_or(PayloadType::ViscaInquiry)
+            }
+        }
+    }
+
+    /// The protocol lane for dispatch eligibility and outcomes.
     pub(crate) const fn lane(&self) -> Lane {
         match self {
             Self::Command { .. } => Lane::Command,
@@ -511,6 +534,7 @@ pub(crate) struct TargetPolicy {
     /// Profile limit used for camera evidence, independently of owner tuning.
     pub(crate) physical_command_sockets: crate::CommandSocketCount,
     pub(crate) cancellation: CancellationPolicy,
+    pub(crate) pan_tilt_drive_cancellation_ms: Option<std::num::NonZeroU16>,
     /// Admission slots reserved for this target's urgent typed STOPs, one
     /// per STOP path its profile supports (D26, #778).
     pub(crate) control_reserve: u8,
@@ -525,6 +549,7 @@ impl TargetPolicy {
             command_sockets: crate::types::CommandSocketCount::TWO,
             physical_command_sockets: crate::types::CommandSocketCount::TWO,
             cancellation: CancellationPolicy::Supported,
+            pan_tilt_drive_cancellation_ms: None,
             control_reserve: 0,
         }
     }
@@ -816,7 +841,6 @@ pub(crate) enum Transmission {
         target: TargetSlot,
         wire: Arc<EncodedMessage>,
         framing: super::WriteFraming,
-        lane: Lane,
         requires_extended_pan_tilt_speed: bool,
     },
     Cancel {
@@ -1243,6 +1267,7 @@ mod duration_proof_tests {
     fn context(timeout: TimeoutPolicy, retry: RetryPolicy) -> RequestContext {
         RequestContext {
             requires_extended_pan_tilt_speed: false,
+            pan_tilt_drive: false,
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,

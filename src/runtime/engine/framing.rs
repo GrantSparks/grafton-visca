@@ -8,15 +8,18 @@
 use std::sync::Arc;
 
 use crate::{
-    command::CommandKind,
+    protocol::sony::PayloadType,
     transport::{
         builder::AddressingMode,
-        envelope::{Envelope, RawVisca, SonyEncapsulated, SonyRequestSequence},
+        envelope::{RawVisca, SonyEncapsulated, SonyRequestSequence},
     },
     Error,
 };
 
 use super::{EnvelopeKind, TransmissionMeta};
+
+#[cfg(test)]
+use crate::transport::envelope::Envelope;
 
 /// Immutable, shared configuration for exactly one session wire protocol.
 #[derive(Debug, Clone)]
@@ -87,10 +90,15 @@ impl RawEncoder {
 pub(crate) struct SonyEncoder(SonyEncapsulated);
 
 impl SonyEncoder {
-    pub(crate) fn plan(&self, sequence: SonyRequestSequence) -> WriteFraming {
+    pub(crate) fn plan(
+        &self,
+        sequence: SonyRequestSequence,
+        payload_type: PayloadType,
+    ) -> WriteFraming {
         WriteFraming(FramingPlan::Sony {
             envelope: self.0.clone(),
             sequence,
+            payload_type,
         })
     }
 
@@ -114,6 +122,7 @@ enum FramingPlan {
     Sony {
         envelope: SonyEncapsulated,
         sequence: SonyRequestSequence,
+        payload_type: PayloadType,
     },
 }
 
@@ -129,16 +138,19 @@ impl WriteFraming {
     pub(crate) fn frame_into(
         &self,
         bytes: &[u8],
-        kind: CommandKind,
         out: &mut bytes::BytesMut,
     ) -> Result<TransmissionMeta, Error> {
         match &self.0 {
             FramingPlan::Raw(envelope) => {
-                envelope.frame_into(bytes, kind, out)?;
+                envelope.frame_visca_into(bytes, out)?;
                 Ok(TransmissionMeta::Known)
             }
-            FramingPlan::Sony { envelope, sequence } => envelope
-                .frame_into_with_sequence(bytes, kind, *sequence, out)
+            FramingPlan::Sony {
+                envelope,
+                sequence,
+                payload_type,
+            } => envelope
+                .frame_into_with_sequence(bytes, *payload_type, *sequence, out)
                 .map(|allocated| match sequence {
                     SonyRequestSequence::AllocateFresh => TransmissionMeta::Allocated {
                         sequence: allocated,
@@ -162,35 +174,39 @@ mod tests {
         let ProtocolEncoder::Sony(encoder) = authority.encoder() else {
             unreachable!("Sony authority");
         };
-        let first = encoder.plan(SonyRequestSequence::AllocateFresh);
-        let next = encoder.plan(SonyRequestSequence::AllocateFresh);
-        let replay = encoder.plan(SonyRequestSequence::Replay(0));
+        let first = encoder.plan(
+            SonyRequestSequence::AllocateFresh,
+            PayloadType::ViscaCommand,
+        );
+        let next = encoder.plan(
+            SonyRequestSequence::AllocateFresh,
+            PayloadType::ViscaCommand,
+        );
+        let replay = encoder.plan(SonyRequestSequence::Replay(0), PayloadType::ViscaCommand);
         let mut buffer = bytes::BytesMut::new();
         assert_eq!(
-            first
-                .frame_into(COMMAND, CommandKind::Command, &mut buffer)
-                .expect("first"),
+            first.frame_into(COMMAND, &mut buffer).expect("first"),
             TransmissionMeta::Allocated { sequence: 0 }
         );
         let original = buffer.clone();
         assert_eq!(
-            replay
-                .frame_into(COMMAND, CommandKind::Command, &mut buffer)
-                .expect("replay"),
+            replay.frame_into(COMMAND, &mut buffer).expect("replay"),
             TransmissionMeta::Known
         );
         assert_eq!(buffer, original);
         assert!(encoder
-            .plan(SonyRequestSequence::AllocateFresh)
-            .frame_into(&[], CommandKind::Command, &mut buffer)
+            .plan(
+                SonyRequestSequence::AllocateFresh,
+                PayloadType::ViscaCommand
+            )
+            .frame_into(&[], &mut buffer)
             .is_err());
         assert_eq!(
             buffer, original,
             "refusal leaves the reusable buffer unchanged"
         );
         assert_eq!(
-            next.frame_into(COMMAND, CommandKind::Command, &mut buffer)
-                .expect("next"),
+            next.frame_into(COMMAND, &mut buffer).expect("next"),
             TransmissionMeta::Allocated { sequence: 1 }
         );
         let shared = authority.clone();
@@ -199,8 +215,11 @@ mod tests {
         };
         assert_eq!(
             shared
-                .plan(SonyRequestSequence::AllocateFresh)
-                .frame_into(COMMAND, CommandKind::Command, &mut buffer)
+                .plan(
+                    SonyRequestSequence::AllocateFresh,
+                    PayloadType::ViscaCommand
+                )
+                .frame_into(COMMAND, &mut buffer)
                 .expect("shared"),
             TransmissionMeta::Allocated { sequence: 2 }
         );
@@ -215,14 +234,20 @@ mod tests {
         let receiver = encoder.envelope();
         let mut buffer = bytes::BytesMut::new();
         encoder
-            .plan(SonyRequestSequence::AllocateFresh)
-            .frame_into(COMMAND, CommandKind::Command, &mut buffer)
+            .plan(
+                SonyRequestSequence::AllocateFresh,
+                PayloadType::ViscaCommand,
+            )
+            .frame_into(COMMAND, &mut buffer)
             .expect("first");
-        let pending = encoder.plan(SonyRequestSequence::AllocateFresh);
+        let pending = encoder.plan(
+            SonyRequestSequence::AllocateFresh,
+            PayloadType::ViscaCommand,
+        );
         receiver.frame_sequence_reset_into(&mut buffer);
         assert_eq!(
             pending
-                .frame_into(COMMAND, CommandKind::Command, &mut buffer)
+                .frame_into(COMMAND, &mut buffer)
                 .expect("after reset"),
             TransmissionMeta::Allocated { sequence: 0 }
         );
@@ -238,8 +263,7 @@ mod tests {
         let mut buffer = bytes::BytesMut::new();
         let command = [0x82, 0x01, 0x04, 0x00, 0x02, 0xff];
         assert_eq!(
-            plan.frame_into(&command, CommandKind::Command, &mut buffer)
-                .expect("raw frame"),
+            plan.frame_into(&command, &mut buffer).expect("raw frame"),
             TransmissionMeta::Known
         );
         assert_eq!(buffer.as_ref(), command);

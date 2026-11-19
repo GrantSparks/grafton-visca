@@ -1,6 +1,6 @@
 use grafton_visca::{
     request, request::Inquiry, request::Request, request::ResponseDecoder,
-    request::CommandRetryClass, profiles::CommandTimeoutClass, types::CameraId,
+    types::CameraId,
 };
 
 struct DownstreamInquiry;
@@ -30,12 +30,13 @@ impl Inquiry for DownstreamInquiry {
         &self,
         _authority: grafton_visca::requests::BuiltinInquiryAuthority,
         //~^ E0603 "module `requests` is private"
-    ) -> bool {
-        true
+    ) -> grafton_visca::requests::BuiltinInquiryProtocol {
+        //~^ E0603 "module `requests` is private"
+        unreachable!()
     }
 }
 
 fn main() {}
 
-// Downstream inquiries cannot name the crate-only authority that records
-// generated built-in provenance, so they retain the default `false` policy.
+// Downstream inquiries cannot name the crate-only authority or override the
+// built-in syntax replay and Sony envelope metadata.

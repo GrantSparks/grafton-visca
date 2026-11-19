@@ -434,6 +434,8 @@ pub(crate) struct OwnerMetrics {
 struct RequestSummary {
     target: TargetSlot,
     lane: Lane,
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    applied_state_key: Option<StateKey>,
 }
 
 impl RequestSummary {
@@ -441,6 +443,8 @@ impl RequestSummary {
         Self {
             target: request.context().target,
             lane: request.lane(),
+            #[cfg(any(feature = "async", feature = "blocking"))]
+            applied_state_key: request.applied_state().map(AppliedStateProjection::key),
         }
     }
 }
@@ -1563,24 +1567,13 @@ pub(crate) struct WireWrite<'a> {
         any(feature = "runtime-tokio", feature = "runtime-smol")
     ))]
     pub(crate) cancellation: bool,
-    pub(crate) inquiry: bool,
 }
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 impl WireWrite<'_> {
     /// Executes the encoder plan already bound by the session authority.
     pub(crate) fn frame(&mut self) -> Result<TransmissionMeta, Error> {
-        self.framing
-            .frame_into(self.bytes, self.command_kind(), self.frame_buffer)
-    }
-
-    /// The command kind this write is framed and sent as.
-    pub(crate) const fn command_kind(&self) -> crate::command::CommandKind {
-        if self.inquiry {
-            crate::command::CommandKind::Inquiry
-        } else {
-            crate::command::CommandKind::Command
-        }
+        self.framing.frame_into(self.bytes, self.frame_buffer)
     }
 }
 
@@ -1969,6 +1962,25 @@ impl OwnerState {
         Arc::clone(&self.target_cache)
     }
 
+    /// Invalidate cache keys without invoking transport or waking observers.
+    /// The owner record survives engine retirement until effects are delivered,
+    /// so it also identifies the key if retirement interrupted that delivery.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(super) fn invalidate_uncertain_state(&self) {
+        for (&id, active) in &self.active {
+            let summary = active.summary();
+            if let Some(key) = summary
+                .applied_state_key
+                .filter(|_| self.engine.may_have_applied(id).unwrap_or(true))
+            {
+                let mut cache = self.target_cache[summary.target]
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                cache.apply(AppliedStateProjection::invalidate(key));
+            }
+        }
+    }
+
     pub(crate) fn next_wake(&self, now: Instant) -> Option<Instant> {
         self.engine.next_wake(now)
     }
@@ -2344,14 +2356,13 @@ impl OwnerState {
             any(feature = "runtime-tokio", feature = "runtime-smol")
         ))]
         let cancellation = matches!(staged.kind, Transmission::Cancel { .. });
-        let (inquiry, requires_extended_pan_tilt_speed) = match staged.kind {
+        let requires_extended_pan_tilt_speed = matches!(
+            staged.kind,
             Transmission::Request {
-                lane,
-                requires_extended_pan_tilt_speed,
+                requires_extended_pan_tilt_speed: true,
                 ..
-            } => (lane == Lane::Inquiry, requires_extended_pan_tilt_speed),
-            Transmission::Cancel { .. } => (false, false),
-        };
+            }
+        );
         if requires_extended_pan_tilt_speed {
             let cache = crate::state_cache::StateCache::from_registry(
                 Arc::clone(&self.target_cache),
@@ -2382,7 +2393,6 @@ impl OwnerState {
                 any(feature = "runtime-tokio", feature = "runtime-smol")
             ))]
             cancellation,
-            inquiry,
         })
     }
 
@@ -2628,7 +2638,9 @@ pub(crate) fn observation_timeout(id: RequestId) -> Error {
 /// observation timeout: the operation may still be moving.
 #[cfg(any(feature = "async", feature = "blocking"))]
 pub(crate) fn settlement_error(error: Error, id: RequestId) -> Error {
-    if error.is_caller_deadline() {
+    if matches!(error, Error::SettlementSuperseded { .. }) {
+        error
+    } else if error.is_caller_deadline() {
         observation_timeout(id)
     } else {
         Error::SettlementObservationFailed {

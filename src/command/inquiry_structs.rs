@@ -536,6 +536,10 @@ fn inquiry_test_profiles() -> Vec<crate::ProfileSpec> {
 
 /// Generates every built-in inquiry item from the one table below.
 macro_rules! define_builtin_inquiries {
+    (@sony_payload_type) => { None };
+    (@sony_payload_type $payload_type:ident) => {
+        Some(crate::protocol::sony::PayloadType::$payload_type)
+    };
     (
         queryable {
             $(
@@ -549,6 +553,7 @@ macro_rules! define_builtin_inquiries {
                             bytes: $bytes:expr,
                             $(parameter: { $argument:ident: $argument_ty:ty = $sample:expr, byte: $argument_byte:ident },)?
                             source: $source:expr,
+                            $(sony_payload_type: $sony_payload_type:ident,)?
                             boolean: $boolean:expr,
                             typed: $typed:tt,
                             query: $query:expr,
@@ -872,8 +877,11 @@ macro_rules! define_builtin_inquiries {
                 fn builtin_inquiry_syntax_retry(
                     &self,
                     _authority: crate::requests::BuiltinInquiryAuthority,
-                ) -> bool {
-                    true
+                ) -> crate::requests::BuiltinInquiryProtocol {
+                    crate::requests::BuiltinInquiryProtocol {
+                        syntax_retry: true,
+                        sony_payload_type: define_builtin_inquiries!(@sony_payload_type $($sony_payload_type)?),
+                    }
                 }
             }
 
@@ -981,6 +989,7 @@ define_builtin_inquiries! {
             VersionInquiry {
                 bytes: system_wire::VERSION_INQUIRY,
                 source: source!([(R7, "r7-sonyfr7-version-query"), (R11, "r11-sonybrch900-version-query"), (R8, "r8-sonyevih100-version-query"), (R12, "r12-sonybrc300-version-query"), (R21, "r21-nearusbrc300-version-query")]),
+                sony_payload_type: ViscaDeviceSetting,
                 boolean: None,
                 typed: (crate::command::VersionInfo, { info } => Ok(info)),
                 query: BuiltinInquiryQuery::Queryable,

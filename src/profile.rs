@@ -575,14 +575,15 @@ impl TargetPanTiltCoordinates {
         ))
     }
 
-    /// Converts valid raw positions, preserving interior precision. A sourced
-    /// endpoint just outside the nominal degree interval can be expressed at
-    /// the nominal limit only if doing so preserves the same wire word.
-    pub(crate) fn position_degrees(
+    /// Checks a reported raw position against the registered target's ranges.
+    pub(crate) fn position_units(
         self,
         position: crate::camera::PanTiltUnits,
-    ) -> Result<crate::types::PanTiltPosition> {
-        let decode = |parameter, raw, scale, units: capabilities::CapabilityRange<i32>| {
+    ) -> Result<crate::camera::PanTiltUnits> {
+        for (parameter, raw, units) in [
+            ("pan position", position.pan, self.pan_units),
+            ("tilt position", position.tilt, self.tilt_units),
+        ] {
             if !units.contains(raw) {
                 return Err(Error::InvalidParameter {
                     parameter,
@@ -590,6 +591,19 @@ impl TargetPanTiltCoordinates {
                     reason: format!("reported coordinate is outside {units:?} units").into(),
                 });
             }
+        }
+        Ok(position)
+    }
+
+    /// Converts valid raw positions, preserving interior precision. A sourced
+    /// endpoint just outside the nominal degree interval can be expressed at
+    /// the nominal limit only if doing so preserves the same wire word.
+    pub(crate) fn position_degrees(
+        self,
+        position: crate::camera::PanTiltUnits,
+    ) -> Result<crate::types::PanTiltPosition> {
+        let position = self.position_units(position)?;
+        let decode = |raw, scale, units: capabilities::CapabilityRange<i32>| {
             let degrees = raw as f32 / scale;
             if self.endpoint_quantization == capabilities::EndpointQuantization::WholeDegrees
                 && (raw == units.min() || raw == units.max())
@@ -601,25 +615,23 @@ impl TargetPanTiltCoordinates {
                         .and_then(|word| self.constrain_units(word, units))
                         == Some(raw)
                     {
-                        return Ok(endpoint);
+                        return endpoint;
                     }
                 }
             }
-            Ok(degrees)
+            degrees
         };
         crate::types::PanTiltPosition::from_degrees(
             decode(
-                "pan position",
                 position.pan,
                 self.conversion.pan_degrees_to_units,
                 self.pan_units,
-            )?,
+            ),
             decode(
-                "tilt position",
                 position.tilt,
                 self.conversion.tilt_degrees_to_units,
                 self.tilt_units,
-            )?,
+            ),
         )
     }
 

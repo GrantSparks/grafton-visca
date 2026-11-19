@@ -492,6 +492,12 @@ impl Deadline {
         })
     }
 
+    /// Returns the absolute instant for a timer driven by the same clock.
+    #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
+    pub(crate) const fn instant(self) -> Instant {
+        self.deadline
+    }
+
     /// Returns the remaining duration at a sampled instant.
     pub(crate) fn remaining_at(&self, now: Instant) -> Duration {
         self.deadline.saturating_duration_since(now)

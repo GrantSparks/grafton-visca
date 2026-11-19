@@ -25,18 +25,21 @@ macro_rules! sample_positions {
     (
         async: [$($async:tt)*],
         await: $await:tt;
-        $($axis:ident, $field:ident => $inquiry:ident;)*
+        $($axis:ident, $field:ident => $inquiry:ident $(, decoder: $decoder:path)?;)*
     ) => {
         /// Samples exactly the prepared position inquiries, in axis order,
-        /// accepting each reply according to its owner delivery instant.
+        /// checking attribution before each inquiry and accepting replies
+        /// according to their owner delivery instants.
         $($async)* fn sample_positions(
             &self,
             queries: &mut crate::prepared::PositionQueryPlan,
             tolerance: crate::camera::MovementTolerance,
             deadline: std::time::Instant,
+            before_sample: impl Fn() -> Result<(), crate::Error>,
         ) -> Result<bool, crate::Error> {
             let mut moving = false;
             $(if let Some(query) = &mut queries.$field {
+                before_sample()?;
                 let value = super::handle::sample_positions!(@read self, query, deadline, $await)?;
                 moving |= query.record(value, tolerance);
             })*
@@ -417,11 +420,14 @@ macro_rules! owner_handle_methods {
                 &self,
                 poll: super::receipt::PositionPoll<'_>,
                 deadline: std::time::Instant,
+                before_sample: impl Fn() -> Result<(), crate::Error>,
             ) -> Result<(), crate::Error> {
                 let mut queries = poll.queries.clone();
                 let mut settlement = crate::prepared::SettlementPoll::new(poll.interval, deadline);
                 loop {
-                    let moving = self.sample_positions(&mut queries, poll.tolerance, deadline) $($await)* ?;
+                    let moving = self
+                        .sample_positions(&mut queries, poll.tolerance, deadline, &before_sample)
+                        $($await)* ?;
                     match settlement.observe(moving, self.now())? {
                         crate::prepared::SettlementStep::Settled => return Ok(()),
                         crate::prepared::SettlementStep::SampleAfter(pause) => {
@@ -444,7 +450,7 @@ macro_rules! owner_handle_methods {
                     tolerance: wait.tolerance(),
                     interval: wait.interval(),
                 };
-                self.poll_settlement(poll, deadline) $($await)*
+                self.poll_settlement(poll, deadline, || Ok(())) $($await)*
             }
 
             /// One movement observation across `window` (#781): a baseline
@@ -458,13 +464,13 @@ macro_rules! owner_handle_methods {
                 let deadline = self.deadline_after(window.budget(queries)?)?;
                 let tolerance = window.tolerance();
                 let mut queries = queries.clone();
-                self.sample_positions(&mut queries, tolerance, deadline) $($await)* ?;
+                self.sample_positions(&mut queries, tolerance, deadline, || Ok(())) $($await)* ?;
                 let window = window.observe_baseline(self.now(), deadline)?;
                 while let Some(remaining) = window.remaining(self.now()) {
                     self.sleep(remaining) $($await)*;
                 }
                 self.ensure_before(deadline)?;
-                self.sample_positions(&mut queries, tolerance, deadline) $($await)*
+                self.sample_positions(&mut queries, tolerance, deadline, || Ok(())) $($await)*
             }
 
             crate::position_inquiries::settlement_inquiries!(
@@ -662,10 +668,9 @@ macro_rules! owner_handle_methods {
                 )? {
                     Some(poll) => {
                         let id = crate::OperationId::from_nonzero(self.id());
-                        self.observed_settlement.check(id)?;
                         let result = self
                             .owner
-                            .poll_settlement(poll, deadline)
+                            .poll_settlement(poll, deadline, || self.observed_settlement.check(id))
                             $($await)*
                             .map(|()| {
                                 crate::Settlement::observed_stable(
@@ -673,9 +678,10 @@ macro_rules! owner_handle_methods {
                                     poll.interval,
                                     poll.tolerance,
                                 )
-                            })
-                            .map_err(|error| super::settlement_error(error, self.observation.id()));
-                        self.observed_settlement.commit_position_observation(id, result)
+                            });
+                        self.observed_settlement
+                            .commit_position_observation(id, result)
+                            .map_err(|error| super::settlement_error(error, self.observation.id()))
                     }
                     None => Ok(self.observed_settlement.commit_completion(
                         crate::Settlement::profile_completion(self.observed_settlement.axes()),

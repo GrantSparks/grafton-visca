@@ -17,6 +17,7 @@ import shlex
 SUITES = {
     "issue_554_owner_cancellation": "paused",
     "fr7_pan_tilt": "",
+    "fr7_pan_tilt_cancellation": "",
     "issue_553_owner_motion": "paused",
     "issue_565_transport_faults": "",
     "issue_566_retry_recovery": "",
@@ -36,6 +37,7 @@ SUITES = {
     "issue_892_payload_shape": "",
     "issue_975_lazy_settlement": "",
     "issue_979_owner_read_timeout": "",
+    "issue_1129_version_envelope": "",
 }
 
 

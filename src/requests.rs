@@ -26,14 +26,21 @@ pub(crate) struct AppliedStateAuthority(private::SealedToken);
 #[doc(hidden)]
 pub(crate) struct RequestContractAuthority(private::SealedToken);
 
-/// Crate-only authority passed to the hidden built-in inquiry provenance hook.
+/// Crate-only authority passed to the hidden built-in inquiry metadata hook.
 ///
-/// The containing module is private and this token is not constructible by a
-/// downstream [`crate::request::Inquiry`] implementation. Generated built-in inquiries use the
-/// hook to authorize the narrow `0x02` retry; custom inquiries retain its
-/// default `false` result.
+/// The private token prevents a downstream inquiry from opting in to
+/// crate-selected replay and envelope behavior.
 #[doc(hidden)]
 pub(crate) struct BuiltinInquiryAuthority(private::SealedToken);
+
+// The trait is also compiled in encoding-only builds, which have no owner
+// to consume the protocol facts.
+#[cfg_attr(not(any(feature = "blocking", feature = "async")), allow(dead_code))]
+#[derive(Default)]
+pub(crate) struct BuiltinInquiryProtocol {
+    pub(crate) syntax_retry: bool,
+    pub(crate) sony_payload_type: Option<crate::protocol::sony::PayloadType>,
+}
 
 mod private {
     #[derive(Debug, Clone, Copy)]
@@ -98,9 +105,11 @@ pub enum InquiryRetryClass {
 
 /// Caller-selected quality-of-service class for ordinary submissions.
 ///
-/// The owner dispatches eligible queued work from the highest occupied class
-/// first and in admission order within that class. Typed STOPs and owner-issued
-/// cancellation use the urgent safety lane independently of this setting.
+/// The owner dispatches the first eligible request in the highest eligible
+/// class. Commands and inquiries share one queue per class. New admissions
+/// and retries whose backoff has elapsed join the tail of that queue.
+/// Typed STOPs and owner-issued cancellation use the urgent safety lane
+/// independently of this setting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
@@ -425,7 +434,8 @@ enum DecoderInner<R> {
     #[cfg(any(feature = "blocking", feature = "async"))]
     PanTiltPosition {
         coordinates: crate::profiles::TargetPanTiltCoordinates,
-        lift: fn(crate::types::PanTiltPosition) -> Result<R>,
+        lift:
+            fn(crate::profiles::TargetPanTiltCoordinates, crate::types::PanTiltUnits) -> Result<R>,
     },
     ColorTemperature {
         steps: Arc<[u16]>,
@@ -540,9 +550,9 @@ impl<R> ResponseDecoder<R> {
                     PanTiltFraming::for_conversion(coordinates.conversion),
                 )
                 .and_then(|response| match response {
-                    Response::Inquiry(InquiryData::PanTiltPosition { pan, tilt }) => coordinates
-                        .position_degrees(crate::types::PanTiltUnits::new(pan, tilt))
-                        .and_then(lift),
+                    Response::Inquiry(InquiryData::PanTiltPosition { pan, tilt }) => {
+                        lift(*coordinates, crate::types::PanTiltUnits::new(pan, tilt))
+                    }
                     _ => Err(Error::UnexpectedResponseType),
                 })
                 .map_err(|error| inquiry_structs::reply_value_error(error, payload))
@@ -591,14 +601,40 @@ fn require_pan_tilt_coordinates(
 }
 
 #[cfg(any(feature = "blocking", feature = "async"))]
-impl ResponseDecoder<crate::types::PanTiltPosition> {
-    pub(crate) fn for_pan_tilt_position(target: &crate::TargetRegistration) -> Result<Self> {
+impl<R> ResponseDecoder<R> {
+    fn for_registered_pan_tilt(
+        target: &crate::TargetRegistration,
+        lift: fn(
+            crate::profiles::TargetPanTiltCoordinates,
+            crate::types::PanTiltUnits,
+        ) -> Result<R>,
+    ) -> Result<Self> {
         Ok(Self {
             inner: DecoderInner::PanTiltPosition {
                 coordinates: target.pan_tilt_coordinates()?,
-                lift: Ok,
+                lift,
             },
         })
+    }
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl ResponseDecoder<crate::types::PanTiltPosition> {
+    pub(crate) fn for_pan_tilt_position(target: &crate::TargetRegistration) -> Result<Self> {
+        Self::for_registered_pan_tilt(
+            target,
+            crate::profiles::TargetPanTiltCoordinates::position_degrees,
+        )
+    }
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl ResponseDecoder<crate::types::PanTiltUnits> {
+    pub(crate) fn for_pan_tilt_sample(target: &crate::TargetRegistration) -> Result<Self> {
+        Self::for_registered_pan_tilt(
+            target,
+            crate::profiles::TargetPanTiltCoordinates::position_units,
+        )
     }
 }
 
@@ -792,6 +828,8 @@ pub(crate) struct LoweredRequest {
     #[cfg(any(feature = "blocking", feature = "async"))]
     pub requires_extended_pan_tilt_speed: bool,
     #[cfg(any(feature = "blocking", feature = "async"))]
+    pub pan_tilt_drive: bool,
+    #[cfg(any(feature = "blocking", feature = "async"))]
     pub applied_state: Option<crate::runtime::engine::AppliedStateProjection>,
 }
 
@@ -813,6 +851,8 @@ pub(crate) fn write_lowered<R: Request + ?Sized>(
             && request
                 .pan_tilt_max_speed(RequestContractAuthority::new())
                 .is_some_and(|speed| speed > crate::command::PanTiltSpeedMode::STANDARD_MAXIMUM),
+        #[cfg(any(feature = "blocking", feature = "async"))]
+        pan_tilt_drive: request.is_pan_tilt_drive(RequestContractAuthority::new()),
         #[cfg(any(feature = "blocking", feature = "async"))]
         applied_state: request.applied_state_projection(AppliedStateAuthority::new()),
     })
@@ -858,7 +898,7 @@ pub(crate) fn encode_for_target<R: Request + ?Sized, T>(
         });
     }
     let bytes = &buffer[..written];
-    crate::raw::validate_wire(bytes)?;
+    crate::raw::validate_wire::<R::Class>(bytes)?;
     let camera = CameraId::from(target.target());
     let address = camera.to_address_byte();
     if bytes[0] != address {
@@ -940,7 +980,9 @@ pub trait Request: Send + Sync {
     }
 
     /// Writes the complete terminated VISCA request into `buffer` and returns
-    /// the number of bytes written, at most [`Self::MAX_SIZE`].
+    /// the number of bytes written, at most [`Self::MAX_SIZE`]. Target-bound
+    /// encoding rejects standard command (`0x01`) and inquiry (`0x09`) bytes
+    /// that conflict with [`Self::Class`]. Other categories use the declared class.
     ///
     /// This is only the profile-free encoding hook: it receives the explicit
     /// target address, but not a [`crate::profiles::ProfileSpec`]. Do not use it for
@@ -998,6 +1040,14 @@ pub trait Request: Send + Sync {
     #[allow(private_interfaces)]
     fn pan_tilt_max_speed(&self, _authority: RequestContractAuthority) -> Option<u8> {
         None
+    }
+
+    /// Carries the reviewed pan/tilt drive identity through generic preparation.
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    fn is_pan_tilt_drive(&self, _authority: RequestContractAuthority) -> bool {
+        false
     }
 
     /// Returns a crate-selected state effect for exact application.
@@ -1151,21 +1201,20 @@ pub trait Inquiry: Request<Class = request::InquiryClass> {
         Ok(self.decoder())
     }
 
-    /// Returns whether this inquiry is one of the crate-generated built-ins
-    /// eligible for the narrow syntax-error replay policy.
-    ///
-    /// The private authority keeps this provenance closed: downstream/custom
-    /// inquiry implementations use the default and cannot opt themselves in.
+    /// Returns crate-authorized syntax-error replay and Sony framing facts.
     #[doc(hidden)]
     #[allow(private_interfaces)]
-    fn builtin_inquiry_syntax_retry(&self, _authority: BuiltinInquiryAuthority) -> bool {
-        false
+    fn builtin_inquiry_syntax_retry(
+        &self,
+        _authority: BuiltinInquiryAuthority,
+    ) -> BuiltinInquiryProtocol {
+        BuiltinInquiryProtocol::default()
     }
 }
 
 #[cfg(any(feature = "blocking", feature = "async"))]
-/// Reads the closed built-in inquiry provenance during generic preparation.
-pub(crate) fn builtin_inquiry_syntax_retry<Q>(inquiry: &Q) -> bool
+/// Reads the closed built-in protocol facts during generic preparation.
+pub(crate) fn builtin_inquiry_protocol<Q>(inquiry: &Q) -> BuiltinInquiryProtocol
 where
     Q: Inquiry + ?Sized,
 {

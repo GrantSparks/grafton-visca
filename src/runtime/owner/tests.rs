@@ -376,6 +376,7 @@ mod control_reserve {
     fn request(target: u8, reply_shape: CommandReply) -> RuntimeRequest {
         let context = RequestContext {
             requires_extended_pan_tilt_speed: false,
+            pan_tilt_drive: false,
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,
@@ -755,6 +756,7 @@ mod metrics {
     fn request_context(retry: RetryPolicy) -> RequestContext {
         RequestContext {
             requires_extended_pan_tilt_speed: false,
+            pan_tilt_drive: false,
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,
@@ -1595,7 +1597,7 @@ mod metrics {
             .unwrap();
         let _ = state.finish_input_turn(turn, EngineTurn::InputOnly);
         let id = crate::OperationId::from_nonzero(admitted.admitted.id().as_nonzero());
-        let mut original = TargetedObservation::new(admitted.motion);
+        let original = TargetedObservation::new(admitted.motion);
         // A same-target, same-axis request rejected before admission cannot
         // steal attribution from the operation occupying the owner.
         let held: Vec<_> = (0..3)
@@ -2450,6 +2452,7 @@ mod lifecycle_trace {
             wire: Arc::new(EncodedMessage::new(&hex(wire)).unwrap()),
             context: RequestContext {
                 requires_extended_pan_tilt_speed: false,
+                pan_tilt_drive: false,
                 motion: None,
                 submission_order: 0,
                 dispatch_deadline: None,
@@ -2476,6 +2479,7 @@ mod lifecycle_trace {
             wire: Arc::new(EncodedMessage::new(&hex(wire)).unwrap()),
             context: RequestContext {
                 requires_extended_pan_tilt_speed: false,
+                pan_tilt_drive: false,
                 motion: None,
                 submission_order: 0,
                 dispatch_deadline: None,

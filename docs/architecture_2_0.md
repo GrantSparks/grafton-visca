@@ -1416,8 +1416,10 @@ Ordinary requests select a `SubmissionClass` (`Background`, `Normal`, or
 ordinary class. Typed STOPs and owner-issued cancellation always use the
 urgent lane. Preparation lowers typed STOPs to the engine’s ACK-bearing
 `Stop` class.
-Within each effective class the owner retains admission order; class selection
-only chooses the next eligible queued write and never interrupts in-flight I/O.
+Commands and inquiries share one FIFO per effective class. New admissions and
+promoted retries join the tail. The owner selects the first eligible entry in
+the highest eligible class. Class selection chooses the next queued write
+without interrupting in-flight I/O.
 Urgency bypasses ordinary admission backlog, not command-to-command physical
 pacing. A preceding inquiry does not start the urgent command clock (#712).
 Owner-issued socket cancellation is selected before ordinary ready work when
@@ -1628,8 +1630,11 @@ mid-proof restarts with a fresh two-sample proof. A fixed per-target/per-axis
 generation bank orders successful engine admissions against establishment of
 polled evidence under one lock. Only operation receipts retain the generation
 stamp for their affected axes (#1059). A later conflicting admission supersedes an
-unfinished proof even if the new command is cancelled before writing. Rejected
-admissions do not advance generations. Evidence already cached and exact
+unfinished proof even if the new command is cancelled before writing. The
+waiter checks the stamp before each inquiry, including when moving to the next
+axis in a sample, and caches the superseded verdict. It also checks the stamp
+under the generation lock when committing the result. Rejected admissions do
+not advance generations. Evidence already cached and exact
 profile completion remain valid. Polling errors retain their source while
 reporting observation uncertainty for the original move.
 
@@ -1663,6 +1668,11 @@ deadline even if their caller resumes later. Admission of another inquiry
 still requires time strictly before the deadline. Idle sampling intervals must
 be positive; a zero interval is refused before I/O and when deserializing an
 `IdleWait` policy.
+
+Pan and tilt samples must fall within the target's registered wire bounds,
+including its mount-specific tilt range. Movement tolerances use raw units
+after validation. Direct `inquire(&PositionInquiry)` returns the decoded raw
+units without checking the registered bounds.
 Late outcomes remain cached for a subsequent borrowing wait. A `cancel` after the
 owner stopped still answers from an outcome delivered before it stopped.
 

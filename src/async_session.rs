@@ -170,12 +170,8 @@ impl Session {
     /// This awaits release of the detached actor's driver and transport. It
     /// does not promise an executor-specific task join after that release point.
     pub async fn close(self) -> Result<()> {
-        let shutdown_result = self.shutdown();
-        let teardown_result = self.owner.wait_closed().await;
-        match shutdown_result {
-            Err(error) => Err(error),
-            Ok(()) => teardown_result,
-        }
+        let _ = self.shutdown();
+        self.owner.wait_closed().await
     }
 
     #[doc = crate::camera_facade::session_contract!(diagnostics)]
