@@ -228,7 +228,7 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
             Some(ambiguity),
         ),
     ];
-    assert_eq!(rows.len(), 17);
+    assert_eq!(rows.len(), 18);
     for (name, lifecycle, expected, window) in rows {
         assert_eq!(mask(lifecycle), expected, "{name}: {lifecycle:?}");
         assert_eq!(lifecycle.response_window_end(), window, "{name}");

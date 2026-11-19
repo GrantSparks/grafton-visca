@@ -7102,7 +7102,13 @@ fn sony_socketless_completion_finishes_the_sequenced_request() {
     let id = admitted(&admission);
     send_ok(&mut engine, &admission, Some(7), start);
     engine.handle(
-        frame(1, Some(7), DecodedResponse::Ack { socket: None }),
+        frame(
+            1,
+            Some(7),
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
         start,
     );
     assert_eq!(socket_of(&engine, id), Some(ViscaSocket::S1));
