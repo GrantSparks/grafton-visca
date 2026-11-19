@@ -103,6 +103,10 @@ pub const MAX_BYTES: usize = 1_024;
 /// succeeded, whereas an operation's `applied()` promise requires a terminal
 /// camera response. An [`InquiryRequest`] always awaits its reply, so its policy has
 /// no command reply-shape field.
+///
+/// Standard and high-resolution continuous zoom drive frames on FR7 require
+/// [`AckThenCompletion`](Self::AckThenCompletion). Session preparation returns
+/// [`crate::Error::InvalidRequest`] for a contradictory policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
@@ -125,8 +129,8 @@ pub enum RawReplyShape {
     /// On raw transports it starts only when the target has no other live
     /// command or inquiry. Ordinary same-target work waits while the answer
     /// is outstanding. Raw UDP can retain a bounded quarantine after
-    /// completion or timeout. On raw TCP or serial, the ledger retains an unanswered
-    /// write after its deadline. At the end of the ambiguity window, queued
+    /// completion or timeout. On raw TCP or serial, the ledger retains an
+    /// unanswered write after its deadline. At the end of the ambiguity window, queued
     /// work fails unwritten with [`crate::Error::InquiryCorrelationLost`] or
     /// [`crate::Error::CommandCorrelationLost`] until the answer arrives.
     /// Urgent STOPs may cross the raw exclusion (#795).

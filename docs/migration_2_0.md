@@ -806,12 +806,12 @@ ambiguity window and then fail unwritten with
 answers a later inquiry or STOP, while STOPs are always sent; the late answer
 is discarded instead of acknowledging the next command (#795).
 
-A raw `RawReplyShape::CompletionOnly` command is exclusive on its camera until
-its completion or rejection arrives: inquiries and ordinary commands to that
-camera now queue behind it, and on a raw stream keep queuing after its own
-deadline ends it unconfirmed (failing with `InquiryCorrelationLost` or
-`CommandCorrelationLost` once its ambiguity window passes). STOPs are never
-held back, and may now be written behind it on a stream (#795).
+On a raw transport, a `RawReplyShape::CompletionOnly` command holds the camera
+until its completion or rejection arrives. Inquiries and ordinary commands
+queue behind it. On a raw stream they keep queuing after the command ends
+unconfirmed and fail with `InquiryCorrelationLost` or `CommandCorrelationLost`
+once its ambiguity window passes. Urgent STOPs can cross that exclusion.
+Sony sequences allow concurrent work within normal limits (#795, #1151).
 
 A raw `RawReplyShape::NoReply` command is no longer "never blocked" on a raw
 stream: like an ordinary command it waits while an earlier command's answer

@@ -259,8 +259,8 @@ an ACK. With a Sony envelope its sequence identifies the answer, allowing
 concurrent work within normal limits. On raw UDP, TCP, or serial it starts
 only when the target has no live command or inquiry. Ordinary work queues
 while its answer is outstanding. Raw UDP can retain a bounded quarantine
-after completion or timeout. On raw TCP or serial, the ledger retains an unanswered write
-after its own deadline. When the ambiguity window ends, queued work fails
+after completion or timeout. On raw TCP or serial, the ledger retains an
+unanswered write after its own deadline. When the ambiguity window ends, queued work fails
 unwritten with `InquiryCorrelationLost` or `CommandCorrelationLost` until the
 answer arrives. Urgent STOPs may cross the raw exclusion (#795).
 
@@ -428,7 +428,7 @@ and lists both encodings in the FR7 VISCA command list.
 [Sony lens-controller guide, §§4.6.4–4.6.6](https://pro.sony/s3/2023/11/15112624/Developer-Guide-for-3rd-Party-Lens-Controller_V1.00.pdf#page=19) ·
 [FR7 VISCA command list, p. 16](https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf#page=16)
 
-Complete standard and high-resolution continuous zoom packets on FR7 require
+Complete standard and high-resolution continuous zoom drive packets on FR7 require
 `AckThenCompletion`, including when sent through raw or downstream requests.
 Declaring a different reply policy returns `InvalidRequest` before transmission.
 
