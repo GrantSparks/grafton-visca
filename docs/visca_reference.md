@@ -965,13 +965,11 @@ the owner alone knows which live operation owns a camera-assigned socket.
 
 ### 11.4 Command scheduling, sockets, and cancel
 
-VISCA cameras generally expose two command sockets. Maintain an owner-only
-per-camera scheduler. Raw VISCA normally gates the target's one unacknowledged
-command, then tracks the ACK-assigned sockets and frees each socket on
-Completion or an error. One intrinsically `Urgent` command may cross one open
-candidate for safety (#714); while both are open, ACK/error evidence binds to
-neither rather than using FIFO order or recency. Sony sequence numbers permit
-pre-ACK pipeline and exact reply correlation.
+VISCA cameras generally expose two command sockets. The scheduler tracks
+them per target. An urgent STOP may cross an open raw command for safety
+(#714). Raw UDP drops replies that either command could have sent. Raw
+streams attribute first answers through the ordered ledger. Sony sequence
+numbers permit pre-ACK pipelining. See [transport-specific attribution](#61-command-lifecycle).
 
 | Action | Packet / behavior |
 |---|---|

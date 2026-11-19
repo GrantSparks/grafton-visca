@@ -143,8 +143,8 @@ pub enum RawReplyShape {
     /// transports the owner starts this write only when the target has no
     /// live command or inquiry. Ordinary response-bearing work waits out
     /// the bounded quarantine for a late response. An urgent STOP may
-    /// cross the hold. An ambiguous socketless error leaves both writes
-    /// unresolved by that frame. On raw TCP or serial, the ledger retains a
+    /// cross the hold. A socketless error that could belong to either command
+    /// is ambiguous. On raw TCP or serial, the ledger retains a
     /// possible rejection until later evidence settles it. Completion-only
     /// commands wait for that evidence and fail unwritten with
     /// [`crate::Error::CommandCorrelationLost`] once the ambiguity window

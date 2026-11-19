@@ -943,10 +943,8 @@ fn decode_response(target: TargetSlot, payload: &[u8]) -> Result<DecodedResponse
     Ok(match basic.kind {
         // The socket nibble is optional on the wire. A camera that answers
         // `90 40 FF` / `90 50 FF` is well formed, and deciding what an absent
-        // socket means is the scheduler's job, not the transport adapter's:
-        // an ACK takes the first free socket, and a completion is attributed
-        // by sequence or by sole socket ownership. Rejecting the frame here
-        // would kill an otherwise healthy session over real hardware.
+        // socket means depends on the engine's sequence, ownership and
+        // retained correlation evidence.
         BasicKind::Ack { socket } => DecodedResponse::Ack { socket },
         BasicKind::Completion { socket } => DecodedResponse::Completion { socket },
         BasicKind::DataReply(payload) => {

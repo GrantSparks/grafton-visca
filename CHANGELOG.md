@@ -922,7 +922,7 @@ verification.
   (#1127, #1132, #1141, #1147, #1150).
 - Exact raw FR7 speed-mode setters update or invalidate the same cached state
   that guards typed extended-speed drives. An earlier setter is ordered ahead
-  of a high-speed write, and a speed above 24 still requires confirmed
+  of a high-speed write, and a typed speed above 24 still requires confirmed
   `Fine50` at each attempt (#1148).
 - Sony sequence and message-type errors reach diagnostics independently of
   VISCA request correlation (#1128).
@@ -939,7 +939,7 @@ verification.
   on its target. Other axes remain eligible during the retry backoff (#1133).
   On FR7, the zoom halt selects the documented high-resolution STOP when the
   latest continuous drive that may have taken effect uses that family.
-  Standard and high-resolution continuous zoom frames with a contradictory
+  Standard and high-resolution continuous zoom drive frames with a contradictory
   raw reply policy fail before transmission (#1140, #1155).
 - Normalized zoom writes and readbacks use the checked capability range and
   its shared rounding rule. Normalization rounds the exact integer ratio to
