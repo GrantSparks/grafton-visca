@@ -329,27 +329,25 @@ not assume every command follows the ACK-then-completion shape. The axis is
 `CommandPolicy::with_reply_shape`. Operations use `request::OperationPolicy` and
 `raw::OperationReplyShape`, which omit `NoReply`:
 
-- `AckThenCompletion` (the default) — the command is acknowledged, assigned a
-  socket, then completes. This is the shape of every built-in command, so
-  existing raw code is unchanged.
+- `AckThenCompletion` (the default) — the camera acknowledges the command
+  and later sends a completion. A named ACK identifies the camera's socket.
+  Built-in commands use this shape.
 - `CompletionOnly` — the camera answers with a completion (or terminal) frame
   and no acknowledgement. The command earns no socket and never enters the
   unacknowledged-ACK gate, so a missing ACK can neither fail nor poison it; it
   terminates on the completion frame or a bounded completion deadline. Because it
-  can never be socket-correlated, a completion-only command holds the target's
-  command channel exclusively for ordinary work and starts only when its target
-  is idle. An urgent STOP may cross that exclusion on a raw stream, where the
-  ledger keeps its first answer distinct (#795). A successful raw datagram
+  has no socket, a completion-only command on a raw transport starts only
+  when its target is idle and holds both lanes for ordinary work. An urgent
+  STOP may cross that exclusion (#795). A successful raw datagram
   terminal leaves a bounded `AllResponses` hold before ordinary same-target
   response-bearing work starts; a raw stream accounts for the answer in its
-  ledger instead. Cancellation after the write is refused with `CancellationNotSupported`
-  because this command can never own a cancellable socket (#835).
+  ledger. A Sony sequence identifies the terminal alongside other live work.
+  Cancellation after the write returns `CancellationNotSupported` (#835).
 - `NoReply` — a plain-command-only fire-and-forget shape. Its `execute()`
   result proves only that the local transport write succeeded; it does **not**
   prove camera acceptance or protocol application, so raw targeted and
-  applied-only operations cannot select this shape. To make that later quarantine
-  attributable, its write starts only when the target has no live command or
-  inquiry and excludes same-target work until the write result lands. A
+  applied-only operations cannot select this shape. On raw transports its
+  write starts only when the target has no live command or inquiry. A
   successful write leaves the same bounded target response/correlation
   quarantine before same-target
   response-bearing raw command or inquiry work may start. Another `NoReply`
@@ -359,7 +357,8 @@ not assume every command follows the ACK-then-completion shape. The axis is
   is never held by it (#795): a socketless error it makes ambiguous binds to
   neither. On a raw byte stream its possible rejection stays owed until a
   later answer from the camera settles it, since a stall can outlast any
-  window (see `docs/architecture_2_0.md`).
+  window. A Sony envelope permits other live work on the target within its
+  normal limits.
 
 The shape is a command axis only. An inquiry always awaits its reply, so
 `request::InquiryPolicy` has no command reply-shape field. The inquiry class

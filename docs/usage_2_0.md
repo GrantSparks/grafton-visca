@@ -254,14 +254,22 @@ validated against the profile transport registry. A caller-owned adapter can dec
 transport path. The session still validates target registration, envelope,
 addressing, pacing, framing, buffer limits, and owner capacity.
 
-A raw command declared `RawReplyShape::CompletionOnly` answers with no ACK and
-no socket, so it is exclusive on its camera: it starts only when nothing else
-to that camera is live, and until its completion or rejection arrives no
-inquiry and no ordinary command to that camera is written — they queue under
-their own deadlines. On a raw stream that lasts even past its own deadline;
-once its ambiguity window ends unanswered, queued work fails unwritten with
-`InquiryCorrelationLost` or `CommandCorrelationLost` until the answer arrives.
-STOPs are never held back by it (#795).
+A command declared `RawReplyShape::CompletionOnly` expects a terminal without
+an ACK. With a Sony envelope its sequence identifies the answer, allowing
+concurrent work within normal limits. On raw UDP, TCP, or serial it starts
+only when the target has no live command or inquiry. Ordinary work queues
+while its answer is outstanding. Raw UDP retains a bounded quarantine after
+the terminal. On raw TCP or serial, the ledger retains an unanswered write
+after its own deadline. When the ambiguity window ends, queued work fails
+unwritten with `InquiryCorrelationLost` or `CommandCorrelationLost` until the
+answer arrives. Urgent STOPs may cross the raw exclusion (#795).
+
+`RawReplyShape::NoReply` returns on local write success. The raw transports
+apply idle-target admission and a bounded quarantine for a possible late
+response. On raw TCP or serial, the ledger can retain possible rejection
+evidence past the quarantine. On a Sony envelope, other work can use the
+camera concurrently within its normal limits. See the
+[transport correlation rules](architecture_2_0.md#raw-response-shapes-and-correlation-ownership).
 
 ## Operational tuning
 

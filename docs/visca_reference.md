@@ -282,26 +282,17 @@ Camera → Controller: 90 5y FF   # Completion, command finished
 
 `y` is the socket number. Most cameras have two command sockets.
 
-For raw VISCA, do not send a second command for the same target while its
-first command is still unacknowledged. The one raw candidate spans `Sending`,
-`AwaitingAck`, and `AwaitingCompletion`. The `AwaitingCompletion` phase is the
-completion-only shape: it holds the target channel exclusively and never earns
-a socket. For an ACK-bearing command,
-once the ACK establishes the first command's socket, the scheduler may use the
-camera's remaining socket capacity while that command executes. Raw ACK and
-error routing never uses a
-command FIFO or temporal recency. A socketless error routes the unique
-unacknowledged command only when no inquiry owner is live; with no unacknowledged
-command it may route the legitimate per-target inquiry FIFO, while a
-command-plus-inquiry collision is ignored. An explicit socket routes only its
-exact target/socket owner, and a socketless error never targets `Executing`.
-A named ACK socket is exact evidence as well: if another request owns that
-socket on raw VISCA, the camera's new assignment supersedes the stale local
-owner (#721). The old request fails immediately and leaves an inert keyed
-`PreAck` hold; the new request owns the named socket. A socketless ACK may select the first free
-registered socket. Sony-encapsulated commands may pipeline before ACK because
-their envelope sequence number provides exact correlation; they retain the
-bounded #620/#682 other-free-socket compatibility fallback.
+The owner correlates replies per target according to the transport.
+
+| Transport | Attribution |
+|---|---|
+| Raw UDP | At most one ordinary command awaits an ACK. A named ACK allows use of the remaining socket capacity and supersedes a stale owner of that socket (#721). A socketless error can identify the sole eligible command or inquiry when no other candidate could have produced it. Two live inquiries can share the target when their payload shapes are disjoint, but a socketless error does not identify either one. |
+| Raw byte stream (TCP or serial) | The ordered ledger attributes first answers to the oldest compatible write, including debt from earlier writes whose answers are still owed. A matching debt consumes the answer. A named terminal uses exact socket evidence when it cannot be an earlier write's first answer. |
+| Sony envelope (UDP or TCP) | The sequence attributes replies, so commands can pipeline before ACK. A named ACK identifies the camera-reported socket. A command that loses the socket can still receive its terminal by sequence. |
+
+See [raw reply shapes and dispatch](architecture_2_0.md#raw-response-shapes-and-correlation-ownership)
+and [the raw byte-stream ledger](architecture_2_0.md#the-raw-byte-stream-correlation-ledger)
+for the complete rules, including urgent STOPs and retained reply evidence.
 
 The fixed response forms are length-exact: `z0 4y FF` ACK, `z0 5y FF`
 nonzero-socket completion, `z0 6y zz FF` error, and `z0 38 FF` network-change
