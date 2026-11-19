@@ -36,6 +36,7 @@ mod raw_stream_model;
 mod retry_history;
 mod session_end;
 mod socketless_ack_conflicts;
+mod sony_cancel_response;
 mod sony_socket_reuse;
 mod sony_unnamed_ack;
 mod speed_mode_order;
@@ -5286,15 +5287,9 @@ fn seed_fuzz_coverage(
         *now + Duration::from_micros(2),
     );
     coverage.record(engine, &sent);
-    let cancellation_response = if envelope == EnvelopeKind::Raw {
-        DecodedResponse::Error {
-            socket: Some(ViscaSocket::S2),
-            code: 0x04.into(),
-        }
-    } else {
-        DecodedResponse::Completion {
-            socket: Some(ViscaSocket::S2),
-        }
+    let cancellation_response = DecodedResponse::Error {
+        socket: Some(ViscaSocket::S2),
+        code: 0x04.into(),
     };
     let cancelled = engine.handle(
         frame(1, sequence(0x5105), cancellation_response),

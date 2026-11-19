@@ -12,17 +12,17 @@
 use std::time::Duration;
 
 use grafton_visca::{
-    command::menu::Navigate,
+    command::{menu::Navigate, zoom::Tele},
     config::{SessionConfig, TransportKind},
     error::{Certainty, ErrorKind, FailureContext, FailureStage, Recovery},
-    operation::CancellationOutcome,
+    operation::{AppliedOnly, CancellationOutcome},
     profiles::{AnyProfile, SonyBrcH900, SonyFr7},
     types::{IndividualCameraId, MenuDirection, PanTiltDirection, SpeedLevel},
     Error,
 };
 use grafton_visca_test_support::{
     facade_matrix,
-    fake_camera::{self, frames, FakeCamera},
+    fake_camera::{self, frames, FakeCamera, ZOOM_TELE},
 };
 
 mod raw_and_custom;
@@ -155,20 +155,18 @@ facade_matrix! {
             let cancel_sequence = frames::sony_sequence(&fake.0.writes()[2])
                 .expect("Sony-encapsulated cancel");
 
-            if menu_first {
-                fake.0.push(frames::sony_reply(cancel_sequence, &frames::canceled(1)));
-                pause!(Duration::from_millis(140));
-                assert_eq!(fake.0.write_count(), 3, "early confirmation leaves the restart interval");
-            } else {
-                pause!(Duration::from_millis(220));
-                assert_eq!(fake.0.write_count(), 3, "restart interval alone is insufficient");
-                fake.0.push(frames::sony_reply(cancel_sequence, &frames::canceled(1)));
+            if !menu_first {
+                pause!(Duration::from_millis(225));
+                assert_eq!(fake.0.write_count(), 3, "still waiting for confirmation");
             }
-
+            let confirmation_injected_at = now!();
+            fake.0.push(frames::sony_reply(cancel_sequence, &frames::canceled(1)));
             assert!(matches!(wait!(operation.applied()), Err(Error::CommandCancelled)));
+            pause!(Duration::from_millis(140));
+            assert_eq!(fake.0.write_count(), 3, "confirmation starts a new restart interval");
+
             wait!(next.applied()).expect("next drive permitted after interval and confirmation");
-            // The write watcher can report the cancel up to one polling slice after it left.
-            assert!(now!().duration_since(cancel_seen) >= Duration::from_millis(180));
+            assert!(now!().duration_since(confirmation_injected_at) >= DRIVE_INTERVAL);
             assert_eq!(fake.0.take_payloads(), [first, POWER_INQUIRY, CANCEL, second]);
             wait!(session.close()).expect("FR7 session closed");
         }
@@ -218,6 +216,74 @@ facade_matrix! {
         wait!(drive.applied()).expect("reopened drive applied");
         assert_eq!(reopened.0.take_payloads(), [RIGHT]);
         wait!(session.close()).expect("new FR7 session closed");
+    }
+
+    fn sony_cancel_rejection_leaves_the_original_terminal_in_charge() {
+        for refusal_first in [true, false] {
+            let fake = UdpCamera(FakeCamera::visca(|write, answer| match write {
+                ZOOM_TELE => {
+                    answer.reply(frames::ack(1));
+                }
+                CANCEL => {}
+                other => panic!("unexpected Sony frame {other:02x?}"),
+            }));
+            let config = SessionConfig::from_compile_time::<SonyFr7>().expect("FR7 config");
+            let session = open!(fake, config).expect("FR7 session");
+            let camera = session.camera::<SonyFr7>(IndividualCameraId::CAMERA_1).expect("Sony FR7");
+            let mut operation = wait!(camera.submit::<AppliedOnly, _>(&Tele)).expect("zoom admitted");
+            wait_for_reads!(fake.0, 1);
+
+            assert!(matches!(
+                wait!(operation.cancel_with_timeout(Duration::from_millis(75))),
+                Err(Error::ObservationTimeout { .. })
+            ));
+            wait_for_writes!(fake.0, 2);
+            let writes = fake.0.writes();
+            let original_sequence = frames::sony_sequence(&writes[0]).expect("command sequence");
+            let cancel_sequence = frames::sony_sequence(&writes[1]).expect("cancel sequence");
+            assert_ne!(original_sequence, cancel_sequence);
+
+            let mismatched = [
+                frames::ack(1),
+                frames::complete(1),
+                frames::complete(2),
+                frames::error(2, 0x04),
+                frames::error(2, 0x05),
+                frames::error(0, 0x04),
+                frames::error(0, 0x05),
+            ];
+            for response in mismatched {
+                fake.0.push(frames::sony_reply(cancel_sequence, &response));
+            }
+            wait_for_reads!(fake.0, 8);
+            assert!(matches!(
+                wait!(operation.applied_with_timeout(Duration::from_millis(25))),
+                Err(Error::ObservationTimeout { .. })
+            ));
+
+            let refusal = frames::sony_reply(cancel_sequence, &frames::error(1, 0x05));
+            let completion = frames::sony_reply(original_sequence, &frames::complete(1));
+            if refusal_first {
+                fake.0.push(refusal.clone());
+                fake.0.push(refusal);
+                wait_for_reads!(fake.0, 10);
+                assert!(matches!(
+                    wait!(operation.applied_with_timeout(Duration::from_millis(25))),
+                    Err(Error::ObservationTimeout { .. })
+                ));
+                fake.0.push(completion);
+            } else {
+                fake.0.push(completion);
+                fake.0.push(refusal);
+            }
+            assert_eq!(
+                wait!(operation.cancel()).expect("original result through the cancel observer"),
+                CancellationOutcome::Completed
+            );
+            wait!(operation.applied()).expect("original completion");
+            assert_eq!(fake.0.take_payloads(), [ZOOM_TELE, CANCEL]);
+            wait!(session.close()).expect("FR7 session closed");
+        }
     }
 
     fn brc_h900_menu_uses_ordinary_cancel_spacing() {

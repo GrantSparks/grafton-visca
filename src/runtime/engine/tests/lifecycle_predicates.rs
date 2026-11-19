@@ -151,6 +151,7 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
                 started_at: now,
                 deadline,
                 attempt,
+                observe_completion_after_cancel: false,
             },
             0,
             Some(deadline),

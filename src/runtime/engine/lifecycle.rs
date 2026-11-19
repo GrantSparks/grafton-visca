@@ -201,12 +201,14 @@ pub(crate) enum Lifecycle {
         deadline: Instant,
         attempt: AttemptFacts,
     },
-    /// Sony acceptance whose socket was subsequently reassigned by the camera.
+    /// Sony acceptance after the camera evidenced loss of its socket.
     /// Only its sequence retains response authority; no cancellation may be sent.
     ExecutingDisplaced {
         started_at: Instant,
         deadline: Instant,
         attempt: AttemptFacts,
+        /// A rejected cancel may still observe the original command's terminal.
+        observe_completion_after_cancel: bool,
     },
     AwaitingReply {
         sent_at: Instant,
@@ -667,9 +669,12 @@ impl Lifecycle {
                 ResolvingCancellation::AwaitingTerminal { observer_open, .. } => observer_open,
                 ResolvingCancellation::ObservationFailed { .. } => false,
             },
+            Self::ExecutingDisplaced {
+                observe_completion_after_cancel,
+                ..
+            } => observe_completion_after_cancel,
             Self::Sending { .. }
             | Self::ExecutingUnassigned { .. }
-            | Self::ExecutingDisplaced { .. }
             | Self::Ready { .. }
             | Self::Backoff { .. }
             | Self::AwaitingCompletion { .. }
@@ -697,9 +702,12 @@ impl Lifecycle {
                 }
                 ResolvingCancellation::ObservationFailed { .. } => {}
             },
+            Self::ExecutingDisplaced {
+                observe_completion_after_cancel,
+                ..
+            } => *observe_completion_after_cancel = false,
             Self::Sending { .. }
             | Self::ExecutingUnassigned { .. }
-            | Self::ExecutingDisplaced { .. }
             | Self::Ready { .. }
             | Self::Backoff { .. }
             | Self::AwaitingCompletion { .. }
@@ -934,6 +942,10 @@ impl Lifecycle {
                 attempt,
                 cancellation,
             },
+            Self::ExecutingDisplaced {
+                observe_completion_after_cancel: true,
+                ..
+            } => CommandLifecycle::AwaitingCancellationResolution,
             Self::ExecutingUnassigned { .. } | Self::ExecutingDisplaced { .. } => {
                 CommandLifecycle::ExecutingWithoutSocket
             }

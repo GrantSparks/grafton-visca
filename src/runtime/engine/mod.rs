@@ -2512,12 +2512,6 @@ trait EngineMethods: EngineAccess {
                 }
             }
             ActiveWrite::Cancellation(write) => {
-                if let Some(interval) = drive_cancellation {
-                    let restart = &mut self.targets[context.target].pan_tilt_drive_restart;
-                    if !matches!(restart, PanTiltDriveRestart::Unconfirmed) {
-                        *restart = PanTiltDriveRestart::After(add_duration(now, interval));
-                    }
-                }
                 let observation_deadline = add_duration(now, context.timeout.cancellation.get());
                 self.transition(
                     owner.request,
@@ -2806,42 +2800,71 @@ trait EngineMethods: EngineAccess {
             effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             return;
         };
+        if correlation_kind == CorrelationKind::Cancellation {
+            self.sony_cancel_response(id, entry.lifecycle(), frame.response, now, effects);
+            return;
+        }
         match frame.response {
             DecodedResponse::Ack { socket } => self.ack(id, socket, now, effects),
-            DecodedResponse::Completion { socket } => {
-                if correlation_kind == CorrelationKind::Cancellation {
-                    let context = entry.request.context();
-                    if let Some(cancellation) =
-                        entry.lifecycle().cancellation_ambiguity().filter(|_| {
-                            self.targets[context.target]
-                                .pan_tilt_drive_cancel_interval(context)
-                                .is_none()
-                        })
-                    {
-                        self.confirm_cancelled(id, cancellation, now, effects);
-                    } else {
-                        effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
-                    }
-                } else {
-                    self.completion(id, socket, now, effects);
-                }
-            }
+            DecodedResponse::Completion { socket } => self.completion(id, socket, now, effects),
             DecodedResponse::InquiryReply { payload } => {
-                if correlation_kind == CorrelationKind::Cancellation {
-                    effects.push(Effect::Ignored(IgnoreReason::MalformedFrame));
-                } else {
-                    let reply = InquiryOutcome::Reply { payload };
-                    self.inquiry_reply(id, reply, now, effects);
-                }
+                let reply = InquiryOutcome::Reply { payload };
+                self.inquiry_reply(id, reply, now, effects);
             }
             DecodedResponse::Error { socket, code } => {
-                self.camera_error(id, correlation_kind, socket, code, now, effects);
+                self.camera_error(id, socket, code, now, effects);
             }
             DecodedResponse::SonyControl { .. }
             | DecodedResponse::NetworkChange
             | DecodedResponse::Unknown => {
                 effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             }
+        }
+    }
+
+    /// The cancel sequence answers only the socket-addressed cancel write.
+    /// A named NoSocket releases that claim without settling the command.
+    fn sony_cancel_response(
+        &mut self,
+        id: RequestId,
+        lifecycle: Lifecycle,
+        response: DecodedResponse,
+        now: Instant,
+        effects: &mut Decision,
+    ) {
+        let Lifecycle::AwaitingCancellationResolution {
+            socket: emitted,
+            deadline,
+            attempt,
+            cancellation: ResolvingCancellation::AwaitingTerminal { observer_open, .. },
+        } = lifecycle
+        else {
+            effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
+            return;
+        };
+        match response {
+            DecodedResponse::Error {
+                socket: Some(socket),
+                code: CameraErrorCode::Cancelled,
+            } if socket == emitted => self.confirm_cancelled(id, now, effects),
+            DecodedResponse::Error {
+                socket: Some(socket),
+                code: CameraErrorCode::NoSocket,
+            } if socket == emitted => {
+                self.mark_unconfirmed_pan_tilt_cancellation(id);
+                self.transition(
+                    id,
+                    UnsocketedLifecycle::ExecutingDisplaced {
+                        started_at: now,
+                        deadline,
+                        attempt,
+                        observe_completion_after_cancel: observer_open,
+                    },
+                    now,
+                    effects,
+                );
+            }
+            _ => effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame)),
         }
     }
 
@@ -3313,6 +3336,7 @@ trait EngineMethods: EngineAccess {
                 started_at,
                 deadline,
                 attempt,
+                observe_completion_after_cancel: false,
             },
             Lifecycle::AwaitingCancellationResolution {
                 deadline, attempt, ..
@@ -3320,6 +3344,7 @@ trait EngineMethods: EngineAccess {
                 started_at: now,
                 deadline,
                 attempt,
+                observe_completion_after_cancel: false,
             },
             _ => return,
         };
@@ -3693,25 +3718,15 @@ trait EngineMethods: EngineAccess {
             }
             match retro.evidence {
                 Evidence::Ack(socket) => self.ack(retro.request, socket, now, effects),
-                Evidence::Error(code) => self.camera_error(
-                    retro.request,
-                    CorrelationKind::Request,
-                    None,
-                    code,
-                    now,
-                    effects,
-                ),
+                Evidence::Error(code) => {
+                    self.camera_error(retro.request, None, code, now, effects);
+                }
                 Evidence::Named(NamedFrame::Completion(socket)) => {
                     self.completion(retro.request, Some(socket), now, effects);
                 }
-                Evidence::Named(NamedFrame::Error(socket, code)) => self.camera_error(
-                    retro.request,
-                    CorrelationKind::Request,
-                    Some(socket),
-                    code,
-                    now,
-                    effects,
-                ),
+                Evidence::Named(NamedFrame::Error(socket, code)) => {
+                    self.camera_error(retro.request, Some(socket), code, now, effects);
+                }
                 Evidence::Other => {}
             }
             if !matches!(self.session, EngineSession::Running) {
@@ -3792,7 +3807,6 @@ trait EngineMethods: EngineAccess {
     fn camera_error(
         &mut self,
         id: RequestId,
-        correlation_kind: CorrelationKind,
         socket: Option<ViscaSocket>,
         code: CameraErrorCode,
         now: Instant,
@@ -3816,29 +3830,30 @@ trait EngineMethods: EngineAccess {
         // Backoff, Ready, and Sending so late completions can still be routed
         // without guessing.  A camera error is different: applying one is a
         // state mutation (and a retryable error can spend the retry budget),
-        // so it must belong to a response-bearing phase for this correlation
-        // kind.  In particular, a delayed duplicate from the attempt that
+        // so it must belong to a response-bearing phase. A delayed duplicate from the attempt that
         // caused Backoff must not schedule another retry while the request is
         // waiting or being written again.
-        if !camera_error_phase_compatible(entry, correlation_kind) {
+        if !camera_error_phase_compatible(entry) {
             effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             return;
         }
         let cancellation = entry.lifecycle().cancellation_ambiguity();
-        if let Some(proof) = cancellation.filter(|_| code.confirms_cancellation()) {
+        if cancellation.is_some() && code.confirms_cancellation() {
             let context = entry.request.context();
-            if self.targets[context.target]
+            let drive_cancellation = self.targets[context.target]
                 .pan_tilt_drive_cancel_interval(context)
-                .is_some()
-                && (!entry.lifecycle().awaiting_cancellation_answer()
-                    || socket.is_none()
-                    || (!self.mode().is_raw() && correlation_kind != CorrelationKind::Cancellation))
+                .is_some();
+            let raw = self.mode().is_raw();
+            if drive_cancellation
+                && (!raw || !entry.lifecycle().awaiting_cancellation_answer() || socket.is_none())
             {
                 effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
                 return;
             }
-            self.confirm_cancelled(id, proof, now, effects);
-            return;
+            if raw {
+                self.confirm_cancelled(id, now, effects);
+                return;
+            }
         }
         // A rejection proves that a command did not start only before its ACK.
         // Once the camera has acknowledged it, the command may already be
@@ -3860,10 +3875,10 @@ trait EngineMethods: EngineAccess {
             self.finish_after_ack(id, code.into_error(), keep_cancel_hold, now, effects);
             return;
         }
-        let retry = (correlation_kind == CorrelationKind::Request
-            && code.retry_permission(&entry.request))
-        .then(|| entry.lifecycle().retry_eligibility(true))
-        .flatten();
+        let retry = code
+            .retry_permission(&entry.request)
+            .then(|| entry.lifecycle().retry_eligibility(true))
+            .flatten();
         let error = code.into_error();
         let evidence = if code.refuses_before_start() {
             AttemptEvidence::Rejected
@@ -3933,13 +3948,21 @@ trait EngineMethods: EngineAccess {
         );
     }
 
-    fn confirm_cancelled(
-        &mut self,
-        id: RequestId,
-        _cancellation: CancellationAmbiguity,
-        now: Instant,
-        effects: &mut Decision,
-    ) {
+    fn confirm_cancelled(&mut self, id: RequestId, now: Instant, effects: &mut Decision) {
+        if let Some(context) = self.entries.get(&id).map(|entry| *entry.request.context()) {
+            let target = &mut self.targets[context.target];
+            if let Some(interval) = target.pan_tilt_drive_cancel_interval(&context) {
+                let restart_at = add_duration(now, interval);
+                let restart = &mut target.pan_tilt_drive_restart;
+                match *restart {
+                    PanTiltDriveRestart::Open => *restart = PanTiltDriveRestart::After(restart_at),
+                    PanTiltDriveRestart::After(previous) => {
+                        *restart = PanTiltDriveRestart::After(previous.max(restart_at));
+                    }
+                    PanTiltDriveRestart::Unconfirmed => {}
+                }
+            }
+        }
         self.finish_with_cancel_hold(id, CommandOutcome::Cancelled, false, now, effects);
     }
 
@@ -5486,22 +5509,18 @@ fn correlation_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
 /// cannot use that broad routing window: retryable errors mutate retry state,
 /// and all errors otherwise produce a terminal result. Keep those mutations
 /// limited to phases that are actually waiting for the correlated protocol
-/// response. Cancellation responses have their own owner and remain valid only
-/// while its transmission/terminal window is open.
-fn camera_error_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
-    match kind {
-        CorrelationKind::Request => matches!(
-            entry.lifecycle(),
-            Lifecycle::AwaitingReply { .. }
-                | Lifecycle::AwaitingAck { .. }
-                | Lifecycle::AwaitingCompletion { .. }
-                | Lifecycle::Executing { .. }
-                | Lifecycle::ExecutingUnassigned { .. }
-                | Lifecycle::ExecutingDisplaced { .. }
-                | Lifecycle::AwaitingCancellationResolution { .. }
-        ),
-        CorrelationKind::Cancellation => entry.lifecycle().awaiting_cancellation_answer(),
-    }
+/// response.
+fn camera_error_phase_compatible(entry: &Entry) -> bool {
+    matches!(
+        entry.lifecycle(),
+        Lifecycle::AwaitingReply { .. }
+            | Lifecycle::AwaitingAck { .. }
+            | Lifecycle::AwaitingCompletion { .. }
+            | Lifecycle::Executing { .. }
+            | Lifecycle::ExecutingUnassigned { .. }
+            | Lifecycle::ExecutingDisplaced { .. }
+            | Lifecycle::AwaitingCancellationResolution { .. }
+    )
 }
 
 /// Whether a raw request-correlated `0x05` is the failed terminal response to

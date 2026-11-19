@@ -185,6 +185,7 @@ pub(crate) enum UnsocketedLifecycle {
         started_at: Instant,
         deadline: Instant,
         attempt: AttemptFacts,
+        observe_completion_after_cancel: bool,
     },
     AwaitingReply {
         sent_at: Instant,
@@ -240,10 +241,12 @@ impl UnsocketedLifecycle {
                 started_at,
                 deadline,
                 attempt,
+                observe_completion_after_cancel,
             } => Lifecycle::ExecutingDisplaced {
                 started_at,
                 deadline,
                 attempt,
+                observe_completion_after_cancel,
             },
             Self::AwaitingReply {
                 sent_at,

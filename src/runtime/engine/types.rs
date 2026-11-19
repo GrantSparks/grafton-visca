@@ -1144,7 +1144,7 @@ pub(crate) enum Phase {
         started_at: Instant,
         deadline: Instant,
     },
-    /// Accepted Sony command retained only by sequence after socket reuse.
+    /// Accepted Sony command retained only by sequence after losing its socket.
     ExecutingDisplaced {
         started_at: Instant,
         deadline: Instant,

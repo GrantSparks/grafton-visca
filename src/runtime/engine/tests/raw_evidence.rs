@@ -1604,73 +1604,30 @@ fn a_later_first_answer_proves_a_completion_only_debt_accepted() {
     engine.assert_invariants().unwrap();
 }
 
-/// M2: `0x05` answering an emitted cancellation after the ACK ends the
-/// command unconfirmed with its exact camera error on both envelopes.
+/// M2: A raw `0x05` answering an emitted cancellation after the ACK ends
+/// the command unconfirmed with its exact camera error.
 #[test]
-fn a_cancellation_rejected_after_ack_is_unconfirmed_on_both_envelopes() {
+fn a_raw_cancellation_rejected_after_ack_is_unconfirmed() {
     let now = Instant::now();
-    let assert_after_ack = |effects: &[Effect], id: RequestId| {
-        assert!(effects.iter().any(|effect| matches!(
-            effect,
-            Effect::CancellationObservation {
-                id: observed,
-                observation: CancellationObservation::Concluded(CancellationConclusion::Failed(kind)),
-            } if *observed == id && *kind == Error::NoSocket.kind()
-        )));
-        let error = terminal_failure(effects, id).expect("terminal");
-        assert!(matches!(
-            &error,
-            Error::CommandFailedAfterAck { source, .. } if matches!(**source, Error::NoSocket)
-        ));
-        assert!(!matches!(
-            error.recovery(),
-            crate::Recovery::Resubmit { .. }
-        ));
-    };
-
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Datagram);
     let id = executing_with_cancel(&mut engine, 1, ViscaSocket::S1, now);
     let rejected = engine.handle(named_error(1, ViscaSocket::S1, 0x05), now);
-    assert_after_ack(&rejected, id);
-    engine.assert_invariants().unwrap();
-
-    let mut engine = fresh(EnvelopeKind::Sony, TransportKind::Datagram);
-    let (effects, id) = admit(&mut engine, 1, command(1), now);
-    let sequence = sony_sequence(id);
-    send_ok(&mut engine, &effects, Some(sequence), now);
-    engine.handle(
-        frame(
-            1,
-            Some(sequence),
-            DecodedResponse::Ack {
-                socket: Some(ViscaSocket::S1),
-            },
-        ),
-        now,
-    );
-    let cancel = engine.handle(engine.cancel_input(id), now);
-    let (transmission, _, _) = cancel_transmit(&cancel);
-    let cancel_sequence = sequence + 0x100;
-    engine.handle(
-        Input::TransmissionFinished {
-            request: id,
-            transmission,
-            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(cancel_sequence))),
-        },
-        now,
-    );
-    let rejected = engine.handle(
-        frame(
-            1,
-            Some(cancel_sequence),
-            DecodedResponse::Error {
-                socket: Some(ViscaSocket::S1),
-                code: 0x05.into(),
-            },
-        ),
-        now,
-    );
-    assert_after_ack(&rejected, id);
+    assert!(rejected.iter().any(|effect| matches!(
+        effect,
+        Effect::CancellationObservation {
+            id: observed,
+            observation: CancellationObservation::Concluded(CancellationConclusion::Failed(kind)),
+        } if *observed == id && *kind == Error::NoSocket.kind()
+    )));
+    let error = terminal_failure(&rejected, id).expect("terminal");
+    assert!(matches!(
+        &error,
+        Error::CommandFailedAfterAck { source, .. } if matches!(**source, Error::NoSocket)
+    ));
+    assert!(!matches!(
+        error.recovery(),
+        crate::Recovery::Resubmit { .. }
+    ));
     engine.assert_invariants().unwrap();
 }
 
