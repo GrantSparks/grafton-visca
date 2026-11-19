@@ -149,6 +149,9 @@ libc = { version = "0.2", optional = true }
 socket2 = { version = "0.6", optional = true }
 
 [dev-dependencies]
+# Owner unit tests poll channel receivers to check state at the instant a
+# sender wakes them, including when testing the unpacked blocking-only crate.
+flume = { version = "0.12", default-features = false, features = ["async"] }
 tokio = { version = "1.52", features = ["full", "test-util"] }
 async-io = "2.6"
 async-executor = "1.14"

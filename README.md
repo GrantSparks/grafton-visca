@@ -63,7 +63,7 @@ cargo run --example quickstart_async --features runtime-tokio -- 192.0.2.10
 `PtzOptics30x` covers the Gen-2 PT30X SDI/NDI models. `GenericVisca` provides
 a conservative set of shared VISCA commands. The table reflects model
 documentation and protocol tests. Hardware verification is limited for raw
-serial and Sony UDP. [Protocol sources](docs/visca_reference.md) · [Release notes](CHANGELOG.md#unreleased)
+serial and Sony UDP. [Protocol sources](docs/visca_reference.md) · [2.0.0 release notes](CHANGELOG.md#200---2026-11-19)
 
 For controls such as G2 focus lock or the FR7’s variable ND filter, a typed
 profile checks method availability at compile time. With a runtime-selected

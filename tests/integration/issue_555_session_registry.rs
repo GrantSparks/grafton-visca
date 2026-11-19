@@ -40,6 +40,7 @@ use grafton_visca::{
 ))]
 use grafton_visca::{
     config::{OperationalTuning, TransportKind},
+    profiles::GenericVisca,
     transport::{AddressingMode, IoBounds, SendSemantics},
 };
 
@@ -59,8 +60,12 @@ fn sony_profile() -> ProfileSpec {
 /// A camera that answers a raw inquiry with data and any other write with an
 /// ACK and a completion. A serial camera addresses its replies to the writing
 /// target; otherwise they come from source `0x90`.
-fn spy_camera(addressing: AddressingMode) -> FakeCamera {
+fn spy_camera(
+    addressing: AddressingMode,
+    mut on_write: impl FnMut() + Send + 'static,
+) -> FakeCamera {
     FakeCamera::new(move |write, answer| {
+        on_write();
         let source = if addressing == AddressingMode::Serial {
             let id = write.first().copied().unwrap_or(0x81) & 0x0f;
             0x80 | (id.saturating_add(8) << 4)
@@ -75,6 +80,38 @@ fn spy_camera(addressing: AddressingMode) -> FakeCamera {
                 .reply(vec![source, 0x51, 0xff]);
         }
     })
+}
+
+#[cfg(any(
+    feature = "blocking",
+    feature = "runtime-tokio",
+    feature = "runtime-smol"
+))]
+fn serial_pacing_case(override_spacing: Option<Duration>) -> (SessionConfig, FakeCamera) {
+    let relaxed = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
+    let strict = raw_profile();
+    let floor = strict.timing().command_spacing();
+    assert!(floor > relaxed.timing().command_spacing());
+    let mut config = SessionConfig::new(relaxed)
+        .with_target(IndividualCameraId::CAMERA_2, strict)
+        .expect("two serial targets");
+    if let Some(spacing) = override_spacing {
+        config = config.with_tuning(OperationalTuning::new().with_command_spacing(spacing));
+    }
+    let minimum = override_spacing.unwrap_or(floor);
+    let mut last_write = None;
+    let camera = spy_camera(AddressingMode::Serial, move || {
+        // The owner paces writes. A caller can resume well after the first reply.
+        let now = std::time::Instant::now();
+        if let Some(last) = last_write.replace(now) {
+            let interval = now.duration_since(last);
+            assert!(
+                interval >= minimum,
+                "serial writes were {interval:?} apart, minimum {minimum:?}"
+            );
+        }
+    });
+    (config, camera)
 }
 
 #[cfg(any(
@@ -224,7 +261,7 @@ mod async_registry {
         standard_kind: Option<TransportKind>,
         addressing_hint: Option<AddressingMode>,
     ) -> (AsyncWire, FakeCamera) {
-        let camera = spy_camera(addressing);
+        let camera = spy_camera(addressing, || {});
         let mut wire = camera
             .async_wire()
             .with_config(spy_config(addressing))
@@ -585,37 +622,27 @@ mod async_registry {
     >(
         runtime: E,
     ) {
-        let base = raw_profile();
-        let strict = base.clone();
-        let (transport, fake) = spy(AddressingMode::Serial, Some(TransportKind::Serial));
-        let session = grafton_visca::r#async::Session::open(
-            transport,
-            &SessionConfig::new(base)
-                .with_target(grafton_visca::types::IndividualCameraId::CAMERA_2, strict)
-                .expect("strict multi-target config")
-                .with_tuning(
-                    OperationalTuning::new().with_command_spacing(Duration::from_millis(120)),
-                ),
-            runtime,
-        )
-        .await
-        .expect("session");
-        session
-            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
-            .expect("camera 1")
-            .execute(&Ping)
-            .await
-            .expect("first command");
-        let started = std::time::Instant::now();
-        session
-            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_2)
-            .expect("camera 2")
-            .execute(&Ping)
-            .await
-            .expect("second command");
-        assert!(started.elapsed() >= Duration::from_millis(110));
-        assert_eq!(fake.write_count(), 2);
-        session.shutdown().expect("shutdown");
+        for spacing in [None, Some(Duration::from_millis(120))] {
+            let (config, fake) = serial_pacing_case(spacing);
+            let wire = fake.async_wire().with_transport_kind(TransportKind::Serial);
+            let session = grafton_visca::r#async::Session::open(wire, &config, runtime.clone())
+                .await
+                .expect("session");
+            session
+                .camera::<PtzOpticsG2>(IndividualCameraId::CAMERA_2)
+                .expect("registered camera")
+                .execute(&Ping)
+                .await
+                .expect("command");
+            session
+                .camera::<GenericVisca>(IndividualCameraId::CAMERA_1)
+                .expect("registered camera")
+                .execute(&Ping)
+                .await
+                .expect("command");
+            assert_eq!(fake.write_count(), 2);
+            session.shutdown().expect("shutdown");
+        }
     }
 
     runtime_matrix!(
@@ -652,7 +679,7 @@ mod blocking_registry {
         standard_kind: Option<TransportKind>,
         addressing_hint: Option<AddressingMode>,
     ) -> (BlockingWire, FakeCamera) {
-        let camera = spy_camera(addressing);
+        let camera = spy_camera(addressing, || {});
         let mut wire = camera
             .blocking_wire()
             .with_config(spy_config(addressing))
@@ -849,33 +876,25 @@ mod blocking_registry {
 
     #[test]
     fn blocking_strictest_profile_pacing_is_shared_by_all_targets() {
-        let base = raw_profile();
-        let strict = base.clone();
-        let (transport, fake) = spy(AddressingMode::Serial, Some(TransportKind::Serial));
-        let session = grafton_visca::blocking::Session::open(
-            transport,
-            &SessionConfig::new(base)
-                .with_target(grafton_visca::types::IndividualCameraId::CAMERA_2, strict)
-                .expect("strict multi-target config")
-                .with_tuning(
-                    OperationalTuning::new().with_command_spacing(Duration::from_millis(120)),
-                ),
-        )
-        .expect("session");
-        session
-            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
-            .expect("camera 1")
-            .execute(&Ping)
-            .expect("first command");
-        let started = std::time::Instant::now();
-        session
-            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_2)
-            .expect("camera 2")
-            .execute(&Ping)
-            .expect("second command");
-        assert!(started.elapsed() >= Duration::from_millis(110));
-        assert_eq!(fake.write_count(), 2);
-        session.shutdown().expect("shutdown");
+        for spacing in [None, Some(Duration::from_millis(120))] {
+            let (config, fake) = serial_pacing_case(spacing);
+            let wire = fake
+                .blocking_wire()
+                .with_transport_kind(TransportKind::Serial);
+            let session = grafton_visca::blocking::Session::open(wire, &config).expect("session");
+            session
+                .camera::<PtzOpticsG2>(IndividualCameraId::CAMERA_2)
+                .expect("registered camera")
+                .execute(&Ping)
+                .expect("command");
+            session
+                .camera::<GenericVisca>(IndividualCameraId::CAMERA_1)
+                .expect("registered camera")
+                .execute(&Ping)
+                .expect("command");
+            assert_eq!(fake.write_count(), 2);
+            session.shutdown().expect("shutdown");
+        }
     }
 }
 
