@@ -25,6 +25,22 @@ pub enum PanTiltSpeedMode {
 impl PanTiltSpeedMode {
     /// Highest pan/tilt speed available in the standard speed mode.
     pub const STANDARD_MAXIMUM: u8 = 24;
+
+    /// Classifies a complete VISCA frame whose target address was validated.
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub(crate) fn from_setter_frame(bytes: &[u8]) -> Option<Self> {
+        use crate::command::bytes::VISCA_TERMINATOR;
+
+        let [_, prefix @ .., selector, VISCA_TERMINATOR] = bytes else {
+            return None;
+        };
+        if prefix != variable_speed::STEP_RANGE {
+            return None;
+        }
+        [Self::Standard24, Self::Fine50]
+            .into_iter()
+            .find(|mode| mode.to_wire() == *selector)
+    }
 }
 
 /// Command to set the pan/tilt speed-step range on Sony FR7.
