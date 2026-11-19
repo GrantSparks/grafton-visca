@@ -55,7 +55,7 @@ mod entry_table;
 use decision::Decision;
 use entry_table::{
     EntryChange, EntryPlacement, EntryTable, SequenceSlots, SocketClaim, SocketedLifecycle,
-    UnsocketedLifecycle,
+    SonyCancellationAuthority, SonySocketEvidence, UnsocketedLifecycle,
 };
 mod framing;
 pub(crate) use framing::{ProtocolEncoder, WireProtocol, WriteFraming};
@@ -289,6 +289,7 @@ pub(crate) struct Entry {
     submitted_at: Instant,
     prior: Option<PriorAttempts>,
     pan_tilt_drive_written_at: Option<Instant>,
+    sony_socket: SonySocketEvidence,
     sequences: SequenceSlots,
 }
 
@@ -299,6 +300,11 @@ impl Entry {
 
     fn active_write(&self, transmission: TransmissionId) -> Option<ActiveWrite> {
         self.lifecycle.active()?.active_write(transmission)
+    }
+
+    fn sony_named_socket(&self) -> Option<ViscaSocket> {
+        self.sony_socket.named_ack_after?;
+        self.lifecycle().socket()
     }
 
     fn reply_family(&self) -> SendingReply {
@@ -1898,14 +1904,27 @@ trait EngineMethods: EngineAccess {
 
     #[cfg(test)]
     fn commands_inflight(&self, target: TargetSlot) -> usize {
-        self.entries
+        let belongs = |entry: &&Entry| {
+            entry.reply_family() != SendingReply::Inquiry
+                && entry.request.context().target == target
+                && entry.lifecycle().is_command_on_wire()
+        };
+        let ungrouped = self
+            .entries
             .values()
-            .filter(|entry| {
-                entry.reply_family() != SendingReply::Inquiry
-                    && entry.request.context().target == target
-                    && entry.lifecycle().is_command_on_wire()
+            .filter(belongs)
+            .filter(|entry| entry.sony_named_socket().is_none())
+            .count();
+        let grouped = [ViscaSocket::S1, ViscaSocket::S2]
+            .into_iter()
+            .filter(|socket| {
+                self.entries
+                    .values()
+                    .filter(belongs)
+                    .any(|entry| entry.sony_named_socket() == Some(*socket))
             })
-            .count()
+            .count();
+        ungrouped + grouped
     }
 
     /// Command sockets in use on `target`: live work, and on a datagram
@@ -2337,6 +2356,12 @@ trait EngineMethods: EngineAccess {
                 ActiveWrite::Request { .. } | ActiveWrite::Cancellation(_) => Lane::Command,
             };
             self.pacing.record(lane, now);
+            if lane == Lane::Command
+                && self.is_sony_datagram()
+                && matches!(owner.write, ActiveWrite::Request { .. })
+            {
+                self.entries.sony_command_written(request, transmission);
+            }
             if matches!(owner.write, ActiveWrite::Request { .. }) {
                 let zoom_drive = self.entries.get(&request).and_then(|entry| {
                     let family = entry.request.wire().zoom_drive_family()?;
@@ -3287,19 +3312,21 @@ trait EngineMethods: EngineAccess {
         self.entries.claim_socket(id, std::iter::once(socket))
     }
 
-    /// Applies the camera's authoritative named socket assignment.
-    ///
-    /// Raw predecessors become ambiguity holds. Sony predecessors lose their
-    /// socket claim but retain their exact-sequence terminal and deadline.
+    fn is_sony_datagram(&self) -> bool {
+        !self.mode().is_raw() && self.policy.transport == TransportKind::Datagram
+    }
+
+    /// Applies the camera's authoritative named socket assignment on raw
+    /// transports and on sequenced streams. Sony datagrams require additional
+    /// write-order evidence before a named ACK can establish succession.
     fn assign_ack_socket(
         &mut self,
         target: TargetSlot,
-        requested: Option<ViscaSocket>,
+        socket: ViscaSocket,
         id: RequestId,
         now: Instant,
         effects: &mut Decision,
     ) -> Option<SocketClaim<'_>> {
-        let socket = requested?;
         {
             if let Some(stale) = self
                 .socket_owner(target, socket)
@@ -3429,8 +3456,35 @@ trait EngineMethods: EngineAccess {
             return;
         }
         let deadline = add_duration(now, context.timeout.completion.get());
-        if socket.is_none() {
+        let Some(socket) = socket else {
             self.accept_unassigned_ack(id, now, deadline, attempt, effects);
+            return;
+        };
+        let next = SocketedLifecycle::Executing {
+            started_at: now,
+            deadline,
+            attempt,
+            cancellation: cancellation.map_or(
+                ExecutingCancellation::None,
+                ExecutingCancellation::Requested,
+            ),
+        };
+        if self.is_sony_datagram() {
+            while let Some(predecessor) = self.entries.sony_predecessor(id, target, socket) {
+                self.displace_sony_socket(predecessor, now, effects);
+            }
+            if let Some(changed) = self.entries.accept_sony_named_ack(id, socket, next) {
+                self.targets[target].zoom_drive.retire(id, true);
+                effects.push(Effect::Transition {
+                    id,
+                    from: changed.from,
+                    to: changed.to,
+                });
+            } else {
+                // A conclusive pre-ACK rejection ended the previous attempt.
+                // A contradictory ACK has no currently admissible write.
+                effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
+            }
             return;
         }
         let Some(claim) = self.assign_ack_socket(target, socket, id, now, effects) else {
@@ -3452,15 +3506,6 @@ trait EngineMethods: EngineAccess {
                 );
             }
             return;
-        };
-        let next = SocketedLifecycle::Executing {
-            started_at: now,
-            deadline,
-            attempt,
-            cancellation: cancellation.map_or(
-                ExecutingCancellation::None,
-                ExecutingCancellation::Requested,
-            ),
         };
         if let Some(changed) = claim.install(next) {
             // Once this attempt is accepted, a later cancellation or error
@@ -3885,10 +3930,15 @@ trait EngineMethods: EngineAccess {
         // socketless cancel intent instead leaves `0x05` as the original
         // request's retryable rejection below.
         let acknowledged = entry.lifecycle().is_accepted();
+        let resolves_sony_write =
+            self.is_sony_datagram() && (acknowledged || !entry.sequences.request_replayed());
         if acknowledged {
             let cancellation_answered = self.mode().is_raw()
                 && code == CameraErrorCode::NoSocket
                 && raw_cancellation_no_socket_response(entry);
+            if resolves_sony_write {
+                self.entries.sony_command_resolved(id);
+            }
             let keep_cancel_hold =
                 !(cancellation_answered || (self.mode().is_stream() && socket.is_some()));
             self.finish_after_ack(id, code.into_error(), keep_cancel_hold, now, effects);
@@ -3905,6 +3955,9 @@ trait EngineMethods: EngineAccess {
             AttemptEvidence::Lifecycle
         };
         let possibly_applied = entry.certainty(evidence) == Certainty::Unconfirmed;
+        if resolves_sony_write && matches!(evidence, AttemptEvidence::Rejected) {
+            self.entries.sony_command_resolved(id);
+        }
         // A raw inquiry error can race a late data reply. Retain the bounded
         // inquiry-only skew before a retry or terminal failure exposes another
         // inquiry to that stale frame class (#712).
@@ -4086,7 +4139,11 @@ trait EngineMethods: EngineAccess {
         ));
         let target = entry.request.context().target;
         let socket = pending.socket();
-        if self.mode().is_raw() && self.raw_execution_unassigned(target) {
+        let ambiguous_raw = self.mode().is_raw() && self.raw_execution_unassigned(target);
+        let ambiguous_sony = self.is_sony_datagram()
+            && self.entries.sony_cancellation_authority(target, socket)
+                != SonyCancellationAuthority::Proven(id);
+        if ambiguous_raw || ambiguous_sony {
             self.refuse_pending_cancellation(id, pending, now, effects);
             return;
         }
@@ -4984,6 +5041,15 @@ trait EngineMethods: EngineAccess {
         now: Instant,
         effects: &mut Decision,
     ) {
+        let outcome = outcome.into();
+        if self.is_sony_datagram()
+            && matches!(
+                outcome,
+                FinishOutcome::Command(CommandOutcome::Applied | CommandOutcome::Cancelled)
+            )
+        {
+            self.entries.sony_command_resolved(id);
+        }
         self.retire_answers(id, now, effects);
         if keep_cancel_hold {
             self.hold_socket_of_unanswered_cancel(id);
@@ -4992,7 +5058,7 @@ trait EngineMethods: EngineAccess {
             effects.push(Effect::Ignored(IgnoreReason::UnknownRequest));
             return;
         };
-        let outcome = outcome.into().for_request(&entry.request);
+        let outcome = outcome.for_request(&entry.request);
         let context = entry.request.context();
         let target = context.target;
         self.targets[target]

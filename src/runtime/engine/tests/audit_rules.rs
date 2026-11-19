@@ -17,8 +17,10 @@ fn ended_session_cannot_retain_work() {
 
 #[test]
 fn representation_size_baseline() {
-    // Fixed sequence slots reduce the prior 536-byte entry without losing facts.
-    assert!(size_of::<Entry>() <= 456, "Entry={}", size_of::<Entry>());
+    // The entry stores the first possible Sony write and the observed-ACK
+    // boundary. Each fixed socket stores a claimant count and retirement
+    // boundary. Keep that evidence bounded without adding a heap index.
+    assert!(size_of::<Entry>() <= 472, "Entry={}", size_of::<Entry>());
     assert!(
         size_of::<ProtocolEngine>() <= 2968,
         "ProtocolEngine={}",

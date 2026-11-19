@@ -24,6 +24,34 @@ use grafton_visca_test_support::{
 const ND_AUTO_OFF: &[u8] = &[0x81, 0x01, 0x7e, 0x04, 0x53, 0x03, 0xff];
 const ND_AUTO_ON: &[u8] = &[0x81, 0x01, 0x7e, 0x04, 0x53, 0x02, 0xff];
 const ND_VARIABLE_MODE: &[u8] = &[0x81, 0x01, 0x7e, 0x04, 0x52, 0x01, 0xff];
+const ZOOM_WIDE: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x03, 0xff];
+const CANCEL_S1: &[u8] = &[0x81, 0x21, 0xff];
+
+macro_rules! wait_for_execution {
+    ($diagnostics:ident, $id:expr, $wait:ident) => {
+        loop {
+            if matches!(
+                $wait!($diagnostics.recv_with_timeout(Duration::from_secs(1)))
+                    .unwrap()
+                    .expect("expected execution transition"),
+                DiagnosticEvent::Transition {
+                    id,
+                    to: DiagnosticPhase::Executing,
+                    ..
+                } if id == $id
+            ) {
+                break;
+            }
+        }
+    };
+}
+
+#[derive(Clone, Copy)]
+enum AckTrace {
+    OrderedReuse,
+    ReorderedAcks,
+    SuccessorAckMissing,
+}
 
 fn sony_nd_camera() -> FakeCamera {
     FakeCamera::visca(|write, answer| match write {
@@ -83,9 +111,11 @@ facade_matrix! {
             if commands != 1 { answer.reply(frames::complete(1)); }
         });
         let session = open!(fake, SessionConfig::from_compile_time::<SonyFr7>().unwrap()).unwrap();
-        let diagnostics = wait!(session.subscribe_diagnostics(DiagnosticCapacity::MAX)).unwrap();
+        #[allow(unused_mut)]
+        let mut diagnostics = wait!(session.subscribe_diagnostics(DiagnosticCapacity::MAX)).unwrap();
         let camera = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).unwrap();
         let mut first = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)).unwrap();
+        wait_for_execution!(diagnostics, first.id(), wait);
         let mut second = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Wide)).unwrap();
         wait!(second.applied()).unwrap();
         let writes = fake.writes();
@@ -100,68 +130,59 @@ facade_matrix! {
         assert!(!transitions.contains(&(DiagnosticPhase::Executing, DiagnosticPhase::Executing)));
     }
 
-    fn a_sony_ack_displaces_a_command_resolving_cancellation() {
-        let mut successor_sequence = None;
-        let fake = FakeCamera::new(move |write, answer| {
-            let (sequence, bytes) = frames::sony_split(write).unwrap();
-            match bytes {
-                ZOOM_TELE => {
-                    answer.reply(frames::sony_reply(sequence, &frames::ack(1)));
+    fn sony_udp_cancel_requires_proven_socket_ownership() {
+        for trace in [AckTrace::OrderedReuse, AckTrace::ReorderedAcks, AckTrace::SuccessorAckMissing] {
+            let fake = FakeCamera::visca(|bytes, answer| {
+                if bytes == CANCEL_S1 {
+                    answer.reply(frames::canceled(1));
                 }
-                [0x81, 0x21, 0xff] => {
-                    let successor = successor_sequence.expect("successor written before cancel");
-                    // The cancellation receives no answer of its own. Its
-                    // write releases the successor's ACK on the reused socket.
-                    answer
-                        .reply(frames::sony_reply(successor, &frames::ack(1)))
-                        .reply(frames::sony_reply(successor, &frames::complete(1)));
-                }
-                _ => successor_sequence = Some(sequence),
+            });
+            let session = open!(fake, SessionConfig::from_compile_time::<SonyFr7>().unwrap()).unwrap();
+            #[allow(unused_mut)]
+            let mut diagnostics = wait!(session.subscribe_diagnostics(DiagnosticCapacity::MAX)).unwrap();
+            let camera = session.camera::<SonyFr7>(IndividualCameraId::CAMERA_1).unwrap();
+            let mut first = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)).unwrap();
+            let writes = wait_for_writes!(fake, 1);
+            let (first_sequence, payload) = frames::sony_split(&writes[0]).unwrap();
+            assert_eq!(payload, ZOOM_TELE);
+
+            if !matches!(trace, AckTrace::ReorderedAcks) {
+                fake.push(frames::sony_reply(first_sequence, &frames::ack(1)));
+                wait_for_execution!(diagnostics, first.id(), wait);
             }
-        });
-        let session = open!(fake, SessionConfig::from_compile_time::<SonyFr7>().unwrap()).unwrap();
-        let diagnostics = wait!(session.subscribe_diagnostics(DiagnosticCapacity::MAX)).unwrap();
-        let camera = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).unwrap();
-        let mut first = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)).unwrap();
-        let mut second = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Wide)).unwrap();
-        wait_for_writes!(fake, 2);
-        assert!(matches!(wait!(first.cancel()), Err(Error::CancellationUnconfirmed)));
-        wait!(second.applied()).unwrap();
 
-        let sequence = frames::sony_sequence(&fake.writes()[0]).unwrap();
-        fake.push(frames::sony_reply(sequence, &frames::complete(1)));
-        wait!(first.applied()).unwrap();
-        wait!(session.close()).unwrap();
-        let transitions = transitions_for(first.id(), || diagnostics.try_recv());
-        assert!(transitions.contains(&(
-            DiagnosticPhase::AwaitingCancellationResolution,
-            DiagnosticPhase::Displaced,
-        )));
-    }
+            let mut second = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Wide)).unwrap();
+            let writes = wait_for_writes!(fake, 2);
+            let (second_sequence, payload) = frames::sony_split(&writes[1]).unwrap();
+            assert_eq!(payload, ZOOM_WIDE);
 
-    fn a_sony_successor_cancel_targets_the_reused_socket_and_refuses_the_displaced_command() {
-        let fake = FakeCamera::visca(|bytes, answer| {
-            if matches!(bytes, [0x81, 0x21, 0xff]) {
-                answer.reply(frames::canceled(1));
+            if !matches!(trace, AckTrace::SuccessorAckMissing) {
+                fake.push(frames::sony_reply(second_sequence, &frames::ack(1)));
+                wait_for_execution!(diagnostics, second.id(), wait);
+            }
+            if matches!(trace, AckTrace::ReorderedAcks) {
+                fake.push(frames::sony_reply(first_sequence, &frames::ack(1)));
+                wait_for_execution!(diagnostics, first.id(), wait);
+            }
+
+            let refused = wait!(first.cancel());
+            assert!(matches!(refused, Err(Error::CancellationUnconfirmed)), "{refused:?}");
+            assert_eq!(fake.write_count(), 2);
+            fake.push(frames::sony_reply(first_sequence, &frames::complete(1)));
+            wait!(first.applied()).unwrap();
+
+            if matches!(trace, AckTrace::OrderedReuse) {
+                assert_eq!(wait!(second.cancel()).unwrap(), CancellationOutcome::Cancelled);
+                let writes = fake.writes();
+                assert_eq!(writes.len(), 3);
+                assert_eq!(frames::sony_split(&writes[2]).unwrap().1, CANCEL_S1);
             } else {
-                answer.reply(frames::ack(1));
+                fake.push(frames::sony_reply(second_sequence, &frames::complete(1)));
+                wait!(second.applied()).unwrap();
+                assert_eq!(fake.write_count(), 2);
             }
-        });
-        let session = open!(fake, SessionConfig::from_compile_time::<SonyFr7>().unwrap()).unwrap();
-        let camera = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).unwrap();
-        let mut first = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)).unwrap();
-        let mut second = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Wide)).unwrap();
-        wait_for_reads!(fake, 2);
-        assert_eq!(wait!(second.cancel()).unwrap(), CancellationOutcome::Cancelled);
-        let refused = wait!(first.cancel());
-        assert!(matches!(refused, Err(Error::CancellationUnconfirmed)), "{refused:?}");
-        let writes = fake.writes();
-        assert_eq!(writes.len(), 3);
-        assert_eq!(frames::sony_split(&writes[2]).unwrap().1, &[0x81, 0x21, 0xff]);
-        let sequence = frames::sony_sequence(&writes[0]).unwrap();
-        fake.push(frames::sony_reply(sequence, &frames::complete(1)));
-        wait!(first.applied()).unwrap();
-        wait!(session.close()).unwrap();
+            wait!(session.close()).unwrap();
+        }
     }
 }
 

@@ -408,3 +408,255 @@ fn failed_setter_releases_its_key_with_the_correct_cache_evidence() {
         );
     }
 }
+
+fn assert_cancel_refused(effects: &[Effect], request: RequestId) {
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            Effect::CancellationObservation {
+                id,
+                observation: CancellationObservation::AttemptFailed(Error::CancellationUnconfirmed)
+            } if *id == request
+        )),
+        "{effects:?}"
+    );
+    assert!(cancel_transmit_optional(effects).is_none(), "{effects:?}");
+}
+
+#[derive(Clone, Copy)]
+enum AckOrder {
+    BeforeSuccessorWrite,
+    AfterSuccessorAck,
+    BeforeSuccessorAck,
+    SuccessorAckPending,
+}
+
+#[test]
+fn sony_datagram_cancel_requires_a_unique_socket_in_the_camera_occupancy_model() {
+    for order in [
+        AckOrder::BeforeSuccessorWrite,
+        AckOrder::AfterSuccessorAck,
+        AckOrder::BeforeSuccessorAck,
+        AckOrder::SuccessorAckPending,
+    ] {
+        for first_socket in [ViscaSocket::S1, ViscaSocket::S2] {
+            for second_socket in [ViscaSocket::S1, ViscaSocket::S2] {
+                let now = Instant::now();
+                let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+                let (write, first) = admit(&mut engine, 1, command(1), now);
+                send_ok(&mut engine, &write, Some(FIRST), now);
+
+                // The camera may complete A without the owner seeing its terminal.
+                let mut camera_occupants = [None, None];
+                camera_occupants[first_socket.as_index()] = Some(first);
+                if matches!(
+                    order,
+                    AckOrder::BeforeSuccessorWrite | AckOrder::SuccessorAckPending
+                ) {
+                    engine.handle(ack(FIRST, first_socket), now);
+                }
+                let (write, second) = admit(&mut engine, 2, command(1), now);
+                send_ok(&mut engine, &write, Some(SECOND), now);
+                camera_occupants[second_socket.as_index()] = Some(second);
+
+                if matches!(order, AckOrder::BeforeSuccessorAck) {
+                    engine.handle(ack(FIRST, first_socket), now);
+                }
+                if !matches!(order, AckOrder::SuccessorAckPending) {
+                    engine.handle(ack(SECOND, second_socket), now);
+                }
+                if matches!(order, AckOrder::AfterSuccessorAck) {
+                    engine.handle(ack(FIRST, first_socket), now);
+                }
+                assert_occupancy_agrees(&engine, now);
+
+                let first_can_cancel = first_socket != second_socket
+                    && !matches!(order, AckOrder::SuccessorAckPending);
+                let first_effects = engine.handle(engine.cancel_input(first), now);
+                if first_can_cancel {
+                    let (transmission, id, socket) = cancel_transmit(&first_effects);
+                    assert_eq!(camera_occupants[socket.as_index()], Some(id));
+                    camera_occupants[socket.as_index()] = None;
+                    engine.handle(
+                        Input::TransmissionFinished {
+                            request: id,
+                            transmission,
+                            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(
+                                0x2001,
+                            ))),
+                        },
+                        now,
+                    );
+                    engine.handle(
+                        response(
+                            0x2001,
+                            DecodedResponse::Error {
+                                socket: Some(socket),
+                                code: 0x04.into(),
+                            },
+                        ),
+                        now,
+                    );
+                } else {
+                    assert_cancel_refused(&first_effects, first);
+                    assert!(engine.entry(first).is_some());
+                }
+
+                if matches!(order, AckOrder::SuccessorAckPending) {
+                    engine.handle(ack(SECOND, second_socket), now);
+                }
+                if first_socket == second_socket
+                    && !matches!(
+                        order,
+                        AckOrder::BeforeSuccessorWrite | AckOrder::SuccessorAckPending
+                    )
+                {
+                    // Same-socket ACKs with overlapping writes do not prove
+                    // succession, but together cost only one unit of capacity.
+                    assert_eq!(engine.commands_inflight(camera(1)), 1);
+                    let second_effects = engine.handle(engine.cancel_input(second), now);
+                    assert_cancel_refused(&second_effects, second);
+                }
+                if !first_can_cancel {
+                    let done = engine.handle(
+                        response(
+                            FIRST,
+                            DecodedResponse::Completion {
+                                socket: Some(first_socket),
+                            },
+                        ),
+                        now,
+                    );
+                    assert_applied(&done, first);
+                    if camera_occupants[first_socket.as_index()] == Some(first) {
+                        camera_occupants[first_socket.as_index()] = None;
+                    }
+                }
+
+                let second_effects = engine.handle(engine.cancel_input(second), now);
+                let (_, id, socket) = cancel_transmit(&second_effects);
+                assert_eq!(camera_occupants[socket.as_index()], Some(id));
+                assert_eq!((id, socket), (second, second_socket));
+            }
+        }
+    }
+}
+
+#[test]
+fn sony_datagram_waiting_cancel_rechecks_a_competing_write_after_pacing() {
+    let now = Instant::now();
+    let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+    engine.policy.command_spacing = Duration::from_millis(2);
+    engine.targets[camera(1)]
+        .policy
+        .as_mut()
+        .unwrap()
+        .pan_tilt_drive_cancellation_ms = std::num::NonZeroU16::new(15);
+    let mut drive = command(1);
+    drive.context_mut().pan_tilt_drive = true;
+    let (write, first) = admit(&mut engine, 1, drive, now);
+    send_ok(&mut engine, &write, Some(FIRST), now);
+    engine.handle(ack(FIRST, ViscaSocket::S1), now);
+    let requested = engine.handle(engine.cancel_input(first), now);
+    assert!(cancel_transmit_optional(&requested).is_none());
+
+    let later = now + Duration::from_millis(2);
+    let (write, _) = admit(&mut engine, 2, command(1), later);
+    send_ok(&mut engine, &write, Some(SECOND), later);
+    let refused = engine.advance(now + Duration::from_millis(15));
+    assert_cancel_refused(&refused, first);
+    assert_applied(
+        &engine.handle(completion(FIRST), later + Duration::from_millis(15)),
+        first,
+    );
+}
+
+#[test]
+fn sony_datagram_contender_blocks_cancellation_in_backoff_and_after_timeout() {
+    let now = Instant::now();
+    let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+    let (write, first) = admit(&mut engine, 1, command(1), now);
+    send_ok(&mut engine, &write, Some(FIRST), now);
+    engine.handle(ack(FIRST, ViscaSocket::S1), now);
+    let mut contender = command_with_retry(
+        1,
+        RetryPolicy {
+            max_retries: 1,
+            initial_backoff: Duration::from_millis(10),
+            maximum_backoff: Duration::from_millis(10),
+            total_budget: None,
+        },
+    );
+    let ack_interval = Duration::from_millis(3);
+    contender.context_mut().timeout.ack = NonZeroDuration::new(ack_interval).unwrap();
+    let (write, second) = admit(&mut engine, 2, contender, now);
+    send_ok(&mut engine, &write, Some(SECOND), now);
+
+    let backoff_at = now + ack_interval;
+    let effects = engine.advance(backoff_at);
+    let (_, _, ready_at) =
+        retry_scheduled(&effects).expect("an unacknowledged write waits to retry");
+    let effects = engine.handle(engine.cancel_input(first), backoff_at);
+    assert_cancel_refused(&effects, first);
+    let replay = engine.advance(ready_at);
+    assert_eq!(request_transmit(&replay).1, second);
+    send_ok(&mut engine, &replay, Some(SECOND), ready_at);
+    let timed_out_at = ready_at + ack_interval;
+    let effects = engine.advance(timed_out_at);
+    assert!(terminal_failure(&effects, second).is_some());
+    let effects = engine.handle(engine.cancel_input(first), timed_out_at);
+    assert_cancel_refused(&effects, first);
+    assert_applied(&engine.handle(completion(FIRST), timed_out_at), first);
+}
+
+#[test]
+fn sony_datagram_pre_ack_intent_cannot_cancel_an_unassigned_contender() {
+    let now = Instant::now();
+    let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+    let (writing, first) = admit(&mut engine, 1, command(1), now);
+    send_ok(&mut engine, &writing, Some(FIRST), now);
+    let requested = engine.handle(engine.cancel_input(first), now);
+    assert!(cancel_transmit_optional(&requested).is_none());
+    let (writing, second) = admit(&mut engine, 2, command(1), now);
+    send_ok(&mut engine, &writing, Some(SECOND), now);
+
+    let acked = engine.handle(ack(FIRST, ViscaSocket::S1), now);
+    assert_cancel_refused(&acked, first);
+    assert!(engine.entry(first).is_some());
+    assert!(engine.entry(second).is_some());
+    assert_applied(&engine.handle(completion(FIRST), now), first);
+}
+
+#[test]
+fn sony_datagram_conclusive_rejection_ends_socket_evidence_until_retry_writes() {
+    let now = Instant::now();
+    let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+    let (writing, first) = admit(&mut engine, 1, command(1), now);
+    send_ok(&mut engine, &writing, Some(FIRST), now);
+    let rejection = engine.handle(
+        response(
+            FIRST,
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x03.into(),
+            },
+        ),
+        now,
+    );
+    let (_, _, ready_at) = retry_scheduled(&rejection).expect("buffer full is retryable");
+    let contrary = engine.handle(ack(FIRST, ViscaSocket::S1), now);
+    assert_eq!(
+        ignored_reasons(&contrary),
+        vec![IgnoreReason::UnmatchedFrame]
+    );
+    assert!(matches!(
+        phase_of(&engine, first),
+        Some(Phase::Backoff { .. })
+    ));
+
+    let writing = engine.advance(ready_at);
+    send_ok(&mut engine, &writing, Some(FIRST), ready_at);
+    let accepted = engine.handle(ack(FIRST, ViscaSocket::S1), ready_at);
+    assert!(ignored_reasons(&accepted).is_empty());
+    assert_eq!(socket_of(&engine, first), Some(ViscaSocket::S1));
+}

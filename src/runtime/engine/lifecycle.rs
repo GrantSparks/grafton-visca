@@ -1295,6 +1295,8 @@ impl PendingCancellation {
         self.request.observer_open
     }
 
+    /// No bytes left the owner. Resume observing the original attempt on
+    /// its completion deadline with the same named ACK evidence.
     pub(crate) const fn refused(self, now: Instant) -> SocketedLifecycle {
         let (started_at, deadline, attempt) = match self.phase {
             SocketedPhase::Executing {

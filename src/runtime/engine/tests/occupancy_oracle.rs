@@ -56,6 +56,7 @@ fn uncorrelated_command(lifecycle: Lifecycle) -> bool {
 #[derive(Default)]
 struct ScannedTarget {
     commands: usize,
+    named_sony_sockets: std::collections::BTreeSet<ViscaSocket>,
     inquiries: usize,
     unacknowledged: usize,
     uncorrelated_command: bool,
@@ -80,7 +81,15 @@ pub(super) fn assert_agrees<E: EngineMethods + ?Sized>(engine: &E, now: Instant)
         let expected = &mut scanned[entry.request.context().target];
         let lifecycle = entry.lifecycle();
         let live_inquiry = inquiry_on_wire(lifecycle);
-        expected.commands += usize::from(command_on_wire(lifecycle));
+        match lifecycle {
+            Lifecycle::Executing { socket, .. }
+            | Lifecycle::AwaitingCancellationResolution { socket, .. }
+                if !raw && engine.policy.transport == TransportKind::Datagram =>
+            {
+                expected.named_sony_sockets.insert(socket);
+            }
+            _ => expected.commands += usize::from(command_on_wire(lifecycle)),
+        }
         expected.inquiries += usize::from(live_inquiry);
         expected.unacknowledged += usize::from(unacknowledged(lifecycle));
         expected.uncorrelated_command |= uncorrelated_command(lifecycle);
@@ -93,7 +102,11 @@ pub(super) fn assert_agrees<E: EngineMethods + ?Sized>(engine: &E, now: Instant)
     }
     for (target, expected) in scanned.iter() {
         let actual = &occupancy.targets[target];
-        assert_eq!(actual.commands, expected.commands, "commands on {target:?}");
+        assert_eq!(
+            actual.commands,
+            expected.commands + expected.named_sony_sockets.len(),
+            "commands on {target:?}"
+        );
         assert_eq!(
             actual.inquiries, expected.inquiries,
             "inquiries on {target:?}"

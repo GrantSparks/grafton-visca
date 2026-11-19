@@ -12,6 +12,7 @@ pub(super) struct PositionalCommand {
 #[derive(Debug, Default)]
 pub(super) struct TargetOccupancy {
     pub(super) commands: usize,
+    sony_named_sockets: [bool; 2],
     pub(super) inquiries: usize,
     pub(super) unacknowledged: usize,
     pub(super) unassigned_command: bool,
@@ -100,7 +101,12 @@ impl Occupancy {
                     }
                 }
             }
-            target.commands += usize::from(lifecycle.is_command_on_wire());
+            if let Some(socket) = entry.sony_named_socket() {
+                let counted = &mut target.sony_named_sockets[socket.as_index()];
+                target.commands += usize::from(!std::mem::replace(counted, true));
+            } else {
+                target.commands += usize::from(lifecycle.is_command_on_wire());
+            }
             target.unassigned_command |= matches!(lifecycle, Lifecycle::ExecutingUnassigned { .. });
             if lifecycle.is_live_inquiry() {
                 target.inquiries += 1;
