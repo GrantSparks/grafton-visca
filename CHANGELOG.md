@@ -95,6 +95,10 @@ verification.
 
 ### Changed
 
+- The README starts with a read-only quickstart and an example that runs
+  without a camera. Detailed control availability is in the
+  [camera profile guide](docs/camera_profile_support.md#built-in-controls).
+
 - Applied-only operation handles retain just the state needed to observe
   application and cancellation. Continuous drives and STOPs still supersede
   earlier position polling on the same target and axes (#1111).

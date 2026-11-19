@@ -111,6 +111,21 @@ pub enum InquiryRetryClass {
 /// and retries whose backoff has elapsed join the tail of that queue.
 /// Typed STOPs and owner-issued cancellation use the urgent safety lane
 /// independently of this setting.
+///
+/// Give a telemetry poller background priority while the operator's view
+/// retains its usual priority.
+///
+/// ```no_run
+/// # #[cfg(feature = "async")]
+/// # async fn poll(camera: &grafton_visca::r#async::Camera<grafton_visca::profiles::PtzOpticsG2>)
+/// #     -> grafton_visca::Result<()> {
+/// use grafton_visca::request::SubmissionClass;
+///
+/// let poller = camera.with_submission_class(SubmissionClass::Background);
+/// let position = poller.zoom().position().await?;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]

@@ -1,12 +1,8 @@
 # 2.0 usage and construction
 
-The 2.0 API exposes symmetric `blocking` and `r#async` facades. Both use
-`Camera<P>` for compile-time profiles and `Camera<AnyProfile>` for runtime
-profiles, with the same owner-backed session model.
-
-Every Rust snippet on this page is compiled by the crate's own test suite, so
-the `#[cfg(feature = "...")]` attributes below are load-bearing: they name the
-Cargo feature a snippet needs.
+Use `Camera<P>` when the model is known at compile time or `Camera<AnyProfile>`
+when configuration selects the model. Blocking and async sessions expose the
+same camera controls.
 
 ## Feature selection
 
@@ -17,7 +13,7 @@ Cargo feature a snippet needs.
 | Tokio async | `runtime-tokio` |
 | smol async | `runtime-smol` |
 | Blocking serial | `transport-serial` |
-| Tokio serial | `runtime-tokio,transport-serial-tokio` |
+| Tokio serial | `transport-serial-tokio` (includes `runtime-tokio`) |
 | Runtime-selected profiles | Use `AnyProfile` with the same facade features above |
 | Serialization/schema/typescript | `serde`, `schemars`, and `ts-rs` as needed |
 | Testkit steps and helpers | `test-utils` |
@@ -27,18 +23,14 @@ Cargo feature a snippet needs.
 | Async scripted transport and deterministic clock/executor | `test-utils,async` |
 | VISCA camera simulator | `test-utils,runtime-tokio` |
 
-Runtime features imply the canonical `async` facade. `runtime-tokio` and
-`runtime-smol` may be enabled together; each session still receives one
-explicit runtime. The default `blocking` feature is an independent native
-synchronous implementation: a blocking-only application does not enable or
-link Tokio, smol, or an async executor. CI checks that dependency boundary for
-both blocking network and blocking serial builds.
+`runtime-tokio` and `runtime-smol` each enable `async`. You can enable both
+and choose a runtime per session. The default `blocking` feature uses native
+synchronous I/O and needs no async executor.
 
 ## One standard connection
 
-Use `CameraSession::<P>::connect_tcp` for a standard connection. The type parameter is the
-compile-time profile, so transport support and optional control gates are
-checked before opening the connection.
+Open a PTZOptics G2 over TCP and read its power state. The profile supplies
+the port when the address omits it.
 
 ### Blocking
 
@@ -47,11 +39,8 @@ use grafton_visca::blocking::CameraSession;
 use grafton_visca::profiles::PtzOpticsG2;
 
 fn standard_connection() -> Result<(), grafton_visca::Error> {
-    let session: CameraSession<PtzOpticsG2> =
-        CameraSession::<PtzOpticsG2>::connect_tcp("192.168.0.110")?;
-    let camera = session.camera();
-    camera.power().on()?;
-    camera.zoom().stop()?.applied()?;
+    let session = CameraSession::<PtzOpticsG2>::connect_tcp("192.0.2.10")?;
+    println!("Power: {:?}", session.camera().power().status()?);
     session.close()
 }
 ```
@@ -73,17 +62,14 @@ async fn standard_connection() -> Result<(), grafton_visca::Error> {
     use grafton_visca::r#async::CameraSession;
 
     let runtime = TokioRuntime::from_current()?;
-    let session: CameraSession<PtzOpticsG2> =
-        CameraSession::<PtzOpticsG2>::connect_tcp("192.168.0.110", runtime).await?;
-    let camera = session.camera();
-    camera.power().on().await?;
-    camera.zoom().stop().await?.applied().await?;
+    let session = CameraSession::<PtzOpticsG2>::connect_tcp("192.0.2.10", runtime).await?;
+    println!("Power: {:?}", session.camera().power().status().await?);
     session.close().await
 }
 ```
 
-Use `runtime-smol` with `SmolRuntime`, or use `connect_udp` for UDP.
-The async constructors take an explicit runtime as their last argument.
+For smol, enable `runtime-smol` and pass `SmolRuntime::new()` as the last
+argument. Use `connect_udp` for UDP.
 TCP and UDP addresses require bracketed IPv6 literals and canonical dotted-quad
 IPv4 literals without leading zeros. Legacy forms such as `192.168.1.010`,
 `127.1` and `0x7f000001` return `InvalidAddress` before name resolution or
@@ -525,6 +511,36 @@ reply happen in one synchronous owner turn: dropping after admission detaches
 observation, even if the caller has not yet received the handle. It does not
 cancel admitted hardware work.
 
+### Model-specific controls
+
+The profile determines which methods and values you can use. For example,
+`zoom().set_normalized(position, ZoomDomain::Optical)` maps a `UnitInterval`
+across the documented optical range. `OpticalPlusDigital` also requires a
+digital range. On a Sony FR7, the white-balance and preset controls can set a
+preset white point and configure the duration of a later recall.
+
+```rust,no_run
+use grafton_visca::{
+    blocking::Camera, profiles::SonyFr7,
+    types::{Kelvin, PresetNumber, PresetSeparateMode, PresetSpeedSelection, WhiteBalanceMode},
+};
+use std::time::Duration;
+
+fn configure_fr7(camera: &Camera<SonyFr7>) -> grafton_visca::Result<()> {
+    let white = camera.white_balance();
+    white.set_mode(WhiteBalanceMode::Preset)?;
+    white.set_preset_white(Kelvin::new(5600)?)?;
+
+    let presets = camera.presets();
+    let preset = PresetNumber::new(0)?;
+    presets.set_speed_selection(PresetSpeedSelection::Separate)?;
+    presets.set_separate_mode(preset, PresetSeparateMode::Duration)?;
+    presets.set_separate_duration(preset, Duration::from_millis(2500))
+}
+```
+
+Look up other controls in the [method table](camera_profile_support.md#methods-by-profile).
+
 ## Optional ecosystem surfaces
 
 `serde` provides serialization for supported public values and configuration;
@@ -545,6 +561,6 @@ tests. Add `blocking` for `ScriptedBlockingTransport`; add `async` for
 `runtime-tokio` for `ViscaCameraSimulator`. It is not required by production
 applications.
 
-See [`architecture_2_0.md`](architecture_2_0.md) for ownership/order
-invariants and [`observability_and_recovery.md`](observability_and_recovery.md)
-for metrics, diagnostics, state, and recovery.
+For command classes, state changes, and motion handling, see [Request semantics](request_semantics.md).
+The [architecture guide](architecture_2_0.md) covers ownership and ordering.
+For metrics and reconnecting after a failure, see [Observability and recovery](observability_and_recovery.md).

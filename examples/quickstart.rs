@@ -1,9 +1,5 @@
-//! Blocking quickstart for the owner-backed camera API.
-//!
-//! The default path only performs inquiries. Pass `--move` to run a short
-//! zoom command followed by an applied STOP. The movement block holds a
-//! stop-on-exit guard, so an early `?` still ends the motion: dropping an
-//! operation handle is `detach` and never stops hardware.
+//! Read power and zoom from a PTZOptics G2 over TCP.
+//! Pass `--move` to drive the zoom briefly and then stop it.
 
 use std::{env, io, thread::sleep, time::Duration};
 
@@ -12,19 +8,14 @@ use grafton_visca::{
     types::IdleWait, Error,
 };
 
-/// Sends the typed zoom STOP when it leaves scope, on every exit path.
-///
-/// The library never stops hardware on drop, so the `?` inside the movement
-/// block would otherwise leave the zoom driving. This is the same caller-owned
-/// pattern `examples/operation_handles.rs` documents in full.
+/// Attempts a zoom STOP on scope exit. Dropping a drive handle only detaches it.
 struct StopZoomOnExit<'a> {
     camera: &'a Camera<PtzOpticsG2>,
 }
 
 impl Drop for StopZoomOnExit<'_> {
     fn drop(&mut self) {
-        // `Drop` cannot report a failure and may run while unwinding, so the
-        // stop is best effort.
+        // Drop cannot return a STOP error.
         if let Ok(mut stop) = self.camera.zoom().stop() {
             let _ = stop.applied();
         }
@@ -43,8 +34,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Zoom position: 0x{:04X}", zoom.value());
 
         if move_camera {
-            // The guard bounds the zoom to this block: an early `?` below
-            // still stops the camera before the session closes.
             let _stop_on_exit = StopZoomOnExit { camera };
             let mut drive = camera.zoom().tele()?;
             sleep(Duration::from_millis(250));

@@ -324,9 +324,6 @@ mod tests {
         use crate::command::power_wire::PowerOn;
         use crate::command::zoom_wire::Zoom;
 
-        // Test commands from different categories to ensure
-        // the macros are correctly applying termination
-
         type EncodeFunction = Box<dyn Fn(&mut [u8]) -> Result<usize, crate::Error>>;
 
         struct TestCase {
@@ -373,16 +370,7 @@ mod tests {
         }
     }
 
-    /// Guard the wire-byte rows in `docs/visca_reference.md` against the actual
-    /// encoders.
-    ///
-    /// `docs/visca_reference.md` is cited in `README.md` as the evidence base for
-    /// built-in profile decisions, yet nothing tied its documented bytes to the
-    /// code. Issue #688 found the red/blue tuning rows and the NDI-mode row
-    /// carrying wire bytes that contradicted the encoders. Each case below asserts
-    /// both that the documented hex prefix still appears verbatim in the reference
-    /// and that the live encoder emits a frame starting with those exact bytes, so
-    /// the two cannot silently drift apart again.
+    /// Check each literal prefix against both the protocol reference and the encoder.
     #[test]
     #[allow(clippy::unwrap_used)]
     fn visca_reference_wire_rows_match_encoders() {

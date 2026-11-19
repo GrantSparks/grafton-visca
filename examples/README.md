@@ -1,225 +1,66 @@
-# grafton-visca Examples
+# Examples
 
-This directory contains working examples for the current `grafton-visca` API surface.
+To try the library without a camera, run this from the repository root. It
+prints the capabilities of three camera profiles and shows how input validation
+handles an out-of-range zoom value.
 
-Preferred usage:
-
-- Use `CameraSession::connect_tcp` for simple blocking and async camera connections.
-- Use `CameraConfig` when a standard TCP, UDP, or serial connection needs explicit timeouts, retry policy, keepalive, or camera ID.
-- Use `Session::open` when you already own a custom transport and need to attach it to a camera.
-- Import construction/session types from their public modules (`Session`, `CameraSession::connect_tcp`, and `CameraConfig`).
-- Use checked public value types such as `UnitInterval::new(...)` and `CameraId::new(raw)?` instead of raw normalized floats or raw camera ID setters.
-- Treat raw transport, protocol, and lab-validation programs as advanced integration/reference material.
-- Use ordinary noun methods for simple command completion. Use operation handles
-  when a command needs an exact deadline, profile-selected protocol-settlement
-  wait, cancellation, or explicit detach.
-
-Example quality bar:
-
-- A runnable example should either connect to a camera, validate public API types, or be clearly marked as reference material.
-- Examples that move hardware should take the camera address from an argument or environment variable and should keep movement focused.
-- Hard-coded lab IPs belong only in validation utilities, not in getting-started examples.
-
-See [docs/examples.md](../docs/examples.md) for the example maintenance policy.
-
-## Important: Feature Flags
-
-This library uses feature flags to control dependencies:
-- **`blocking`**: Blocking API
-- **`async`**: Runtime-agnostic async API; provide your own executor/runtime integration
-- **`runtime-tokio`**: Built-in Tokio runtime support (implies `async`)
-- **`runtime-smol`**: Built-in smol runtime support (implies `async`)
-- **`transport-serial`**: Blocking serial (RS-232/RS-422)
-- **`transport-serial-tokio`**: Tokio serial transport (implies `runtime-tokio`)
-- **`test-utils`**: Deterministic test transports and executors
-
-## Getting Started
-
-If you're new to the library, start with these examples in order:
-
-1. **[quickstart.rs](quickstart.rs)** - Blocking connection and read-only state query
-2. **[inquiry_quickstart.rs](inquiry_quickstart.rs)** - Blocking inquiry flow with the current accessor API
-3. **[quickstart_async.rs](quickstart_async.rs)** - Tokio async connection and read-only state query
-4. **[operation_handles.rs](operation_handles.rs)** - Blocking applied/settled waits, detach, session close on every path, and a scoped stop-on-exit guard
-5. **[operation_handles_async.rs](operation_handles_async.rs)** - Tokio waits, detach, session close on every path, and the async form of a bounded drive
-6. **[type_safe_commands.rs](type_safe_commands.rs)** - Profile metadata, validation, and compile-time capability bounds
-7. **[transport_builder_demo.rs](transport_builder_demo.rs)** - Configured connection setup with `CameraConfig`
-
-## Examples by Category
-
-### Basic Usage
-- **[quickstart.rs](quickstart.rs)** - Blocking high-level API; read-only unless `--move` is passed
-- **[quickstart_async.rs](quickstart_async.rs)** - Async version for Tokio
-- **[inquiry_quickstart.rs](inquiry_quickstart.rs)** - High-level inquiry accessors and typed responses
-- **[preset_demo.rs](preset_demo.rs)** - Single preset set, recall, or clear operation
-- **[operation_handles.rs](operation_handles.rs)** - Blocking applied/settled waits, explicit detach, and a session closed on every path
-- **[operation_handles_async.rs](operation_handles_async.rs)** - Tokio applied/settled waits, explicit detach, and a session closed on every path
-- **[motion_safety.rs](motion_safety.rs)** - Blocking `motion()` view: `is_moving`, `wait_until_idle`, and the `stop_all` owner halt with per-axis outcomes (a G2 in auto focus reports a focus STOP failure that is not a motion hazard)
-- **[type_safe_commands.rs](type_safe_commands.rs)** - Compile-time profile and capability safety (no camera required)
-
-### Connection, Transport, and Configuration
-- **[transports.rs](transports.rs)** - Check PTZOptics G2 TCP and UDP connectivity without changing camera state
-- **[transport_builder_demo.rs](transport_builder_demo.rs)** - Current `CameraConfig` transport policy setup
-- **[builder_api.rs](builder_api.rs)** - Attach a caller-owned transport with `Session::open`
-- **[sony_encapsulation.rs](sony_encapsulation.rs)** - Profile-selected Sony encapsulated UDP inquiries; the application does not construct the header (advanced)
-- **[serial_async_demo.rs](serial_async_demo.rs)** - Tokio serial `CameraConfig`, checked camera ID, read-only inquiries, and explicit session close
-
-### Advanced Patterns
-- **[runtime_agnostic.rs](runtime_agnostic.rs)** - Runnable custom `Executor` adapter exercising spawn, sleep, reusable timers, and operation-first application deadlines
-- **[runtime_demo.rs](runtime_demo.rs)** - Tokio runtime setup with concurrent read-only inquiries
-- **[concurrent_control.rs](concurrent_control.rs)** - A read and movement joined concurrently under one serialized async owner
-- **[error_handling.rs](error_handling.rs)** - Error classification with propagated connection and inquiry failures
-- **[cancellation.rs](cancellation.rs)** - Tokio `.cancel()` on a cancel-capable EVI-H100 over RS-232C; `--g2-unsupported` demonstrates the G2 path, where `cancel()` is refused with `CancellationNotSupported` or (usually on hardware) returns `Completed` while the zoom keeps moving; an explicit STOP is always applied
-- **[cancellation_blocking.rs](cancellation_blocking.rs)** - Hardware-free blocking confirmed cancellation on a cancel-capable Sony profile
-- **[custom_request.rs](custom_request.rs)** - A custom runtime `ProfileSpec` driven through blocking `Camera<AnyProfile>`, including downstream `PlainCommand` and `OperationCommand` submission (uses the default blocking feature)
-- **[dyn_quickstart.rs](dyn_quickstart.rs)** - Runtime-selected `Camera<AnyProfile>` with concrete `Operation<Targeted>` and `Operation<AppliedOnly>` handles (uses the default blocking feature)
-- **[multi_camera.rs](multi_camera.rs)** - One session with two registered targets selected by `camera::<P>(target)`, using explicit-timeout waits
-- **[recovery.rs](recovery.rs)** - Fresh-session recovery after transport death or an application-owned silent-peer threshold: `received_frames` heartbeat evidence, re-callable transport factory, reused config, re-query, and deliberate restoration
-
-### Validation and Reference
-- **[typed_inquiry_demo.rs](typed_inquiry_demo.rs)** - Typed inquiry API walkthrough
-- **[profile_spec.rs](profile_spec.rs)** - Hardware-free profile JSON export and validation; use the [read-only ignored probe](../docs/camera_profile_support.md#3-collect-read-only-evidence) for manual query evidence
-
-## Running Examples
-
-### Prerequisites
-
-1. Ensure you have a VISCA-compatible camera connected to your network
-2. Pass the camera address as documented by the example, or set its documented environment variable. Replace the documentation address `192.0.2.10` with your camera address.
-3. Verify the port number; defaults vary by camera model:
-   - PTZOptics cameras: TCP port `5678`, UDP port `1259`
-   - Sony professional profiles: UDP port `52381`; TCP is not a supported standard construction path
-   - The selected profile will provide the default port when you omit it
-
-Most user-facing examples accept a camera address as the first positional argument and read `VISCA_CAMERA_ADDR`. Check each example header to learn whether that input is required or has a default.
-
-### Basic Execution
-
-Run blocking examples:
-```bash
-cargo run --example quickstart -- 192.0.2.10
-cargo run --example quickstart -- 192.0.2.10 --move
-cargo run --example inquiry_quickstart -- 192.0.2.10
-cargo run --example operation_handles -- 192.0.2.10
-cargo run --example motion_safety -- 192.0.2.10
-cargo run --example custom_request                       # encoding + ProfileSpec only; no camera needed
-cargo run --example custom_request -- 192.0.2.10:5678 # also submits through the runtime profile
-cargo run --example preset_demo -- 192.0.2.10 recall 1
-cargo run --example transports -- 192.0.2.10
-cargo run --example builder_api -- 192.0.2.10:1259
+```sh
 cargo run --example type_safe_commands
-cargo run --example multi_camera                   # in-memory serial bus; no camera needed
-cargo run --example recovery                       # in-memory transport; no camera needed
-cargo run --example cancellation_blocking          # in-memory Sony transport; no camera needed
-cargo run --example transport_builder_demo -- 192.0.2.10
-cargo run --example transport_builder_demo -- 192.0.2.10 --udp
 ```
 
-Run async examples:
-```bash
+With a PTZOptics G2, replace `192.0.2.10` with its address. Both quickstarts
+read power and zoom. Add `--move` after the address to drive the zoom briefly.
+
+```sh
+cargo run --example quickstart -- 192.0.2.10
 cargo run --example quickstart_async --features runtime-tokio -- 192.0.2.10
-cargo run --example operation_handles_async --features runtime-tokio -- 192.0.2.10
-cargo run --example concurrent_control --features runtime-tokio -- 192.0.2.10
-cargo run --example error_handling --features runtime-tokio -- 192.0.2.10
-cargo run --example cancellation --features runtime-tokio,transport-serial-tokio -- /dev/ttyUSB0
-cargo run --example cancellation --features runtime-tokio,transport-serial-tokio -- 192.0.2.10 --g2-unsupported
-cargo run --example dyn_quickstart --features runtime-tokio -- 192.0.2.10
-cargo run --example runtime_demo --features runtime-tokio -- 192.0.2.10
-cargo run --example sony_encapsulation --features runtime-tokio -- 192.0.2.10
-cargo run --example serial_async_demo --features runtime-tokio,transport-serial-tokio -- /dev/ttyUSB0 1
-
-# Runtime-agnostic async example
-cargo run --example runtime_agnostic --features async
 ```
 
-Hardware validation is optional and private. Use the
-[gated hardware wire tests](../tests/integration/hardware_wire_rows_test.rs)
-for settings such as auto-exposure. Select the camera and profile explicitly
-for the [read-only probe](../docs/camera_profile_support.md#3-collect-read-only-evidence).
-Its query and decoder candidates require evidence review.
-```bash
-VISCA_CAMERA_IP=10.0.0.30 VISCA_PROFILE=generic_visca \
-  cargo +1.98.0 test --features serde --lib profile_probe::profile_probe -- \
-  --ignored --exact --nocapture
-```
+## Without a camera
 
-### With Logging
+Pass any feature listed below with `--features`. A dash means the default build suffices.
 
-Enable debug logging to see VISCA commands and responses:
-```bash
-RUST_LOG=debug cargo run --example quickstart -- 192.0.2.10
-RUST_LOG=grafton_visca=debug cargo run --example quickstart_async --features runtime-tokio -- 192.0.2.10
-```
+| Example | Feature | What to try |
+| --- | --- | --- |
+| [type_safe_commands](type_safe_commands.rs) | — | Inspect profile capabilities, ranges, and checked values. |
+| [profile_spec](profile_spec.rs) | `serde` | Export a profile with `-- export generic_visca` or validate a file with `-- check camera.json`. |
+| [multi_camera](multi_camera.rs) | — | Address two targets on an in-memory serial bus. |
+| [cancellation_blocking](cancellation_blocking.rs) | — | Cancel a zoom drive on a simulated Sony connection. |
+| [recovery](recovery.rs) | — | Reconnect after a silent or closed peer and query state before restoring settings. |
+| [runtime_agnostic](runtime_agnostic.rs) | `async` | Run tasks and timers with a custom executor. |
+| [custom_request](custom_request.rs) | — | Encode a custom command and operation for a runtime profile. Leave the address and `VISCA_CAMERA_ADDR` unset for the offline demo. |
 
-## Camera Profiles
+## Reading from a camera
 
-The examples use different camera profiles to demonstrate compile-time type safety:
+Most network examples accept an address after `--` or in `VISCA_CAMERA_ADDR`.
+The selected profile supplies its default port. [Transports and ports by model](../README.md#camera-support)
 
-- `PtzOpticsG2` - PTZOptics Generation 2 cameras (most examples)
-- `PtzOpticsG3` - PTZOptics Generation 3 cameras with enhanced features
-- `PtzOptics30x` - PTZOptics 30X optical zoom models
-- `SonyFr7` - Sony FR7 cameras with ND filter and advanced imaging
-- `SonyBrcH900` - Sony BRC-H900 professional cameras
-- `SonyBrc300` - Sony BRC-300 standard PTZ cameras
-- `GenericVisca` - Basic VISCA profile for unknown cameras
+| Example | Feature | What it reads or configures |
+| --- | --- | --- |
+| [quickstart](quickstart.rs) | — | Power and zoom over TCP with the blocking API. |
+| [quickstart_async](quickstart_async.rs) | `runtime-tokio` | The same inquiries with Tokio. |
+| [inquiry_quickstart](inquiry_quickstart.rs) | — | Power state and pan/tilt, zoom, and focus positions. |
+| [typed_inquiry_demo](typed_inquiry_demo.rs) | — | Typed power, zoom, and exposure-mode responses. |
+| [transports](transports.rs) | — | Check G2 connectivity over TCP and UDP. |
+| [transport_builder_demo](transport_builder_demo.rs) | — | Configure timeouts, buffers, and TCP keepalive. Pass `--udp` after the address to use UDP. |
+| [builder_api](builder_api.rs) | — | Query power with a caller-owned UDP socket. Supply the port, e.g. `192.0.2.10:1259`. |
+| [sony_encapsulation](sony_encapsulation.rs) | `runtime-tokio` | Query a Sony FR7 over encapsulated UDP. |
+| [serial_async_demo](serial_async_demo.rs) | `transport-serial-tokio` | Read version and power over serial, e.g. `-- /dev/ttyUSB0 1`. |
+| [runtime_demo](runtime_demo.rs) | `runtime-tokio` | Run inquiries concurrently in one session. |
+| [error_handling](error_handling.rs) | `runtime-tokio` | Classify errors and try a configured connection. |
 
-Profiles provide compile-time protocol selection, typed capability gates, and runtime capability metadata. Capability-gated typed commands do not compile for unsupported profiles; baseline VISCA commands can still fail at runtime when hardware or firmware differs from the selected profile. Optional vendor-specific typed controls are intentionally narrower than runtime metadata: `SonyFr7` exposes ND filter and variable speed controls; built-in PTZOptics profiles are not marked for typed Motion Sync from the current model capability specs.
+## Moving a camera or changing settings
 
-Profile capability contributions should follow the [Camera Profile Support Guide](../docs/camera_profile_support.md) and the [VISCA Protocol Reference](../docs/visca_reference.md), which define how protocol evidence, domain facts, and typed support markers fit together.
+| Example | Feature | What it does |
+| --- | --- | --- |
+| [operation_handles](operation_handles.rs) | — | Wait for a move, detach a drive, and send STOP on scope exit. |
+| [operation_handles_async](operation_handles_async.rs) | `runtime-tokio` | Await movement and send STOP on success and error returns. |
+| [concurrent_control](concurrent_control.rs) | `runtime-tokio` | Read power during a zoom drive. |
+| [dyn_quickstart](dyn_quickstart.rs) | `runtime-tokio` | Select the G2 profile at runtime, home the camera, and stop the zoom. |
+| [preset_demo](preset_demo.rs) | — | Store, recall, or clear a preset, e.g. `-- 192.0.2.10 recall 1`. |
+| [cancellation](cancellation.rs) | `transport-serial-tokio` | Cancel an EVI-H100 zoom over serial. Use `--g2-unsupported` with a G2 TCP address to try a camera without socket cancellation. Both paths send STOP. |
+| [motion_safety](motion_safety.rs) | — | Observe selected axes, stop movement, and inspect each axis’s result. |
 
-## Current API Shape
-
-```rust
-use grafton_visca::config::CameraConfig;
-use grafton_visca::profiles::PtzOpticsG2;
-use grafton_visca::runtime::TokioRuntime;
-use grafton_visca::transport::{BufferConfig, IoBounds, TcpConnect, TcpKeepaliveConfig};
-
-let blocking_session = grafton_visca::blocking::CameraSession::<PtzOpticsG2>::connect_tcp("192.0.2.10")?;
-let blocking_camera = blocking_session.camera();
-let power_status = blocking_camera.power().status()?;
-blocking_session.close()?;
-
-let runtime = TokioRuntime::from_current()?;
-let config = CameraConfig::<PtzOpticsG2>::tcp_configured(
-    "192.0.2.10",
-    TcpConnect::default().with_keepalive(Some(TcpKeepaliveConfig::default()))?,
-    IoBounds::default().with_buffer_config(BufferConfig::for_tcp())?,
-);
-let async_session = grafton_visca::r#async::CameraSession::connect(&config, runtime).await?;
-let async_camera = async_session.camera();
-let power_status = async_camera.power().status().await?;
-async_session.close().await?;
-```
-
-## Troubleshooting
-
-### Connection Issues
-- Verify camera IP address and port
-- Check network connectivity: `ping <camera-ip>`
-- Ensure camera supports VISCA over IP
-- Use a transport declared by the selected profile; `transports.rs` can compare both defaults for `PtzOpticsG2`
-
-### Command Failures
-- Enable debug logging: `RUST_LOG=debug`
-- Check camera is powered on
-- Verify camera profile matches your hardware
-- Some commands require specific camera modes
-
-### Performance
-- Use async for concurrent operations
-- Choose among the transports declared by the selected profile and supported by the camera configuration
-- TCP is an ordered byte stream; UDP preserves datagram boundaries but requires application-appropriate timeout and retry policy
-- Adjust timeouts, retry policy, and TCP keepalive based on network conditions
-
-## Contributing
-
-Found an issue or have an improvement? Please:
-1. Test with your specific camera hardware
-2. Include camera model and firmware version
-3. Provide debug logs if reporting issues
-4. Submit PRs with new examples for unique use cases
-
-## License
-
-These examples are part of the grafton-visca project and are licensed under MIT OR Apache-2.0 dual license.
+For model-specific controls or instructions for contributing an example, see the
+[profile guide](../docs/camera_profile_support.md#methods-by-profile) and the
+[example policy](../docs/examples.md).

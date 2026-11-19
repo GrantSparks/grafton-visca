@@ -1,16 +1,5 @@
-//! Blocking operation handles: applied, settled, detached, and dropped.
-//!
-//! Every movement step runs inside `movement`, so an early `?` returns through
-//! `finish_session` and the session is closed on the failure path as well as
-//! the success path.
-//!
-//! Dropping an operation handle is exactly `detach`: it relinquishes the
-//! observer and never stops hardware. Callers who want motion bounded by a
-//! scope write their own guard; `StopPanTiltOnExit` below is the whole pattern
-//! and uses nothing but the public API.
-//!
-//! This example moves real hardware. Set `VISCA_CAMERA_ADDR` or pass an
-//! address on the command line.
+//! Move a PTZOptics G2 using blocking operation handles. Pass the camera
+//! address on the command line or set `VISCA_CAMERA_ADDR`.
 
 mod support;
 
@@ -37,15 +26,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Sends the typed pan/tilt STOP when it leaves scope, on every exit path.
-///
-/// This is the scoped stop-on-exit pattern from `docs/migration_2_0.md`. It is
-/// caller-owned code, not library API: the library never stops hardware on
-/// drop, so a caller who wants an early `?` or a panic to end motion writes a
-/// guard like this and holds it for the region that must stay bounded.
-///
-/// `Drop` cannot report a failure and may run while unwinding, so the stop is
-/// best effort here — exactly as in any scope guard.
+/// Attempts a pan/tilt STOP on scope exit, including an early return or panic.
+/// `Drop` cannot return a STOP error.
 struct StopPanTiltOnExit<'a> {
     camera: &'a Camera<PtzOpticsG2>,
 }
@@ -59,16 +41,11 @@ impl Drop for StopPanTiltOnExit<'_> {
 }
 
 fn movement(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
-    // Targeted movement exposes profile-selected protocol settlement;
-    // applied-only movement has no settled state and is observed only at protocol application.
-    // Both waits borrow the handle; neither adds a stop of its own.
+    // Home has a target position. The zoom drive continues after application.
     camera.pan_tilt().home()?.settled()?;
     camera.zoom().tele()?.applied()?;
     camera.zoom().stop()?.applied()?;
 
-    // A handle held across fallible work is not a safety net: if `applied`
-    // below returned an error, `drive` would simply be dropped and pan/tilt
-    // would keep moving. The guard is what bounds the motion to this scope.
     {
         let _stop_on_exit = StopPanTiltOnExit { camera };
         let mut drive = camera.pan_tilt().drive(
@@ -79,9 +56,7 @@ fn movement(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
         drive.applied()?;
     }
 
-    // `detach` is the explicit spelling of what drop already does. The zoom
-    // keeps driving after this line, so it must be paired with an explicit
-    // bounded stop.
+    // Detaching leaves the zoom running until the explicit STOP.
     camera.zoom().tele()?.detach();
     sleep(Duration::from_millis(250));
     camera.zoom().stop()?.applied()?;

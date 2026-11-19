@@ -21,7 +21,7 @@ Thank you for your interest in contributing to grafton-visca! This guide will he
 
 Before contributing, please:
 
-1. Read the [README.md](README.md) to understand the project architecture
+1. Start with the [README](README.md) for camera support or the [architecture guide](docs/architecture_2_0.md) for protocol internals.
 2. Review existing issues and pull requests
 3. Fork the repository and create a feature branch
 
@@ -783,7 +783,7 @@ When adding features that require new dependencies:
 
 1. Make them optional via feature flags
 2. Document the feature in Cargo.toml
-3. Update README.md with feature documentation
+3. Explain the feature in the [usage guide](docs/usage_2_0.md#feature-selection). Include it in the README if it changes how users choose a camera, connection, or runtime.
 4. Ensure tests work with and without the feature
 
 ## Performance Considerations

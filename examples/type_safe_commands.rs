@@ -1,12 +1,5 @@
-//! Type-safe profile and capability example.
+//! Inspect profile capabilities and validate inputs without connecting to a camera.
 //!
-//! This example does not connect to a camera. It demonstrates the parts of the
-//! public API that can be checked before any I/O happens: profile metadata,
-//! range validation, protocol envelope selection, and optional capability bounds.
-//! It complements the command builder type-state pattern used to guarantee
-//! terminator-safe VISCA byte construction around `VISCA_TERMINATOR`.
-//!
-//! Run with:
 //! ```sh
 //! cargo run --example type_safe_commands
 //! ```
@@ -101,12 +94,8 @@ fn demonstrate_optional_capability_bounds() -> Result<(), Error> {
     requires_variable_speed::<SonyFr7>()?;
     requires_exposure_compensation::<PtzOpticsG2>()?;
 
-    // These lines intentionally do not compile if uncommented:
-    // requires_nd_filter::<PtzOpticsG2>();
-    // requires_variable_speed::<PtzOpticsG2>();
-    // requires_push_af::<PtzOpticsG2>();
-    // requires_focus_lock::<SonyFr7>();
-    // requires_exposure_compensation::<SonyFr7>(); // FR7 uses its own AE level family.
+    // Try `requires_nd_filter::<PtzOpticsG2>()` to see the compiler reject
+    // a control the profile doesn't support.
     Ok(())
 }
 

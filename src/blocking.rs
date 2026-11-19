@@ -1,17 +1,12 @@
-//! Blocking owner facade.
+//! Synchronous camera control.
 //!
-//! A [`Session`] owns exactly one native owner worker thread and the transport
-//! moved into it (D24). [`Camera`] values are inexpensive target views:
-//! cloning one only clones the owner handle and its immutable target/profile
-//! facts. Session and camera handles are `Clone + Send + Sync`; operation
-//! handles are `Send + Sync` and may move between threads. Calls from any
-//! number of threads are serialized by the worker rather than by the caller.
-//! These
-//! handles are deliberately mode-native: they expose direct [`Result`]s and
-//! never create or return a future. Dropping a non-final handle leaves the
-//! shared owner running; dropping the final one stops the worker and releases
-//! its transport, but never emits a protocol STOP. [`Session::close`] is the
-//! deterministic release barrier.
+//! Each [`Session`] owns a transport and a worker thread that serializes camera
+//! calls. Session and [`Camera`] handles are `Clone + Send + Sync`. Clones share
+//! the worker and connection. Operation handles are `Send + Sync` and can move
+//! between threads.
+//!
+//! [`Session::close`] waits for the worker to release the transport. Dropping
+//! the last handle initiates shutdown. Send a typed STOP to end continuous motion.
 
 use crate::observability::DiagnosticCapacity;
 use std::{fmt, marker::PhantomData, sync::Arc, time::Duration};

@@ -1,88 +1,23 @@
-//! Transport layer for VISCA communication.
+//! VISCA connections over TCP, UDP, serial, or a caller-owned transport.
 //!
-//! This module provides both blocking and async transport implementations.
-//! The transport layer has been redesigned to use separate traits for blocking
-//! and async transports, enabling zero-cost abstractions and better type safety.
+//! Configure a standard connection with [`crate::config::CameraConfig`]. To
+//! attach an existing connection with `Session::open`, implement [`BlockingTransport`]
+//! or `AsyncTransport` and [`HasTransportConfig`]. The transport identity declares
+//! addressing and stream or datagram semantics. Reads report [`ReceiveOutcome`] so the
+//! decoder can discard an incomplete datagram.
 //!
-//! ## Architecture
-//!
-//! The transport layer now uses two separate traits:
-//! - **AsyncTransport** - Native async functions for zero-cost async transports
-//! - **BlockingTransport** - Blocking methods with OS-level timeout support
-//! - Implementations: TCP and UDP for both blocking and async
-//!
-//! ## Send Semantics
-//!
-//! Transports are classified by their send semantics, which determines how
-//! the runtime handles send failures:
-//!
-//! - **Stream** (TCP, Serial): A partial write can leave the byte stream in an
-//!   unknown state. On send failure/timeout, the transport is "poisoned" and
-//!   must be dropped to prevent protocol desynchronization.
-//!
-//! - **Datagram** (UDP): Each send is atomic at the datagram boundary. A failed
-//!   send does not affect subsequent sends, so the transport can continue operating.
-//!
-//! ## Usage
-//!
-//! For blocking transports:
-//! ```no_run
-//! # #[cfg(feature = "blocking")]
-//! # fn example() -> Result<(), grafton_visca::Error> {
-//! use grafton_visca::{blocking::CameraSession, profiles::PtzOpticsG2};
-//!
-//! let session = CameraSession::<PtzOpticsG2>::connect_tcp("192.168.0.110:5678")?;
-//! let camera = session.camera();
-//! println!("Power: {:?}", camera.power().status()?);
-//! session.close()
-//! # }
-//! ```
-//!
-//! For async transports with Tokio:
-//! ```no_run
-//! # #[cfg(feature = "runtime-tokio")]
-//! # async fn example() -> Result<(), grafton_visca::Error> {
-//! use grafton_visca::{profiles::PtzOpticsG2, r#async::CameraSession, runtime::TokioRuntime};
-//!
-//! let runtime = TokioRuntime::from_current()?;
-//! let session = CameraSession::<PtzOpticsG2>::connect_tcp("192.168.0.110:5678", runtime).await?;
-//! let camera = session.camera();
-//! println!("Power: {:?}", camera.power().status().await?);
-//! session.close().await
-//! # }
-//! ```
-/// Send semantics for transport classification.
-///
-/// This enum categorizes transports by how their send operations behave,
-/// which determines the runtime's failure handling strategy:
-///
-/// - **Stream transports** (TCP, Serial): Byte-oriented, where a partial write
-///   can leave the stream in an unknown state. On send failure or timeout,
-///   the transport must be poisoned to prevent protocol desynchronization.
-///
-/// - **Datagram transports** (UDP): Message-oriented, where each send is atomic.
-///   A failed send does not affect subsequent sends, so the transport can
-///   continue operating.
-///
-/// # Usage
-///
-/// The runtime queries this via `TransportIdentity::send_semantics()` on send errors to decide
-/// whether to poison the transport (Stream) or continue (Datagram).
+//! For a working adapter, see the [caller-owned UDP example](https://github.com/GrantSparks/grafton-visca/blob/main/examples/builder_api.rs).
+
+/// How writes are delivered, as reported by [`TransportIdentity::send_semantics`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum SendSemantics {
-    /// Byte-stream transport (TCP, Serial).
-    ///
-    /// A send failure/timeout can leave the stream in an unknown state
-    /// (partial frame written). The transport must be poisoned on send
-    /// failure to prevent protocol desynchronization.
+    /// TCP or serial byte stream. A failed write can leave a partial frame,
+    /// so the session must be reopened after a transport write failure.
     Stream,
 
-    /// Datagram transport (UDP).
-    ///
-    /// Each send is atomic at the datagram boundary. A failed send
-    /// does not affect subsequent sends, so the transport can continue
-    /// operating after a send failure.
+    /// UDP-style atomic datagrams. A failed send preserves the framing of
+    /// subsequent datagrams, though delivery of the failed write can be uncertain.
     Datagram,
 }
 

@@ -1,7 +1,4 @@
-//! Deterministic documentation projections of the live registries.
-//!
-//! Registry projections use live values. No test needs a camera connection.
-//! Authored evidence remains separate from the generated grant-key index.
+//! Generate reference tables from the profile, capability, and request registries.
 
 #![allow(clippy::expect_used, clippy::panic)]
 
@@ -107,22 +104,12 @@ impl Documentation {
         }
     }
 
-    fn readme_surfaces(&self) -> String {
-        let mut output = table("Typed surface | Marker | Built-in profiles");
-        for surface in &self.surfaces {
-            let _ = writeln!(
-                output,
-                "| `{:?}` | `{}` | {} |",
-                surface.surface,
-                surface.marker,
-                self.profile_names(|profile| profile.capabilities().supports(surface.surface)),
-            );
+    fn method_counts(&self) -> String {
+        let mut columns = String::from("Control | Total methods");
+        for profile in &self.profiles {
+            let _ = write!(columns, " | `{}`", profile.name);
         }
-        output
-    }
-
-    fn readme_nouns(&self) -> String {
-        let mut output = table("Noun | Built-in method availability");
+        let mut output = table(&columns);
         let mut seen = BTreeSet::new();
         for row in &self.methods {
             if !seen.insert(row.noun) {
@@ -133,35 +120,32 @@ impl Documentation {
                 .iter()
                 .filter(|method| method.noun == row.noun)
                 .collect();
-            let counts = self
-                .profiles
-                .iter()
-                .map(|profile| {
-                    let count = methods
-                        .iter()
-                        .filter(|method| method.permits(&profile.spec))
-                        .count();
-                    format!("`{}`: {count}/{}", profile.name, methods.len())
-                })
-                .collect::<Vec<_>>()
-                .join("; ");
-            let _ = writeln!(output, "| `{}()` | {counts} |", row.noun);
+            let _ = write!(output, "| `{}()` | {} |", row.noun, methods.len());
+            for profile in &self.profiles {
+                let count = methods
+                    .iter()
+                    .filter(|method| method.permits(&profile.spec))
+                    .count();
+                let _ = write!(output, " {count} |");
+            }
+            output.push('\n');
         }
         output
     }
 
     fn vocabulary(&self) -> String {
-        let mut output =
-            String::from("| Area | Marker | Typed surface |\n| ---- | ------ | ------------- |\n");
+        let mut output = table("Area | Capability | Marker | Controls | Built-in profiles");
         let mut surfaces: Vec<_> = self.surfaces.iter().collect();
         surfaces.sort_by_key(|surface| surface.surface.documentation_noun().accessor());
         for surface in surfaces {
             let _ = writeln!(
                 output,
-                "| {} | `{}` | {} |",
+                "| {} | `{:?}` | `{}` | {} | {} |",
                 surface.surface.documentation_noun().title(),
+                surface.surface,
                 surface.marker,
                 surface.methods,
+                self.profile_names(|profile| profile.capabilities().supports(surface.surface)),
             );
         }
         output
@@ -423,7 +407,6 @@ fn assert_blocks(blocks: &[(&str, &str, String)]) {
     // failure; otherwise a multi-block page would need one invocation per block.
     let mut first_failure = None;
     for (path, block, generated) in blocks {
-        // Cargo runs unit tests from the package root.
         let path = PathBuf::from(path);
         if let Err(failure) = std::panic::catch_unwind(|| {
             bless_or_assert(path, Some(block), generated);
@@ -442,12 +425,6 @@ fn generated_documents_readme() {
     assert_blocks(&[
         (
             "README.md",
-            "PROFILE SUPPORT SURFACES",
-            docs.readme_surfaces(),
-        ),
-        ("README.md", "PROFILE NOUN COVERAGE", docs.readme_nouns()),
-        (
-            "README.md",
             "GENERATED PROFILE TRANSPORTS",
             docs.transports(),
         ),
@@ -463,6 +440,11 @@ fn generated_documents_readme() {
 fn generated_documents_profile_guide() {
     let docs = Documentation::current();
     assert_blocks(&[
+        (
+            "docs/camera_profile_support.md",
+            "PROFILE NOUN COVERAGE",
+            docs.method_counts(),
+        ),
         (
             "docs/camera_profile_support.md",
             "GENERATED TYPED SUPPORT VOCABULARY",
@@ -670,7 +652,8 @@ fn stale_support_docs_detect_a_changed_profile_grant() {
         profile.spec.transports(),
         profile.spec.timing(),
     );
-    assert_stale(&original.readme_surfaces(), &changed.readme_surfaces());
+    assert_stale(&original.method_counts(), &changed.method_counts());
+    assert_stale(&original.vocabulary(), &changed.vocabulary());
     assert_stale(&original.method_support(), &changed.method_support());
     assert_eq!(original.profiles.len(), changed.profiles.len());
     assert_eq!(original.methods.len(), changed.methods.len());

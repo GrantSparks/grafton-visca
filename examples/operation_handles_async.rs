@@ -1,18 +1,5 @@
-//! Tokio operation handles: applied, settled, detached, and dropped.
-//!
-//! Every movement step runs inside `movement`, so an early `?` returns through
-//! `finish_session` and the session is closed on the failure path as well as
-//! the success path.
-//!
-//! Dropping an operation handle is exactly `detach`: it relinquishes the
-//! observer and never stops hardware. `Drop` cannot await, so the async form
-//! of a scoped stop is a wrapper that runs the stop on both of the body's
-//! return paths — but not on a panic or a dropped future, which a synchronous
-//! `Drop` guard does cover. See `bounded_drive` below and the guard pattern in
-//! `docs/migration_2_0.md`.
-//!
-//! This example moves real hardware. Set `VISCA_CAMERA_ADDR` or pass an
-//! address on the command line.
+//! Move a PTZOptics G2 using Tokio operation handles. Pass the camera
+//! address on the command line or set `VISCA_CAMERA_ADDR`.
 
 mod support;
 
@@ -41,21 +28,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn movement(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
-    // Targeted movement exposes profile-selected protocol settlement;
-    // applied-only movement has no settled state and is observed only at protocol application.
-    // Both waits borrow the handle; neither adds a stop of its own.
+    // Home has a target position. The zoom drive continues after application.
     camera.pan_tilt().home().await?.settled().await?;
     camera.zoom().tele().await?.applied().await?;
     camera.zoom().stop().await?.applied().await?;
 
-    // A handle held across fallible work is not a safety net: if `applied`
-    // inside `drive_up` returned an error, its handle would simply be dropped
-    // and pan/tilt would keep moving. `bounded_drive` is what stops it.
     bounded_drive(camera).await?;
 
-    // `detach` is the explicit spelling of what drop already does. The zoom
-    // keeps driving after this line, so it must be paired with an explicit
-    // bounded stop.
+    // Detaching leaves the zoom running until the explicit STOP.
     camera.zoom().tele().await?.detach();
     tokio::time::sleep(Duration::from_millis(250)).await;
     camera.zoom().stop().await?.applied().await?;
@@ -70,22 +50,9 @@ async fn movement(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
     Ok(())
 }
 
-/// Drives pan/tilt with a STOP that runs on both of `drive_up`'s return paths.
-///
-/// This is the async form of the scoped stop-on-exit guard from
-/// `docs/migration_2_0.md`. `Drop` cannot await, so instead of a guard type the
-/// caller wraps the fallible region, stops, and only then propagates the body's
-/// result. The stop itself is best effort, as in a synchronous guard.
-///
-/// It covers less than a synchronous `Drop` guard does. `Ok` and `Err` from
-/// `drive_up` both reach the stop; a panic inside `drive_up` and a caller that
-/// drops this future before it completes — a `select!` loser, an expired
-/// `tokio::time::timeout`, an aborted task — do not. In those cases the stop is
-/// never reached and pan/tilt keeps moving. A synchronous `Drop` guard covers
-/// both, because `Drop` runs while unwinding and runs whenever the value leaves
-/// scope. An async caller that must survive cancellation has to submit the STOP
-/// from a `Drop` that cannot await — through a channel or a detached task — or
-/// bound the movement at the camera instead of at the future.
+/// Attempts a STOP after `drive_up` returns either `Ok` or `Err`.
+/// A panic or a dropped future can skip this cleanup. To cover those paths,
+/// arrange for a separate task to send the STOP, or bound motion at the camera.
 async fn bounded_drive(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
     let result = drive_up(camera).await;
     if let Ok(mut stop) = camera.pan_tilt().stop().await {

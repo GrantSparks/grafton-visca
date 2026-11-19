@@ -1,27 +1,7 @@
-//! Async cancellation on a cancel-capable profile, with an optional PTZOptics
-//! G2 unsupported-post-send demonstration.
-//!
-//! Queued work is always locally cancellable, and on a socket-cancel-capable
-//! profile a command that has already been written can be cancelled too.
-//! There, `cancel_with_timeout()` concludes with `Cancelled` or `Completed`.
-//!
-//! By default this example drives a Sony EVI-H100 over RS-232C at 9,600 bps.
-//! Its technical manual documents both that serial link and the `8x 2p FF`
-//! socket cancel, so the supported path runs on a documented transport. Pass
-//! `--g2-unsupported` with a TCP address to demonstrate a profile without
-//! socket cancellation: on the PTZOptics G2 bench a G2 answers `81 2y FF`
-//! with a syntax error and the command completes, so after a G2 command is
-//! written, `cancel()` refuses with `Error::CancellationNotSupported` and the same handle
-//! still observes the command. On real G2 hardware a continuous zoom drive
-//! usually reports ACK and completion together about 50 ms after the write
-//! while the lens keeps moving, so `cancel()` typically returns
-//! `Ok(Completed)` rather than the refusal. Either way the drive is still
-//! running, so both paths apply an explicit zoom STOP unconditionally after
-//! the cancellation attempt, whatever `cancel()` returned.
-//!
-//! This example moves real hardware. Pass the serial port (or, with
-//! `--g2-unsupported`, the G2 address) on the command line or in
-//! `VISCA_CAMERA_ADDR`.
+//! Drive the zoom, request cancellation, then send a STOP on every cancellation
+//! outcome. The Sony EVI-H100 supports socket cancellation over RS-232C at
+//! 9,600 bps. To try a PTZOptics G2 over TCP, pass `--g2-unsupported`.
+//! Supply the serial port or camera address as an argument or in `VISCA_CAMERA_ADDR`.
 
 mod support;
 
@@ -67,17 +47,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn cancel_supported_drive(camera: &Camera<SonyEviH100>) -> Result<(), Error> {
-    // Start a continuous zoom drive and let its first write reach the camera, so
-    // the cancel below exercises the post-send path rather than a local queue
-    // removal.
+    // Give the drive time to reach the camera before requesting cancellation.
     let mut operation = camera.zoom().tele().await?;
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     let cancellation = operation.cancel_with_timeout(Duration::from_secs(2)).await;
 
-    // A cancellation outcome is protocol evidence, not proof that hardware is
-    // physically still. The explicit STOP runs on every outcome, including an
-    // error, before any of them is reported.
+    // Even a confirmed protocol cancellation leaves physical motion uncertain.
     let stop = match camera.zoom().stop().await {
         Ok(mut stop) => stop.applied().await,
         Err(error) => Err(error),
@@ -107,16 +83,10 @@ async fn cancel_g2_drive(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
     let mut operation = camera.zoom().tele().await?;
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    // On real G2 hardware the continuous drive usually reports ACK and
-    // completion together, about 50 ms after the write, while the zoom keeps
-    // moving. `cancel()` then answers `Ok(Completed)` instead of refusing, so
-    // neither outcome says anything about the lens.
+    // G2 can report completion while the lens is moving. If the command is
+    // still in flight, this profile returns CancellationNotSupported.
     let cancellation = operation.cancel().await;
 
-    // The explicit STOP is unconditional: it runs on every `cancel()` outcome,
-    // including `Completed` and an unexpected error, before any of them is
-    // reported. A cancellation outcome is protocol evidence, not proof that
-    // hardware is physically still.
     let stop = match camera.zoom().stop().await {
         Ok(mut stop) => stop.applied().await,
         Err(error) => Err(error),
