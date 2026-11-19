@@ -283,14 +283,64 @@ macro_rules! impl_capability_domain {
 impl_capability_domain!(u8);
 impl_capability_domain!(u16);
 
+const F32_FRACTION_BITS: u32 = f32::MANTISSA_DIGITS - 1;
+const F32_IMPLICIT_BIT: u32 = 1 << F32_FRACTION_BITS;
+const F32_EXPONENT_BIAS: u32 = 127;
+
+/// Rounds the ratio of an interior offset and its span (both at most 32 bits).
+#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+fn normalize_ratio(offset: u32, span: u32) -> f32 {
+    if span <= 1 << f32::MANTISSA_DIGITS {
+        // Both operands are exact in binary32.
+        return offset as f32 / span as f32;
+    }
+
+    // Shift the numerator until the ratio is in [1, 2), then compute its
+    // binary32 significand. The scaled numerator uses at most 56 bits.
+    let mut shift = span.ilog2() - offset.ilog2();
+    let mut numerator = u64::from(offset) << shift;
+    let span = u64::from(span);
+    if numerator < span {
+        numerator <<= 1;
+        shift += 1;
+    }
+    let scaled = numerator << F32_FRACTION_BITS;
+    let significand = scaled / span;
+    let doubled_remainder = 2 * (scaled % span);
+    let round_up = doubled_remainder > span || (doubled_remainder == span && significand & 1 != 0);
+    let fraction = (significand + u64::from(round_up) - u64::from(F32_IMPLICIT_BIT)) as u32;
+    // A rounded significand of 2 carries into the exponent.
+    f32::from_bits(((F32_EXPONENT_BIAS - shift) << F32_FRACTION_BITS) + fraction)
+}
+
+/// Interpolates using the exact binary32 fraction and a span of at most 32 bits.
+fn interpolate_integer(min: i64, span: i64, value: f32) -> i64 {
+    let bits = value.to_bits();
+    let exponent = bits >> F32_FRACTION_BITS;
+    let fractional_bits = F32_EXPONENT_BIAS + F32_FRACTION_BITS - exponent;
+    if fractional_bits > i32::BITS + f32::MANTISSA_DIGITS {
+        // Even the largest possible product is less than half a step. This
+        // also covers subnormals, so the remaining inputs have an implicit bit.
+        return min;
+    }
+
+    let significand = (bits & (F32_IMPLICIT_BIT - 1)) | F32_IMPLICIT_BIT;
+    let offset = span * i64::from(significand);
+    let floor = min + (offset >> fractional_bits);
+    let half = 1_i64 << (fractional_bits - 1);
+    let remainder = offset & ((half << 1) - 1);
+    // At a negative tie the floor is already the integer away from zero.
+    floor + i64::from(remainder > half || (remainder == half && floor >= 0))
+}
+
 macro_rules! impl_capability_range {
     ($ty:ty) => {
         impl CapabilityRange<$ty> {
             /// Normalizes a supported value within this profile's bounds.
             ///
-            /// A single-value domain normalizes to zero. Values outside the
-            /// declared bounds are rejected before conversion.
-            #[allow(clippy::cast_precision_loss)]
+            /// The result is the nearest representable normalized value, with
+            /// ties rounded to even. A single-value domain normalizes to zero.
+            /// Values outside the declared bounds are rejected before conversion.
             pub fn normalize(self, value: $ty) -> crate::Result<crate::types::UnitInterval> {
                 self.validate("capability value", value)?;
                 if value == self.min {
@@ -299,18 +349,18 @@ macro_rules! impl_capability_range {
                 if value == self.max {
                     return Ok(crate::types::UnitInterval::MAX);
                 }
-                let offset = i64::from(value) - i64::from(self.min);
-                let span = i64::from(self.max) - i64::from(self.min);
-                crate::types::UnitInterval::new(offset as f32 / span as f32)
+                let min = i32::from(self.min);
+                let offset = i32::from(value).abs_diff(min);
+                let span = i32::from(self.max).abs_diff(min);
+                crate::types::UnitInterval::new(normalize_ratio(offset, span))
             }
 
             /// Maps a normalized value into this profile's inclusive domain.
             ///
             /// A single-value domain always returns its sole value; normalized
-            /// zero and one return the exact endpoints. Interpolation uses
-            /// `f64`, which represents every supported integer endpoint and
-            /// span exactly, and rounds to the nearest integer with halves
-            /// away from zero. The result stays within the declared bounds.
+            /// zero and one return the exact endpoints. Interpolation rounds
+            /// to the nearest integer with exact halves away from zero. The
+            /// result stays within the declared bounds.
             #[must_use]
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             pub fn denormalize(self, value: crate::types::UnitInterval) -> $ty {
@@ -320,9 +370,9 @@ macro_rules! impl_capability_range {
                 if value == crate::types::UnitInterval::MAX {
                     return self.max;
                 }
-                let min = f64::from(self.min);
-                let span = f64::from(self.max) - min;
-                (min + f64::from(value.value()) * span).round() as $ty
+                let min = i64::from(self.min);
+                let span = i64::from(self.max) - min;
+                interpolate_integer(min, span, value.value()) as $ty
             }
 
             /// Checked registry literals are evaluated in a const block.
@@ -454,6 +504,148 @@ mod tests {
                 "returned {actual} outside {range:?}"
             );
             assert_eq!(actual, expected, "{range:?} at {normalized}");
+        }
+    }
+
+    #[test]
+    fn denormalize_uses_the_actual_side_of_a_half_step() {
+        for (min, max, bits, expected) in [
+            (i32::MAX - 1, i32::MAX, 0x3eff_ffff, i32::MAX - 1),
+            (-i32::MAX, -i32::MAX + 1, 0x3f00_0001, -i32::MAX + 1),
+            (0, i32::MAX, 0x3f00_0001, 1_073_741_951),
+        ] {
+            let range = CapabilityRange::<i32>::new(min, max).expect("valid capability bounds");
+            let value = unit_interval(f32::from_bits(bits));
+            assert_eq!(rational_interpolation(min, max, value), expected);
+            assert_eq!(range.denormalize(value), expected);
+        }
+        let range = CapabilityRange::<u16>::new(8_198, u16::MAX).expect("valid capability bounds");
+        let value = unit_interval(f32::from_bits(0x3712_4db7));
+        assert_eq!(
+            rational_interpolation(8_198, i32::from(u16::MAX), value),
+            8_198
+        );
+        assert_eq!(range.denormalize(value), 8_198);
+    }
+
+    #[test]
+    fn normalize_rounds_the_exact_ratio() -> crate::Result<()> {
+        for (max, value, bits) in [
+            (16_777_217, 16_777_216, 0x3f7f_ffff),
+            (1_090_519_039, 545_259_552, 0x3f00_0001), // Just above an even midpoint.
+            (33_554_432, 16_777_217, 0x3f00_0000),     // Exact midpoint, lower wins.
+            (33_554_432, 16_777_219, 0x3f00_0002),     // Exact midpoint, upper wins.
+        ] {
+            let range = CapabilityRange::<i32>::new(0, max)?;
+            let normalized = range.normalize(value)?;
+            assert_eq!(normalized.value().to_bits(), bits);
+            assert_nearest_ratio(0, max, value, normalized);
+        }
+        let range = CapabilityRange::<i32>::new(0, 16_777_217)?;
+        assert_eq!(range.denormalize(range.normalize(16_777_216)?), 16_777_216);
+        Ok(())
+    }
+
+    // Use a signed weighted sum of the endpoints to obtain the interpolated
+    // coordinate as an exact rational before applying ties-away rounding.
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+    fn rational_interpolation(min: i32, max: i32, value: UnitInterval) -> i32 {
+        const DENOMINATOR: i128 = 1 << 64;
+        let value = f64::from(value.value());
+        if value < 2.0_f64.powi(-33) {
+            return min; // The integral range is narrower than 2^32.
+        }
+        // At 2^-33 and above, scaling by 2^64 is exact and integral.
+        let weight = (value * DENOMINATOR as f64) as i128;
+        let numerator = i128::from(min) * (DENOMINATOR - weight) + i128::from(max) * weight;
+        let rounded = (numerator.abs() + DENOMINATOR / 2) / DENOMINATOR;
+        i32::try_from(numerator.signum() * rounded).expect("interpolation stays in the range")
+    }
+
+    // Check both boundaries of the returned float's rounding interval by
+    // cross-multiplying the exact midpoints and integer ratio.
+    #[allow(clippy::cast_possible_truncation)]
+    fn assert_nearest_ratio(min: i32, max: i32, value: i32, normalized: UnitInterval) {
+        if value == min {
+            assert_eq!(normalized, UnitInterval::MIN);
+            return;
+        }
+        if value == max {
+            assert_eq!(normalized, UnitInterval::MAX);
+            return;
+        }
+
+        let actual = normalized.value();
+        assert!(actual >= 2.0_f32.powi(-32));
+        let span = i128::from(max) - i128::from(min);
+        let offset = i128::from(value) - i128::from(min);
+        let ratio_scaled = offset << 57;
+        // Binary32 midpoints at and above the smallest attainable ratio
+        // (2^-32) are exact multiples of 2^-57.
+        let midpoint_scaled = |neighbor| {
+            let sum = f64::from(actual) + f64::from(neighbor);
+            (sum * 2.0_f64.powi(56)) as i128
+        };
+        let lower = span * midpoint_scaled(actual.next_down());
+        let upper = span * midpoint_scaled(actual.next_up());
+        let even = actual.to_bits() & 1 == 0;
+        assert!(lower < ratio_scaled || (lower == ratio_scaled && even));
+        assert!(ratio_scaled < upper || (ratio_scaled == upper && even));
+    }
+
+    fn i32_range_endpoints() -> impl Strategy<Value = (i32, i32)> {
+        prop_oneof![
+            (any::<i32>(), any::<i32>()).prop_map(|(a, b)| (a.min(b), a.max(b))),
+            (i32::MIN..=0, 0..=i32::MAX),
+            any::<i32>().prop_map(|max| (i32::MIN, max)),
+            any::<i32>().prop_map(|min| (min, i32::MAX)),
+            any::<i32>().prop_map(|endpoint| (endpoint, endpoint)),
+        ]
+    }
+
+    proptest! {
+        #[test]
+        fn i32_normalization_and_interpolation_match_rational_oracles(
+            (min, max) in i32_range_endpoints(),
+            index in any::<u32>(),
+            other_index in any::<u32>(),
+            value in normalized_input(),
+        ) {
+            let range = CapabilityRange::<i32>::new(min, max).expect("valid capability bounds");
+            let span = u32::try_from(i64::from(max) - i64::from(min)).expect("span fits in u32");
+            let coordinate = |index| {
+                let offset = i64::from(index) % (i64::from(span) + 1);
+                i32::try_from(i64::from(min) + offset).expect("coordinate stays in range")
+            };
+            let first = coordinate(index);
+            let second = coordinate(other_index);
+            let normalized_first = range.normalize(first).expect("coordinate stays in range");
+            let normalized_second = range.normalize(second).expect("coordinate stays in range");
+            assert_nearest_ratio(min, max, first, normalized_first);
+            assert_nearest_ratio(min, max, second, normalized_second);
+            if first <= second {
+                prop_assert!(normalized_first <= normalized_second);
+            } else {
+                prop_assert!(normalized_second <= normalized_first);
+            }
+            assert_nearest_ratio(min, max, min, range.normalize(min).expect("minimum is included"));
+            assert_nearest_ratio(min, max, max, range.normalize(max).expect("maximum is included"));
+            prop_assert_eq!(range.denormalize(value), rational_interpolation(min, max, value));
+
+            if span > 0 {
+                // Pick a physical half step and probe the nearest binary32
+                // input as well as one representable value on either side.
+                #[allow(clippy::cast_possible_truncation)]
+                let half_step = ((f64::from(index % span) + 0.5) / f64::from(span)) as f32;
+                for neighbor in [half_step.next_down(), half_step, half_step.next_up()] {
+                    if let Ok(neighbor) = UnitInterval::new(neighbor) {
+                        prop_assert_eq!(
+                            range.denormalize(neighbor),
+                            rational_interpolation(min, max, neighbor)
+                        );
+                    }
+                }
+            }
         }
     }
 
