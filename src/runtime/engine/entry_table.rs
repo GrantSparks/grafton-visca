@@ -176,6 +176,11 @@ pub(crate) enum UnsocketedLifecycle {
         deadline: Instant,
         attempt: AttemptFacts,
     },
+    ExecutingUnassigned {
+        started_at: Instant,
+        deadline: Instant,
+        attempt: AttemptFacts,
+    },
     ExecutingDisplaced {
         started_at: Instant,
         deadline: Instant,
@@ -219,6 +224,15 @@ impl UnsocketedLifecycle {
                 attempt,
             } => Lifecycle::AwaitingCompletion {
                 sent_at,
+                deadline,
+                attempt,
+            },
+            Self::ExecutingUnassigned {
+                started_at,
+                deadline,
+                attempt,
+            } => Lifecycle::ExecutingUnassigned {
+                started_at,
                 deadline,
                 attempt,
             },

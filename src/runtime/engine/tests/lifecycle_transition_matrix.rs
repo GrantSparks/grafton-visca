@@ -36,7 +36,10 @@ impl State {
             Phase::Sending { .. } => Self::Sending,
             Phase::AwaitingAck { .. } => Self::AwaitingAck,
             Phase::AwaitingCompletion { .. } => Self::AwaitingCompletion,
-            Phase::Executing { .. } | Phase::ExecutingDisplaced { .. } => Self::Executing,
+            Phase::Executing { .. }
+            | Phase::ExecutingUnassigned { .. }
+            | Phase::ExecutingUnassigned { .. }
+            | Phase::ExecutingDisplaced { .. } => Self::Executing,
             Phase::AwaitingReply { .. } => Self::AwaitingReply,
             Phase::Backoff { .. } => Self::Backoff,
             Phase::AwaitingCancellationResolution { .. } => Self::AwaitingCancellationResolution,
@@ -198,6 +201,7 @@ fn pair_is_admissible(phase: Phase, cancellation: CancelState) -> bool {
         | Phase::Backoff { .. }
         | Phase::AwaitingReply { .. }
         | Phase::AwaitingCompletion { .. }
+        | Phase::ExecutingUnassigned { .. }
         | Phase::ExecutingDisplaced { .. } => matches!(cancellation, CancelState::None),
         Phase::AwaitingAck { .. } => {
             matches!(
@@ -233,6 +237,7 @@ pub(super) fn all_entries_have_admissible_pairs(engine: &ProtocolEngine) -> bool
             Phase::AwaitingAck { deadline, .. }
             | Phase::AwaitingCompletion { deadline, .. }
             | Phase::Executing { deadline, .. }
+            | Phase::ExecutingUnassigned { deadline, .. }
             | Phase::ExecutingDisplaced { deadline, .. }
             | Phase::AwaitingReply { deadline, .. }
             | Phase::AwaitingCancellationResolution { deadline, .. } => Some(deadline),
@@ -401,6 +406,7 @@ impl Fixture {
                     Phase::Backoff { ready_at, .. } => ready_at,
                     Phase::AwaitingAck { deadline, .. }
                     | Phase::AwaitingCompletion { deadline, .. }
+                    | Phase::ExecutingUnassigned { deadline, .. }
                     | Phase::ExecutingDisplaced { deadline, .. }
                     | Phase::Executing { deadline, .. }
                     | Phase::AwaitingReply { deadline, .. }

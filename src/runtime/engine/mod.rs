@@ -3371,6 +3371,10 @@ trait EngineMethods: EngineAccess {
         }
         let completion = context.timeout.completion.get();
         let deadline = add_duration(now, completion);
+        if socket.is_none() && !self.mode().is_raw() {
+            self.accept_unassigned_ack(id, now, deadline, attempt, effects);
+            return;
+        }
         if socket.is_none() && self.uncertain_socketless_stream_ack(target) {
             let ending = entry.attempt_end(self.mode(), AttemptEvidence::Lifecycle, None);
             let (core, mode) = self.split();
@@ -3422,6 +3426,38 @@ trait EngineMethods: EngineAccess {
         }
     }
 
+    /// Records acceptance without guessing which physical socket is occupied.
+    fn accept_unassigned_ack(
+        &mut self,
+        id: RequestId,
+        now: Instant,
+        deadline: Instant,
+        attempt: AttemptFacts,
+        effects: &mut Decision,
+    ) {
+        let Some(entry) = self.entries.get(&id) else {
+            return;
+        };
+        let target = entry.request.context().target;
+        if entry.cancellation_observation_open() {
+            effects.push(Effect::CancellationObservation {
+                id,
+                observation: CancellationObservation::AttemptFailed(Error::CancellationUnconfirmed),
+            });
+        }
+        self.transition(
+            id,
+            UnsocketedLifecycle::ExecutingUnassigned {
+                started_at: now,
+                deadline,
+                attempt,
+            },
+            now,
+            effects,
+        );
+        self.targets[target].zoom_drive.retire(id, true);
+    }
+
     fn completion(
         &mut self,
         id: RequestId,
@@ -3446,7 +3482,9 @@ trait EngineMethods: EngineAccess {
             {
                 true
             }
-            Lifecycle::AwaitingCompletion { .. } | Lifecycle::ExecutingDisplaced { .. } => true,
+            Lifecycle::AwaitingCompletion { .. }
+            | Lifecycle::ExecutingUnassigned { .. }
+            | Lifecycle::ExecutingDisplaced { .. } => true,
             Lifecycle::Sending { .. }
             | Lifecycle::Ready { .. }
             | Lifecycle::Backoff { .. }
@@ -5424,6 +5462,7 @@ fn camera_error_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
                 | Lifecycle::AwaitingAck { .. }
                 | Lifecycle::AwaitingCompletion { .. }
                 | Lifecycle::Executing { .. }
+                | Lifecycle::ExecutingUnassigned { .. }
                 | Lifecycle::ExecutingDisplaced { .. }
                 | Lifecycle::AwaitingCancellationResolution { .. }
         ),

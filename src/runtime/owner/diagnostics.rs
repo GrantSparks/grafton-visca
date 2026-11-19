@@ -16,7 +16,7 @@ pub(super) fn phase(value: Lifecycle) -> DiagnosticPhase {
         Phase::Sending { .. } => DiagnosticPhase::Sending,
         Phase::AwaitingAck { .. } => DiagnosticPhase::AwaitingAck,
         Phase::AwaitingCompletion { .. } => DiagnosticPhase::AwaitingCompletion,
-        Phase::Executing { .. } => DiagnosticPhase::Executing,
+        Phase::Executing { .. } | Phase::ExecutingUnassigned { .. } => DiagnosticPhase::Executing,
         Phase::ExecutingDisplaced { .. } => DiagnosticPhase::Displaced,
         Phase::AwaitingReply { .. } => DiagnosticPhase::AwaitingReply,
         Phase::Backoff { .. } => DiagnosticPhase::Backoff,

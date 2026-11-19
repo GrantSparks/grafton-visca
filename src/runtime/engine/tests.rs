@@ -4718,9 +4718,9 @@ fn fuzz_directed_frame(engine: &ProtocolEngine, action: u64) -> Option<Input> {
                 }
             }
         }
-        Phase::ExecutingDisplaced { .. } | Phase::AwaitingCompletion { .. } => {
-            DecodedResponse::Completion { socket: None }
-        }
+        Phase::ExecutingUnassigned { .. }
+        | Phase::ExecutingDisplaced { .. }
+        | Phase::AwaitingCompletion { .. } => DecodedResponse::Completion { socket: None },
         Phase::AwaitingReply { .. } => DecodedResponse::InquiryReply {
             payload: smallvec![action as u8],
         },

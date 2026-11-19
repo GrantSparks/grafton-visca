@@ -1125,6 +1125,11 @@ pub(crate) enum Phase {
         started_at: Instant,
         deadline: Instant,
     },
+    /// Accepted command with no named socket.
+    ExecutingUnassigned {
+        started_at: Instant,
+        deadline: Instant,
+    },
     /// Accepted Sony command retained only by sequence after socket reuse.
     ExecutingDisplaced {
         started_at: Instant,

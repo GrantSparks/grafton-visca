@@ -227,6 +227,7 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
             Phase::AwaitingAck { deadline, .. }
             | Phase::AwaitingCompletion { deadline, .. }
             | Phase::Executing { deadline, .. }
+            | Phase::ExecutingUnassigned { deadline, .. }
             | Phase::ExecutingDisplaced { deadline, .. }
             | Phase::AwaitingReply { deadline, .. }
             | Phase::AwaitingCancellationResolution { deadline, .. } => Some(deadline),

@@ -195,6 +195,12 @@ pub(crate) enum Lifecycle {
         attempt: AttemptFacts,
         cancellation: ExecutingCancellation,
     },
+    /// Camera accepted the command without naming its physical socket.
+    ExecutingUnassigned {
+        started_at: Instant,
+        deadline: Instant,
+        attempt: AttemptFacts,
+    },
     /// Sony acceptance whose socket was subsequently reassigned by the camera.
     /// Only its sequence retains response authority; no cancellation may be sent.
     ExecutingDisplaced {
@@ -234,6 +240,7 @@ impl Lifecycle {
         matches!(
             self,
             Self::Executing { .. }
+                | Self::ExecutingUnassigned { .. }
                 | Self::ExecutingDisplaced { .. }
                 | Self::AwaitingCancellationResolution { .. }
         )
@@ -279,6 +286,7 @@ impl Lifecycle {
                 Self::AwaitingAck { .. }
                     | Self::AwaitingCompletion { .. }
                     | Self::Executing { .. }
+                    | Self::ExecutingUnassigned { .. }
                     | Self::AwaitingCancellationResolution { .. }
             ),
         }
@@ -328,6 +336,7 @@ impl Lifecycle {
             Self::AwaitingAck { .. } => self.awaiting_ack_end(),
             Self::AwaitingCompletion { deadline, .. }
             | Self::AwaitingReply { deadline, .. }
+            | Self::ExecutingUnassigned { deadline, .. }
             | Self::ExecutingDisplaced { deadline, .. } => Some(deadline),
             Self::Executing {
                 deadline,
@@ -380,6 +389,14 @@ impl Lifecycle {
                 started_at,
                 deadline: window.unwrap_or(deadline),
             },
+            Self::ExecutingUnassigned {
+                started_at,
+                deadline,
+                ..
+            } => Phase::ExecutingUnassigned {
+                started_at,
+                deadline: window.unwrap_or(deadline),
+            },
             Self::ExecutingDisplaced {
                 started_at,
                 deadline,
@@ -413,6 +430,7 @@ impl Lifecycle {
             Self::AwaitingCompletion { .. } => matches!(family, SendingReply::CompletionOnly),
             Self::AwaitingAck { .. }
             | Self::Executing { .. }
+            | Self::ExecutingUnassigned { .. }
             | Self::ExecutingDisplaced { .. }
             | Self::AwaitingCancellationResolution { .. } => {
                 matches!(family, SendingReply::Stop | SendingReply::AckThenCompletion)
@@ -475,7 +493,8 @@ impl Lifecycle {
                 };
                 Some((self.response_window_end()?, DueAction::Completion(action)))
             }
-            Self::ExecutingDisplaced { deadline, .. } => Some((
+            Self::ExecutingUnassigned { deadline, .. }
+            | Self::ExecutingDisplaced { deadline, .. } => Some((
                 deadline,
                 DueAction::Completion(CompletionDeadline::Accepted),
             )),
@@ -572,6 +591,7 @@ impl Lifecycle {
                 }
             },
             Self::Sending { .. }
+            | Self::ExecutingUnassigned { .. }
             | Self::ExecutingDisplaced { .. }
             | Self::Ready { .. }
             | Self::Backoff { .. }
@@ -586,6 +606,7 @@ impl Lifecycle {
             Self::Sending { attempt, .. }
             | Self::AwaitingAck { attempt, .. }
             | Self::AwaitingCompletion { attempt, .. }
+            | Self::ExecutingUnassigned { attempt, .. }
             | Self::ExecutingDisplaced { attempt, .. }
             | Self::Executing { attempt, .. }
             | Self::AwaitingReply { attempt, .. }
@@ -647,6 +668,7 @@ impl Lifecycle {
                 ResolvingCancellation::ObservationFailed { .. } => false,
             },
             Self::Sending { .. }
+            | Self::ExecutingUnassigned { .. }
             | Self::ExecutingDisplaced { .. }
             | Self::Ready { .. }
             | Self::Backoff { .. }
@@ -676,6 +698,7 @@ impl Lifecycle {
                 ResolvingCancellation::ObservationFailed { .. } => {}
             },
             Self::Sending { .. }
+            | Self::ExecutingUnassigned { .. }
             | Self::ExecutingDisplaced { .. }
             | Self::Ready { .. }
             | Self::Backoff { .. }
@@ -708,6 +731,7 @@ impl Lifecycle {
                 cancellation: ResolvingCancellation::Requested(_),
                 ..
             }
+            | Self::ExecutingUnassigned { .. }
             | Self::ExecutingDisplaced { .. }
             | Self::Ready { .. }
             | Self::Sending { .. }
@@ -743,6 +767,7 @@ impl Lifecycle {
                 }
             }),
             Self::Sending { .. }
+            | Self::ExecutingUnassigned { .. }
             | Self::ExecutingDisplaced { .. }
             | Self::Ready { .. }
             | Self::Backoff { .. }
@@ -786,6 +811,7 @@ impl Lifecycle {
                 ReleaseScope::ExactSocket(socket)
             }
             Self::Sending { .. }
+            | Self::ExecutingUnassigned { .. }
             | Self::ExecutingDisplaced { .. }
             | Self::Ready { .. }
             | Self::AwaitingCompletion { .. }
@@ -868,7 +894,7 @@ pub(super) enum CommandLifecycle {
         attempt: AttemptFacts,
         cancellation: ExecutingCancellation,
     },
-    ExecutingDisplaced,
+    ExecutingWithoutSocket,
     AwaitingCancellationResolution,
 }
 
@@ -908,7 +934,9 @@ impl Lifecycle {
                 attempt,
                 cancellation,
             },
-            Self::ExecutingDisplaced { .. } => CommandLifecycle::ExecutingDisplaced,
+            Self::ExecutingUnassigned { .. } | Self::ExecutingDisplaced { .. } => {
+                CommandLifecycle::ExecutingWithoutSocket
+            }
             Self::AwaitingCancellationResolution { .. } => {
                 CommandLifecycle::AwaitingCancellationResolution
             }
@@ -930,7 +958,7 @@ impl CommandLifecycle {
         match self {
             Self::OffWire => CancellationDecision::Local,
             Self::AwaitingCompletion => refused(),
-            Self::ExecutingDisplaced => {
+            Self::ExecutingWithoutSocket => {
                 CancellationDecision::Refused(crate::Error::CancellationUnconfirmed)
             }
             Self::AwaitingCancellationResolution => CancellationDecision::Duplicate,
@@ -1049,6 +1077,7 @@ impl Lifecycle {
                     | ResolvingCancellation::ObservationFailed { .. },
                 ..
             }
+            | Self::ExecutingUnassigned { .. }
             | Self::ExecutingDisplaced { .. }
             | Self::Ready { .. }
             | Self::Sending { .. }
@@ -1101,6 +1130,7 @@ impl Lifecycle {
                     | ResolvingCancellation::ObservationFailed { .. },
                 ..
             }
+            | Self::ExecutingUnassigned { .. }
             | Self::ExecutingDisplaced { .. }
             | Self::Ready { .. }
             | Self::Sending { .. }
@@ -1134,6 +1164,7 @@ impl Lifecycle {
                 ..
             }
             | Self::Executing { .. }
+            | Self::ExecutingUnassigned { .. }
             | Self::ExecutingDisplaced { .. }
             | Self::Ready { .. }
             | Self::Sending { .. }
@@ -1322,6 +1353,7 @@ impl Lifecycle {
                     | ResolvingCancellation::ObservationFailed { .. },
                 ..
             }
+            | Self::ExecutingUnassigned { .. }
             | Self::ExecutingDisplaced { .. }
             | Self::Ready { .. }
             | Self::Sending { .. }
