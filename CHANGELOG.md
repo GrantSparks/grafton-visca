@@ -2065,7 +2065,7 @@ on hardware; both are accepted known limitations.
 ## [2.0.0-rc.2] - 2026-09-04
 
 The 2.0.0-rc.2 release candidate corrects two public integration defects found
-while porting Synemantic to the owner-backed 2.0 API.
+while porting a downstream application to the owner-backed 2.0 API.
 
 No physical hardware validation has been performed, and no hardware support has been verified for this release candidate.
 
@@ -2083,7 +2083,7 @@ No physical hardware validation has been performed, and no hardware support has 
   therefore be boxed or spawned before polling; custom `Runtime`
   implementations must return `Send` connector futures as well.
 - Expanded the 2.0 migration guide with a downstream adapter recipe validated
-  while porting Synemantic: exact async `Connect` renames, owner-backed
+  during a downstream port, covering exact async `Connect` renames, owner-backed
   `Camera<P>` storage, root-control-to-noun and idle-wait mappings, consuming
   type-erased operation handles, single-boundary future erasure for layered
   async traits, resilient application error conversion, and the
@@ -2442,7 +2442,7 @@ entries below retain their original wording.
   that the session is finished and must be rebuilt from the retained
   `SessionConfig`; `false` only means the error alone does not prove it.
 - Added a hardware release evidence checklist. Hardware, registry, and
-  Synemantic validation remain `Pending (Not run)` until release owners record
+  downstream validation remain `Pending (Not run)` until release owners record
   bench evidence.
 - Added the CI leg that runs the shipped test toolkit, and made a filtered test
   run fail when its filter matches nothing (#628). `test-utils` was never

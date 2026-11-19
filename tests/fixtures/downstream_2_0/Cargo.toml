@@ -1,5 +1,5 @@
 [package]
-name = "synemantic-2-0-fixture"
+name = "downstream-2-0-fixture"
 version = "0.0.0"
 edition = "2021"
 rust-version = "1.98"

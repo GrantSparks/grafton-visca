@@ -112,8 +112,7 @@ release look internally consistent.
 
 Check the declared `rust-version` and inspect the generated documentation.
 The candidate's CI run includes the Cargo Deny gate for RustSec advisories,
-licenses, and dependency sources. Record registry and Synemantic validation
-results separately.
+licenses, and dependency sources. Record registry validation separately from downstream validation.
 
 Inspect package contents before publication:
 
@@ -129,126 +128,46 @@ registry until the macro package is available there. Package and publish the
 macro first, then perform the main-package dry run after the exact index entry
 is visible.
 
-## Paired Synemantic candidate gate
+## Paired downstream candidate validation
 
-The checked-in `tests/fixtures/synemantic_2_0/` crate is a small, reproducible
-API contract. It intentionally follows Synemantic's grafton-visca feature
-shape and exercises its owner-backed construction, noun, profile, and schema
-surfaces. It is not evidence that an arbitrary Synemantic branch builds, and
-it is not a substitute for the real downstream migration gate.
+The checked-in [downstream contract fixture](tests/fixtures/downstream_2_0/)
+checks the 2.0 API in public CI. For a release coordinated with a downstream
+consumer, also validate the exact pair of committed candidates. Keep private
+repository names, commit identifiers, CI links, commands and logs in private
+maintainer records. The public release record can report the result without
+identifying the consumer.
 
-Before publishing a version that Synemantic will consume, validate an
-immutable pair of commits: the exact grafton-visca candidate SHA
-(`$release_commit`) and a committed Synemantic migration-candidate SHA
-(`$synemantic_commit`). Record both full SHAs, the Synemantic Make targets and
-results, and the Grafton candidate's successful CI URL in the release PRs. The
-Synemantic PR may remain a draft with its registry-dependent CI pending: an
-unpublished candidate cannot pass that registry-only gate. After publication,
-record the successful registry-backed Synemantic CI URL as separate evidence. Do not
-identify either input by a moving branch name, a local dirty worktree, or a
-crate version that has not been published.
-
-This gate deliberately uses Cargo source replacement for the two local
-packages, so it does not assume `2.0.0` already exists in crates.io. Make two
-disposable detached worktrees (one at each recorded SHA) and place this
-temporary Cargo configuration outside both repositories:
+Check out both recorded SHAs in clean, disposable detached worktrees. Use a
+separate Cargo home to override the two packages before they are published.
+Set the paths to the local grafton-visca candidate and place this configuration
+outside both repositories.
 
 ```toml
-# $pair_cargo_home/config.toml -- never commit this file
+# $pair_cargo_home/config.toml
 [patch.crates-io]
 grafton-visca = { path = "/absolute/path/to/grafton-visca-candidate" }
 grafton-visca-macros = { path = "/absolute/path/to/grafton-visca-candidate/grafton-visca-macros" }
 ```
 
-Start by asserting that both detached worktrees are clean and still resolve to
-the recorded SHAs. The gate starts with this identity check (the variable paths
-refer to the two disposable detached worktrees):
+Run the downstream consumer's required checks from its detached worktree using
+that Cargo home for workspaces that depend on grafton-visca. Keep unrelated
+locked workspaces on their ordinary Cargo home. Verify both worktrees still
+resolve to the recorded SHAs after the checks. Inspect any resolver-generated
+lockfile changes and keep a record of them with the result. Other tracked
+changes require a fresh clean candidate and a new run.
 
-```sh
-test "$(git -C "$grafton_candidate" rev-parse --verify HEAD^{commit})" = "$release_commit"
-test "$(git -C "$synemantic_candidate" rev-parse --verify HEAD^{commit})" = "$synemantic_commit"
-test -z "$(git -C "$grafton_candidate" status --porcelain=v1 --untracked-files=all)"
-test -z "$(git -C "$synemantic_candidate" status --porcelain=v1 --untracked-files=all)"
-```
-
-Before replacing `CARGO_HOME`, record the ordinary absolute Cargo home used by
-the host:
-
-```sh
-synemantic_unpatched_cargo_home="${CARGO_HOME:-$HOME/.cargo}"
-case "$synemantic_unpatched_cargo_home" in
-    /*) ;;
-    *) echo "the ordinary Cargo home must be absolute" >&2; exit 1 ;;
-esac
-```
-
-Synemantic's audio-classifier package tool is an independent locked Cargo
-workspace whose feature graph does not include grafton-visca. The paired
-source override must reach Synemantic's root and WASM workspaces, but it must
-not dirty that independent lock with an unused patch. Synemantic therefore
-accepts `SYNEMANTIC_UNPATCHED_CARGO_HOME` for only that package tool. In the
-disposable Synemantic worktree, run its required Make validation sequence with
-both Cargo homes explicit:
-
-```sh
-cd "$synemantic_candidate"
-SYNEMANTIC_UNPATCHED_CARGO_HOME="$synemantic_unpatched_cargo_home" CARGO_HOME="$pair_cargo_home" make dev-check DEV_CHECK_SCOPE=rust
-SYNEMANTIC_UNPATCHED_CARGO_HOME="$synemantic_unpatched_cargo_home" CARGO_HOME="$pair_cargo_home" make check-bindings
-SYNEMANTIC_UNPATCHED_CARGO_HOME="$synemantic_unpatched_cargo_home" CARGO_HOME="$pair_cargo_home" make quick-check
-SYNEMANTIC_UNPATCHED_CARGO_HOME="$synemantic_unpatched_cargo_home" CARGO_HOME="$pair_cargo_home" make test
-SYNEMANTIC_UNPATCHED_CARGO_HOME="$synemantic_unpatched_cargo_home" CARGO_HOME="$pair_cargo_home" make build
-SYNEMANTIC_UNPATCHED_CARGO_HOME="$synemantic_unpatched_cargo_home" CARGO_HOME="$pair_cargo_home" make pre-commit
-```
-
-Reassert both identities and inspect the final worktree state after the last
-target. `make pre-commit` may include formatters, so a successful exit status
-alone does not prove that it validated the recorded source. The only permitted
-tracked drift is an unstaged update to Synemantic's root `Cargo.lock` from the
-temporary resolver:
-
-```sh
-test "$(git -C "$grafton_candidate" rev-parse --verify HEAD^{commit})" = "$release_commit"
-test "$(git -C "$synemantic_candidate" rev-parse --verify HEAD^{commit})" = "$synemantic_commit"
-test -z "$(git -C "$grafton_candidate" status --porcelain=v1 --untracked-files=all)"
-
-synemantic_status="$(git -C "$synemantic_candidate" status --porcelain=v1 --untracked-files=all)"
-case "$synemantic_status" in
-    "") ;;
-    " M Cargo.lock")
-        git -C "$synemantic_candidate" diff --check -- Cargo.lock
-        git -C "$synemantic_candidate" diff -- Cargo.lock
-        ;;
-    *)
-        printf '%s\n' "unexpected Synemantic gate drift:" "$synemantic_status" >&2
-        exit 1
-        ;;
-esac
-```
-
-Record an allowed `Cargo.lock` diff with the result; any other source or index
-change invalidates the gate even when every Make target passed. The temporary
-resolver is why this is a disposable copy rather than either candidate
-checkout. Discard it after recording the result. Subject only to that recorded
-resolver output, the source inputs remain the two recorded commits, while
-Cargo builds the unpublished grafton-visca and macro packages from the exact
-local source.
-
-After both crates publish and the registry index exposes both exact versions,
-repeat Synemantic's required Make sequence with no `[patch.crates-io]`
-override, update its tracked lockfile from the registry, and record that
-separate post-publication result. A Grafton workflow cannot enforce the
-cross-repository pair without read authority to the Synemantic candidate and
-an authenticated cross-repository status/attestation channel; add such a gate
-only after those permissions and an immutable Synemantic ref policy are in
-place. Until then, the recorded detached-worktree procedure is the release
-gate; CI's local fixture remains a focused regression contract.
+After both exact crate versions appear in the registry, repeat the downstream
+checks using the released crates and record that result separately. Use the
+consumer's normal lockfile update and verify that the build resolves both
+crates from the registry. Run validation that requires private repository
+access through the consumer's authorized private environment.
 
 ## Release tag and publication order
 
 The release PR must pass the full software matrix before it merges.
 After maintainers review and merge the PR, complete the
-post-merge candidate and paired Synemantic gates above; those steps establish
-the final `$release_commit`.
+post-merge candidate checks and any applicable paired downstream validation.
+Those steps establish the final `$release_commit`.
 
 Wait for `.github/workflows/ci.yml` to pass for that exact `main` commit. Fetch
 `origin/main` again and require it still equals `$release_commit`; if `main`

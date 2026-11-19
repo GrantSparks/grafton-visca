@@ -7,6 +7,7 @@ A version is published once its tag is reachable from the comparison base.
 from __future__ import annotations
 
 import difflib
+import hashlib
 import pathlib
 import re
 import subprocess
@@ -16,6 +17,13 @@ import sys
 CHANGELOG = "CHANGELOG.md"
 BODY_POLICY_BOUNDARY = ".github/change-record-body-policy-boundary"
 HISTORY_POLICY_BOUNDARY = ".github/change-record-history-policy-boundary"
+# Exact before/after snapshots for the one-time redaction of downstream
+# identifiers from three release-note lines. All other released bytes remain
+# subject to the same comparison, including changes made beside the redaction.
+PUBLISHED_PRIVACY_REDACTION = (
+    "aa16f61831ebb3364320b61cfee5809e8b6206987ae77ae3195fac82cf9cf97b",
+    "6e1bc56e41525e6ca3b00423cf7ab24d0582cb0b7ef9b2f4e1673572971f7f32",
+)
 VERSION_COMPONENT = r"(?:0|[1-9][0-9]*)"
 STRICT_DATED_RELEASE_HEADING = re.compile(
     rf"\A## \["
@@ -466,7 +474,15 @@ def main(argv: list[str]) -> int:
         )
 
         errors: list[str] = []
-        if base_immutable != head_immutable and release_cut is None:
+        if (
+            base_immutable != head_immutable
+            and release_cut is None
+            and (
+                hashlib.sha256(base_immutable.encode("utf-8")).hexdigest(),
+                hashlib.sha256(head_immutable.encode("utf-8")).hexdigest(),
+            )
+            != PUBLISHED_PRIVACY_REDACTION
+        ):
             diff = list(
                 difflib.unified_diff(
                     base_immutable.splitlines(),
