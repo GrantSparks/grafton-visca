@@ -61,7 +61,11 @@ An inquiry declares its structural reply evidence through `payload_shape()`.
 `PayloadShape::Bytes(n)` admits exactly `n` decoded data bytes.
 `PayloadShape::Nibbles(n)` also requires every byte to be at most `0x0F`.
 Both variants take `NonZeroUsize` and exclude the VISCA address, reply header
-and terminator from the count. Use `with_payload_shape` to declare the shape a
+and terminator from the count. On a raw transport, `90 50 12 FF 90 41 FF`
+contains an inquiry reply with one data byte and a separate ACK. The first
+`FF` ends the reply even with a declared length of two bytes. Sony IP reads
+the frame length from the envelope, so a VISCA data byte within that frame
+can be `FF`. Use `with_payload_shape` to declare the shape a
 raw inquiry's decoder accepts, for example
 `with_payload_shape(PayloadShape::Bytes(NonZeroUsize::MIN))` for one byte.
 The raw owner rejects an exact count greater than `recv_buffer_size - 3`
@@ -433,10 +437,10 @@ end physical movement with a pan/tilt STOP or `stop_all()` (#839).
 ### Applied-state effects
 
 `AppliedStateEffectRequirement` has two verbs, `Set` and `Clear`.
-The later typed conversion must attach the selected requirement to a prepared
-write. The owner applies a typed `KnownState` only after exact application,
-independent of observer attachment. Its variant implies the key; values are
-never encoded as scalar arrays for the cache:
+Preparation attaches the typed effect from the command's
+[`BuiltinStateProjection`](../src/request/builtin_contract.rs). The owner
+applies a typed `KnownState` only after exact application, independent of
+observer attachment. Its variant identifies the cache key.
 
 - `Set` replaces a known state value supplied by the request. A pan/tilt limit
   records the corner and the applied `PanTiltPosition` decoded from the units
@@ -472,15 +476,21 @@ Use the typed inquiries for USB-audio status and combined image orientation.
 A future write-only property must add a key and explicit ledger rows before it
 can be exposed by a typed facade.
 
-## Conversion dependencies
+## Extending built-in requests
 
-This phase intentionally does not migrate camera facades or every command to
-`request::builtin`.  Later conversion must:
+Start with the [command ledger](../src/command/semantics.rs) to declare the
+request class, affected axes and any applied-state requirement. Follow
+preparation and its tests in [`prepared.rs`](../src/prepared.rs) for the selected
+class.
 
-- preserve these classes and axes in homogeneous request types;
-- add exact profile inquiry facts and settlement plans for `Iris` and
-  `NdFilter` before targeted requests can use position polling;
-- lower profile-dependent preset axes without an all-axis fallback;
-- lower the closed state-effect requirement into the target-local cache; and
-- keep system cancellation and raw protocol escapes isolated from ordinary
-  operation handles.
+- Iris and ND-filter setters declare their individual axes in the command
+  ledger. [`settlement_inquiries!`](../src/position_inquiries.rs) maps each axis
+  to its typed position inquiry. Preparation uses this table and the target's
+  inquiry support to build the position query plan.
+- Preset recall gets its affected axes from
+  [`ProfileSpec::preset_recall_axes`](../src/profile.rs). Those same axes feed
+  motion ordering and settlement preparation.
+- A write-only setter such as a pan/tilt limit update projects its typed
+  value through [`BuiltinStateProjection`](../src/request/builtin_contract.rs).
+  The [owner](../src/runtime/owner/mod.rs) commits the prepared effect to
+  the target's cache when it publishes the terminal outcome.

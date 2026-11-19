@@ -13,9 +13,9 @@ macro_rules! settlement_inquiries {
         $consumer! {
             $($($context)*)?
             PanTilt, pan_tilt => PanTiltPositionInquiry, decoder: crate::ResponseDecoder::for_pan_tilt_sample;
-            Zoom, zoom => ZoomPositionInquiry;
-            Focus, focus => FocusPositionInquiry;
-            Iris, iris => IrisInquiry;
+            Zoom, zoom => ZoomPositionInquiry, decoder: crate::ResponseDecoder::for_zoom_sample;
+            Focus, focus => FocusPositionInquiry, decoder: crate::ResponseDecoder::for_focus_sample;
+            Iris, iris => IrisInquiry, decoder: crate::ResponseDecoder::for_iris_sample;
             NdFilter, nd_filter => NdFilterInquiry;
         }
     };

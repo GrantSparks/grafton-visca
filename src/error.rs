@@ -60,6 +60,9 @@
 //! | `UnsequencedCommandUnconfirmed` | `Unconfirmed` | Terminal / Unconfirmed | `Reconcile` |
 //! | `InquiryCorrelationLost / lane latched` | `NotExecutable` | Terminal / NotAccepted | `Abandon` |
 //! | `CommandCorrelationLost / lane latched` | `NotExecutable` | Terminal / NotAccepted | `Abandon` |
+//! | `PanTiltDriveRestartBlocked / refused before admission` | `NotExecutable` | PreAdmission / NotAccepted | `Abandon` |
+//! | `PanTiltDriveRestartBlocked / queued drive unwritten` | `NotExecutable` | Terminal / NotAccepted | `Abandon` |
+//! | `PanTiltDriveRestartBlocked / earlier attempt uncertain` | `NotExecutable` | Terminal / Unconfirmed | `Reconcile` |
 //! | `CommandFailedAfterAck` | `Unconfirmed` | Terminal / Unconfirmed | `Reconcile` |
 //! | `RequestUnconfirmed / later rejection after a lost ACK` | `Unconfirmed` | Terminal / Unconfirmed | `Reconcile` |
 //! | `RuntimeIdentityExhausted` | `Other` | — | `Abandon` |
@@ -489,7 +492,7 @@ pub enum Error {
         context: FailureContext,
     },
 
-    /// A later admitted operation prevents attribution of polled settlement.
+    /// An overlapping admission or write prevents attribution of polled settlement.
     #[non_exhaustive]
     SettlementSuperseded {
         /// The original operation.
@@ -632,6 +635,26 @@ pub enum Error {
     CommandCorrelationLost {
         /// The camera whose raw command lane is latched.
         camera: crate::IndividualCameraId,
+    },
+
+    /// A pan/tilt drive was refused because the camera did not confirm an
+    /// earlier socket cancellation of a drive.
+    ///
+    /// Directional drive, menu navigation and STOP use the same drive family.
+    /// A fresh submission reports `PreAdmission` / [`Certainty::NotAccepted`].
+    /// An admitted request reports `Terminal` with `NotAccepted` if no attempt
+    /// could have affected the camera, or [`Certainty::Unconfirmed`] if an older
+    /// attempt may have reached it.
+    ///
+    /// Other operations and targets remain usable. [`Self::requires_new_session`]
+    /// returns `false`. Closing and reopening the session clears the target's
+    /// drive restriction.
+    #[non_exhaustive]
+    PanTiltDriveRestartBlocked {
+        /// The camera whose drive cancellation remains unconfirmed.
+        camera: crate::IndividualCameraId,
+        /// Failure stage and certainty for the refused request.
+        context: FailureContext,
     },
 
     /// The camera reported an error for a command it had already
@@ -941,6 +964,10 @@ impl fmt::Display for Error {
                 write!(f, "Raw command correlation for camera {camera} is lost: an earlier command's answer is still \
          owed by the stream, so this request was not sent; reopen the session to recover")
             }
+            Self::PanTiltDriveRestartBlocked { camera, .. } => write!(
+                f,
+                "Pan/tilt drive restart for camera {camera} was refused because an earlier drive cancellation remains unconfirmed. Reopen the session before driving again."
+            ),
             Self::CommandFailedAfterAck { source } => {
                 write!(
                     f,
@@ -1050,6 +1077,7 @@ impl std::error::Error for Error {
             | Self::UnsequencedCommandUnconfirmed
             | Self::InquiryCorrelationLost { .. }
             | Self::CommandCorrelationLost { .. }
+            | Self::PanTiltDriveRestartBlocked { .. }
             | Self::RuntimeIdentityExhausted
             | Self::RuntimeQueueFull { .. }
             | Self::ControlReserveExhausted { .. }
@@ -1610,6 +1638,10 @@ impl Error {
             | Self::ControlReserveExhausted { .. }
             | Self::NoSocket => CAPACITY,
             Self::CommandNotExecutable | Self::InvalidState { .. } => NOT_EXECUTABLE,
+            Self::PanTiltDriveRestartBlocked { context, .. } => Classification {
+                context: Own(Some(*context)),
+                ..NOT_EXECUTABLE
+            },
             Self::FeatureNotSupported { .. }
             | Self::CancellationNotSupported
             | Self::MissingRuntime

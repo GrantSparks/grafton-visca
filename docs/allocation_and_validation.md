@@ -88,7 +88,7 @@ The stable test boundaries are:
 | --- | --- |
 | Representative built-in and typed request encoding | `tests/allocation/issue_548_allocation_baselines.rs::representative_typed_requests_encode_without_heap_allocation` |
 | Pure built-in command and inquiry preparation | `tests/allocation/issue_548_allocation_baselines.rs::built_in_command_and_inquiry_preparation_stay_inline`, through `testing::preparation` with `test-utils` |
-| Targeted preparation and one-time settlement templates | `tests/allocation/issue_548_allocation_baselines.rs::targeted_operation_preparation_does_not_build_unused_polling_queries`, for FR7 and BRC-300 |
+| Targeted preparation and one-time settlement templates | `tests/allocation/issue_548_allocation_baselines.rs::targeted_operation_preparation_does_not_build_unused_polling_queries`, for FR7 and BRC-300 pan/tilt and EVI-H100 zoom, focus and iris. Cloning a materialized polling plan allocates no decoder state. |
 | Built-in profile-aware response parsing | `tests/allocation/issue_548_allocation_baselines.rs::built_in_profile_response_parsing_does_not_reconstruct_profile_facts`, for the 4/4, 5/5 and 5/4 position grammars |
 | Profile-aware position preparation and decoder cloning | `tests/allocation/issue_548_allocation_baselines.rs::profiled_position_inquiry_preparation_and_decoder_clones_stay_inline`, for G2, BRC-300 and FR7 |
 | Warmed receive lowering, decoding and batch recycling | `tests/allocation/issue_548_allocation_baselines.rs::warmed_receive_decoding_and_batch_recycling_do_not_allocate`, through `testing::receive::ReceiveProbe` for raw/Sony streams and datagrams |

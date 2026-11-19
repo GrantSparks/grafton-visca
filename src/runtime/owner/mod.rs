@@ -2141,6 +2141,15 @@ impl OwnerState {
         turn: EngineTurn,
         effects: &mut VecDeque<Effect>,
     ) {
+        let written_motion = match result {
+            WriteOutcome::NotSent(_) => None,
+            WriteOutcome::Sent(_) | WriteOutcome::Failed(_) => self
+                .engine
+                .active_write_motion(staged.request, staged.transmission),
+        };
+        if let Some((target, axes, token)) = written_motion {
+            self.motion.possibly_written(target, axes, token);
+        }
         self.observe_write(staged, &result);
         self.engine.handle_turn_into(
             Input::TransmissionFinished {

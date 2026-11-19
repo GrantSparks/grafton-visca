@@ -168,6 +168,42 @@ macro_rules! running_zoom {
     }};
 }
 
+/// Use the EVI-H100's raw VISCA framing with a serial stream identity.
+#[cfg(any(
+    feature = "runtime-tokio",
+    all(
+        feature = "test-utils",
+        any(feature = "blocking", feature = "runtime-smol")
+    )
+))]
+struct SerialCamera(FakeCamera);
+
+#[cfg(any(
+    feature = "runtime-tokio",
+    all(
+        feature = "test-utils",
+        any(feature = "blocking", feature = "runtime-smol")
+    )
+))]
+impl SerialCamera {
+    #[cfg(all(feature = "blocking", feature = "test-utils"))]
+    fn blocking_wire(&self) -> fake_camera::BlockingWire {
+        self.0
+            .blocking_wire()
+            .with_transport_kind(grafton_visca::config::TransportKind::Serial)
+    }
+
+    #[cfg(any(
+        feature = "runtime-tokio",
+        all(feature = "runtime-smol", feature = "test-utils")
+    ))]
+    fn async_wire(&self) -> fake_camera::AsyncWire {
+        self.0
+            .async_wire()
+            .with_transport_kind(grafton_visca::config::TransportKind::Serial)
+    }
+}
+
 facade_matrix! {
     paused:
 
@@ -501,12 +537,115 @@ facade_matrix! {
         }
     }
 
+    /// A confirmed move cannot inherit the position produced by an older
+    /// BufferFull retry, including when the retry's write reports a failure.
+    fn out_of_order_zoom_retry_cannot_prove_newer_move_settlement() {
+        use grafton_visca::{
+            config::OperationalTuning,
+            operation::Settlement,
+            profiles::SonyEviH100,
+            types::{AffectedAxes, IndividualCameraId, ZoomPosition},
+        };
+
+        const OLD_ZOOM: [u8; 9] = [0x81, 0x01, 0x04, 0x47, 1, 0, 0, 0, 0xff];
+        const NEW_ZOOM: [u8; 9] = [0x81, 0x01, 0x04, 0x47, 2, 0, 0, 0, 0xff];
+        const READ_ZOOM: [u8; 5] = [0x81, 0x09, 0x04, 0x47, 0xff];
+        for (observe_before_retry, report_send_error) in [(false, false), (true, false), (false, true)] {
+            let mut oldest_attempts = 0;
+            let mut position_nibbles = [0; 4];
+            let fake = SerialCamera(FakeCamera::new(move |write, answer| {
+                if write == READ_ZOOM {
+                    answer.reply(frames::inquiry_reply(&position_nibbles));
+                    return;
+                }
+                if write == OLD_ZOOM {
+                    oldest_attempts += 1;
+                    if oldest_attempts == 1 {
+                        // Both camera sockets were occupied when the first
+                        // command arrived, and one is free by the next write.
+                        answer.reply(frames::buffer_full());
+                        return;
+                    }
+                } else {
+                    assert_eq!(write, NEW_ZOOM);
+                }
+                position_nibbles.copy_from_slice(&write[4..8]);
+                if write == OLD_ZOOM && report_send_error {
+                    answer.fail_send(std::io::Error::other("retry delivery uncertain").into());
+                } else {
+                    answer.reply(frames::ack(1)).reply(frames::complete(1));
+                }
+            }));
+
+            let config = SessionConfig::from_compile_time::<SonyEviH100>()
+                .expect("EVI-H100 profile")
+                .with_tuning(OperationalTuning::new().with_initial_retry_backoff(Duration::from_millis(300)));
+            let session = open!(fake, config).expect("EVI-H100 session");
+            let camera = session
+                .camera::<SonyEviH100>(IndividualCameraId::CAMERA_1)
+                .expect("camera");
+            let mut older = wait!(camera.zoom().set_position(ZoomPosition::new(0x1000).expect("position")))
+                .expect("older zoom admitted");
+            wait_for_reads!(fake.0, 1);
+            let mut newer = wait!(camera.zoom().set_position(ZoomPosition::new(0x2000).expect("position")))
+                .expect("newer zoom admitted");
+            wait!(newer.applied()).expect("newer zoom applied before retry");
+
+            let mut expected = vec![OLD_ZOOM.to_vec(), NEW_ZOOM.to_vec()];
+            let cached = if observe_before_retry {
+                let settled = wait!(newer.settled()).expect("two samples of the newer move");
+                assert!(matches!(settled, Settlement::ObservedStable { axes, .. } if axes == AffectedAxes::ZOOM));
+                expected.extend([READ_ZOOM.to_vec(), READ_ZOOM.to_vec()]);
+                Some(settled)
+            } else {
+                None
+            };
+
+            let original_result = wait!(older.applied());
+            if report_send_error {
+                assert!(matches!(original_result, Err(Error::StreamPoisoned { .. })), "{original_result:?}");
+            } else {
+                original_result.expect("older zoom retry applied");
+            }
+            expected.push(OLD_ZOOM.to_vec());
+            assert_eq!(fake.0.writes(), expected, "the older move wrote last");
+
+            if let Some(evidence) = cached {
+                assert_eq!(wait!(newer.settled_with_timeout(Duration::ZERO)).expect("cached evidence"), evidence);
+            } else {
+                let id = newer.id();
+                for _ in 0..2 {
+                    assert!(matches!(wait!(newer.settled()),
+                        Err(Error::SettlementSuperseded { operation, axes, .. })
+                            if operation == id && axes == AffectedAxes::ZOOM));
+                }
+                wait!(newer.applied()).expect("the camera confirmed the newer move");
+            }
+            assert_eq!(fake.0.writes(), expected, "repeated waits do not sample the older move");
+            let close = wait!(session.close());
+            if report_send_error {
+                assert!(matches!(close, Err(Error::StreamPoisoned { .. })), "{close:?}");
+            } else {
+                close.expect("close EVI-H100 session");
+            }
+        }
+    }
+
     /// Supersession stops a running wait before its next axis or snapshot.
     /// A conflict during the final in-flight query also prevents the commit.
     fn conflicting_admission_stops_an_in_progress_settlement_wait() {
         use grafton_visca::{
             profiles::SonyEviH100,
             types::{AffectedAxes, IndividualCameraId, PresetNumber},
+        };
+
+        let position_reply = |request: &[u8]| {
+            let payload: &[u8] = match request {
+                PAN_TILT_POSITION_INQUIRY => &[0; 8],
+                [0x81, 0x09, 0x04, 0x48, 0xff] => &[1, 0, 0, 0],
+                _ => &[0; 4],
+            };
+            frames::inquiry_reply(payload)
         };
 
         // Hold an answer during the first snapshot, at the end of the
@@ -517,8 +656,7 @@ facade_matrix! {
                 if write.get(1) == Some(&0x09) {
                     inquiries += 1;
                     if inquiries != held_sample {
-                        let width = if write == PAN_TILT_POSITION_INQUIRY { 8 } else { 4 };
-                        answer.reply(frames::inquiry_reply(&[0; 8][..width]));
+                        answer.reply(position_reply(write));
                     }
                 } else {
                     answer.reply(frames::ack(1)).reply(frames::complete(1));
@@ -543,9 +681,8 @@ facade_matrix! {
                 error
             }, {
                 let writes = wait_for_writes!(camera, 1 + held_sample);
-                let width = if writes[held_sample] == PAN_TILT_POSITION_INQUIRY { 8 } else { 4 };
                 wait!(view.pan_tilt().home()).expect("conflicting admission").detach();
-                camera.push(frames::inquiry_reply(&[0; 8][..width]));
+                camera.push(position_reply(&writes[held_sample]));
             });
             assert!(matches!(error, Error::SettlementSuperseded { operation, axes, .. }
                 if operation == id && axes == AffectedAxes::MOVEMENT));

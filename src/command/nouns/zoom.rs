@@ -341,12 +341,7 @@ impl crate::Inquiry for NormalizedInquiry {
                 feature: "optical-plus-digital zoom range",
             });
         }
-        let maximum = crate::inquiry_conversions::zoom_domain_max(
-            self.domain,
-            zoom.optical_max,
-            zoom.digital_max,
-        )?;
-        let range = crate::capabilities::CapabilityRange::<u16>::new(0, maximum)?;
+        let range = zoom.normalization_range(self.domain)?;
         Ok(crate::ResponseDecoder::normalized_zoom(range))
     }
     #[allow(private_interfaces)]

@@ -451,7 +451,7 @@ pub(crate) trait GeneratedInquiry: crate::Inquiry {
 
 /// Decodes a payload as `C`'s response with the profile-less pan/tilt
 /// framing.
-fn decode_payload<C: GeneratedInquiry>(payload: &[u8]) -> Result<C::Response, Error> {
+pub(crate) fn decode_payload<C: GeneratedInquiry>(payload: &[u8]) -> Result<C::Response, Error> {
     C::lift(dispatch(C::KIND, Payload::new(payload))?)
         .map_err(|error| reply_value_error(error, payload))
 }
@@ -536,7 +536,7 @@ fn inquiry_test_profiles() -> Vec<crate::ProfileSpec> {
 
 /// Generates every built-in inquiry item from the one table below.
 macro_rules! define_builtin_inquiries {
-    (@sony_payload_type) => { None };
+    (@sony_payload_type) => { Some(crate::protocol::sony::PayloadType::ViscaInquiry) };
     (@sony_payload_type $payload_type:ident) => {
         Some(crate::protocol::sony::PayloadType::$payload_type)
     };
@@ -880,7 +880,7 @@ macro_rules! define_builtin_inquiries {
                 ) -> crate::requests::BuiltinInquiryProtocol {
                     crate::requests::BuiltinInquiryProtocol {
                         syntax_retry: true,
-                        sony_payload_type: define_builtin_inquiries!(@sony_payload_type $($sony_payload_type)?),
+                        sony_read_only_payload: define_builtin_inquiries!(@sony_payload_type $($sony_payload_type)?),
                     }
                 }
             }

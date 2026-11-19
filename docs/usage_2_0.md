@@ -388,20 +388,35 @@ selects `AffectedAxes::MOVEMENT`.
 `stop_all()` returns `HaltReport` under one end-to-end deadline. At owner
 acceptance it fences older declared queued motion and future retries, then
 admits each supported STOP independently while respecting protocol gates.
-Subsequent motion remains eligible. Inspect each axis's `HaltOutcome`, or use
-`into_result()` to explicitly retain only the first failure. Applied STOPs
-provide protocol evidence; they do not prove physical rest. A STOP the camera
-refuses is reported promptly and never resent: a PTZOptics G2 in auto-focus
-mode refuses the focus STOP, so `focus` is `Failed(CommandNotExecutable)` and
-`into_result()` returns that error while auto-focus owns the lens. Superseded
+Subsequent motion on that target and axis waits until the pending STOP can
+no longer write. Motion on unrelated axes and targets remains eligible.
+Inspect each axis's `HaltOutcome`, or use `into_result()` to explicitly retain
+only the first failure. Applied STOPs provide protocol evidence. Physical rest
+requires separate observation. A `CommandBufferFull` rejection can trigger a retry
+within the halt deadline. A `CommandNotExecutable` rejection ends its STOP
+promptly. A PTZOptics G2 in auto-focus mode refuses the focus STOP, so `focus`
+is `Failed(CommandNotExecutable)` and `into_result()` returns that error
+while auto-focus owns the lens. Superseded
 motion fails with `MotionSuperseded`, whose `failure_context()` is
 `NotAccepted` when it never reached the camera.
 
-Targeted `settled*` waits return `Settlement` evidence. A later conflicting
-admission makes unfinished polled settlement return `SettlementSuperseded`,
-even if that later motion is cancelled before writing. Other axes/targets and
-rejected requests do not supersede it. Established cached evidence and exact
-profile completion remain valid.
+At first dispatch, the FR7 halt selects one zoom STOP for the most recent
+continuous zoom drive in this session that may have taken effect on the target.
+It uses the standard STOP by default. Uncertain writes can leave either drive
+family possible. The halt report records protocol application of the selected
+STOP. Check movement separately to verify that the lens stopped. Sony assigns
+each STOP to its drive family in the guide for the optional lens controller
+and lists both encodings in the FR7 VISCA command list.
+[Sony lens-controller guide, §§4.6.4–4.6.6](https://pro.sony/s3/2023/11/15112624/Developer-Guide-for-3rd-Party-Lens-Controller_V1.00.pdf#page=19) ·
+[FR7 VISCA command list, p. 16](https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf#page=16)
+
+Targeted `settled*` waits return `Settlement` evidence. An unfinished
+position proof returns `SettlementSuperseded` if overlapping motion is
+admitted later, even if that motion is cancelled before writing. It also
+returns that error if an older, overlapping request may have reached the
+camera after the operation's own write. This can happen when a retry writes
+after a newer request. Established cached evidence and exact profile
+completion remain valid.
 
 `applied_with_timeout` and `cancel_with_timeout` use the owner's delivery
 time. A result delivered exactly at the deadline counts even if the caller
@@ -418,7 +433,10 @@ returning to its start within the window, is not detected. A longer window
 detects slower movement but makes the call take longer. A zero window is
 rejected with `Error::InvalidParameter` before any inquiry, and a window that
 cannot elapse within the observation deadline returns `Error::Timeout`, never
-`false`.
+`false`. Motion observation, idle waits, and targeted settlement validate lens
+samples against the registered profile's readback range or position table.
+An impossible reply fails the observation before it can count toward evidence
+of stability.
 
 `MotionQuery` uses `axes()`, `tolerance()` and `window()` getters. Use its
 `with_*` methods to change the tolerance or window. A zero window is also

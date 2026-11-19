@@ -9,32 +9,59 @@ use std::time::Duration;
 
 use crate::{
     runtime::engine::WriteOutcome,
+    timeout::Deadline,
     transport::{BlockingTransport, HasTransportConfig},
     Error,
 };
 
 use super::{
-    adapter::{BlockingIo, TransportAdapter},
-    BlockingOwnerDriver, OwnerBuffers, OwnerReceive, WireWrite,
+    adapter::{BlockingIo, SonyResetProgress, TransportAdapter},
+    turn::TRANSIENT_RECEIVE_PAUSE,
+    BlockingOwnerDriver, Clock, OwnerBuffers, OwnerPolicy, OwnerReceive, WireWrite,
 };
 
 impl<T> TransportAdapter<T, BlockingIo>
 where
     T: BlockingTransport + HasTransportConfig,
 {
-    /// Send Sony's sequence-number RESET before the owner worker starts.
-    pub(crate) fn send_sony_sequence_reset(
+    /// Confirm Sony's sequence-number RESET before the owner worker starts.
+    pub(crate) fn confirm_sony_sequence_reset(
         &mut self,
-        write_timeout: Duration,
+        policy: &OwnerPolicy,
+        clock: &Clock,
     ) -> Result<(), Error> {
         let mut frame = bytes::BytesMut::new();
         if !self.framing.frame_sony_sequence_reset(&mut frame) {
             return Ok(());
         }
-        let sent = self
-            .transport
-            .send_with_timeout(frame.as_ref(), write_timeout);
-        sent.map_err(|error| self.framing.send_error(error))
+        let mut buffers = OwnerBuffers::new(policy.limits);
+        let timeout = policy.write_timeout.get();
+        let deadline = Deadline::after(clock.now(), timeout, "write_timeout")?;
+        self.transport
+            .send_with_timeout(frame.as_ref(), timeout)
+            .map_err(|error| self.framing.send_error(error))?;
+
+        let mut acknowledged = false;
+        loop {
+            let remaining = deadline.remaining_or(clock.now(), Error::io_timeout)?;
+            let received = self.receive(&mut buffers, remaining);
+            let progress =
+                self.classify_sony_reset_read(received, &mut buffers, &mut acknowledged)?;
+            let received_at = clock.now();
+            match progress {
+                SonyResetProgress::Confirmed if received_at <= deadline.instant() => return Ok(()),
+                SonyResetProgress::Confirmed => return Err(Error::io_timeout()),
+                SonyResetProgress::Waiting => {}
+                SonyResetProgress::Idle => {
+                    let pause = deadline
+                        .remaining_at(received_at)
+                        .min(TRANSIENT_RECEIVE_PAUSE);
+                    if !pause.is_zero() {
+                        clock.sleep(pause);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -175,10 +202,7 @@ mod tests {
 
     fn adapter(
         transport: ScriptedTransport,
-    ) -> (
-        BlockingTransportAdapter<ScriptedTransport>,
-        super::super::OwnerPolicy,
-    ) {
+    ) -> (BlockingTransportAdapter<ScriptedTransport>, OwnerPolicy) {
         let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
         BlockingTransportAdapter::new(transport, &profile, crate::target::TargetSlot::CAMERA_1)
             .unwrap()
@@ -186,10 +210,7 @@ mod tests {
 
     fn sony_adapter(
         transport: ScriptedTransport,
-    ) -> (
-        BlockingTransportAdapter<ScriptedTransport>,
-        super::super::OwnerPolicy,
-    ) {
+    ) -> (BlockingTransportAdapter<ScriptedTransport>, OwnerPolicy) {
         let profile = ProfileSpec::from_compile_time::<SonyFr7>().unwrap();
         BlockingTransportAdapter::new(transport, &profile, crate::target::TargetSlot::CAMERA_1)
             .unwrap()
@@ -277,19 +298,36 @@ mod tests {
     }
 
     #[test]
-    fn startup_sony_sequence_reset_writes_the_control_frame() {
-        let transport = ScriptedTransport::new([]);
+    fn startup_sony_sequence_reset_writes_reset_and_reads_confirmation() {
+        let transport = ScriptedTransport::new([Ok(vec![0x02, 0x01, 0, 1, 0, 0, 0, 0, 1])]);
         let sent = Arc::clone(&transport.sent);
         let (mut adapter, policy) = sony_adapter(transport);
 
         adapter
-            .send_sony_sequence_reset(policy.write_timeout.get())
+            .confirm_sony_sequence_reset(&policy, &Clock::System)
             .unwrap();
 
         assert_eq!(
             *sent.lock().unwrap(),
             [vec![0x02, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0x01]]
         );
+        assert!(adapter.transport.receives.is_empty());
+    }
+
+    #[test]
+    fn sony_reset_surfaces_stream_framing_loss_after_retained_control_frames() {
+        let limits = super::super::OwnerLimits::default();
+        let mut read = [0x02, 0x01, 0, 1, 0, 0, 0, 0, 1].repeat(limits.frames_per_receive.get());
+        read.extend_from_slice(&[0xff; 8]);
+        let config = config()
+            .with_buffer_config(crate::transport::BufferConfig::for_udp())
+            .unwrap();
+        let transport = ScriptedTransport::with_config(config, [Ok(read)]).stream();
+        let (mut adapter, policy) = sony_adapter(transport);
+        assert!(matches!(
+            adapter.confirm_sony_sequence_reset(&policy, &Clock::System),
+            Err(Error::InvalidResponse { .. })
+        ));
     }
 
     #[test]

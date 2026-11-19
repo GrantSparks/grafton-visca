@@ -103,11 +103,11 @@ impl Session {
     /// [`CameraSession::open`] additionally validates its camera configuration's selection.
     ///
     /// Startup performs profile, tuning, transport-buffer, and immutable owner
-    /// policy validation before spawning exactly one actor task. The future
-    /// returns after the actor is detached; request methods return after their
-    /// own admission or terminal observation as documented below. If the executor
-    /// drops the actor during spawning, opening returns its terminal error and
-    /// drops the transport.
+    /// policy validation and confirms the optional Sony sequence RESET before
+    /// spawning exactly one actor task. The future returns after the actor is
+    /// detached. Request methods return after their own admission or terminal
+    /// observation as documented below. If the executor drops the actor during
+    /// spawning, opening returns its terminal error and drops the transport.
     pub async fn open(
         transport: impl AsyncTransport + HasTransportConfig + 'static,
         config: &SessionConfig,
@@ -143,12 +143,9 @@ impl Session {
             );
 
             if config.sony_sequence_reset_on_connect() {
-                crate::timeout::within(
-                    adapter.send_sony_sequence_reset(),
-                    executor.sleep(policy.write_timeout.get()),
-                )
-                .await
-                .ok_or_else(crate::Error::io_timeout)??;
+                adapter
+                    .confirm_sony_sequence_reset(&policy, &executor)
+                    .await?;
             }
             let (owner, actor) = AsyncOwnerActor::new(policy, executor.clone())?;
             // This is the only task spawned by this facade. The owner handle is
@@ -457,20 +454,31 @@ mod tests {
     }
 
     #[test]
-    fn session_open_sends_opt_in_sony_sequence_reset_before_owner_work() {
+    fn session_open_confirms_fragmented_sony_sequence_reset_before_owner_work() {
         let clock = ManualClock::new();
         let runtime = Arc::new(ManualClockExecutor::local(&clock));
-        let transport = ScriptedTransport::new(CUSTOM_IP_STREAM, Vec::<Step>::new())
-            .with_executor(runtime.clone());
+        let transport = ScriptedTransport::new(
+            CUSTOM_IP_STREAM,
+            [
+                Step::on_send(
+                    Some(vec![2, 0, 0, 1, 0, 0, 0, 0, 1]),
+                    vec![vec![2, 1, 0, 1, 0, 0]],
+                ),
+                Step::after(Duration::from_millis(25), vec![vec![0, 0, 1]]),
+            ],
+        )
+        .with_executor(runtime.clone());
         let probe = transport.clone();
         let config = SessionConfig::from_compile_time::<crate::profiles::SonyFr7>()
             .unwrap()
             .with_sony_sequence_reset_on_connect(true);
 
+        let start = clock.now();
         let session = runtime
             .run_until(Session::open(transport, &config, runtime.clone()))
             .expect("Sony session opens after RESET");
 
+        assert_eq!(clock.now().duration_since(start), Duration::from_millis(25));
         assert_eq!(
             probe.sent(),
             vec![vec![0x02, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0x01]]
@@ -481,33 +489,24 @@ mod tests {
     }
 
     #[derive(Clone)]
-    struct ConstructionExecutor<E> {
-        inner: E,
-        drop_actor: bool,
-        ready_sleep: bool,
-    }
+    struct DropActorExecutor<E>(E);
 
-    impl<E: Executor> Executor for ConstructionExecutor<E> {
+    impl<E: Executor> Executor for DropActorExecutor<E> {
         type Timer = E::Timer;
 
         fn timer(&self, deadline: std::time::Instant) -> Self::Timer {
-            self.inner.timer(deadline)
+            self.0.timer(deadline)
         }
-        fn spawn_detached<F>(&self, future: F)
+        fn spawn_detached<F>(&self, _future: F)
         where
             F: Future<Output = ()> + Send + 'static,
         {
-            if !self.drop_actor {
-                self.inner.spawn_detached(future);
-            }
         }
         async fn sleep(&self, duration: Duration) {
-            if !self.ready_sleep {
-                self.inner.sleep(duration).await;
-            }
+            self.0.sleep(duration).await;
         }
         fn now(&self) -> std::time::Instant {
-            self.inner.now()
+            self.0.now()
         }
     }
 
@@ -548,11 +547,7 @@ mod tests {
                 .with_executor(runtime.clone()),
             dropped: Arc::clone(&dropped),
         };
-        let executor = ConstructionExecutor {
-            inner: runtime.clone(),
-            drop_actor: true,
-            ready_sleep: false,
-        };
+        let executor = DropActorExecutor(runtime.clone());
         let config = SessionConfig::from_compile_time::<crate::profiles::GenericVisca>().unwrap();
         assert!(matches!(
             runtime.run_until(Session::open(transport, &config, executor)),
@@ -562,28 +557,31 @@ mod tests {
     }
 
     #[test]
-    fn session_open_ready_sony_reset_wins_an_already_ready_timer() {
+    fn dropping_pending_sony_reset_open_releases_the_transport() {
         let clock = ManualClock::new();
         let runtime = Arc::new(ManualClockExecutor::local(&clock));
-        let transport = ScriptedTransport::new(CUSTOM_IP_STREAM, Vec::<Step>::new())
+        let inner = ScriptedTransport::new(CUSTOM_IP_STREAM, Vec::<Step>::new())
             .with_executor(runtime.clone());
-        let probe = transport.clone();
-        let executor = ConstructionExecutor {
-            inner: runtime.clone(),
-            drop_actor: false,
-            ready_sleep: true,
+        let probe = inner.clone();
+        let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let transport = DropTrackedTransport {
+            inner,
+            dropped: Arc::clone(&dropped),
         };
         let config = SessionConfig::from_compile_time::<crate::profiles::SonyFr7>()
             .unwrap()
             .with_sony_sequence_reset_on_connect(true);
-        let session = runtime
-            .run_until(Session::open(transport, &config, executor))
-            .expect("ready RESET wins the elapsed timer");
+        let mut opening = Box::pin(Session::open(transport, &config, runtime.clone()));
+        assert!(runtime
+            .run_until(futures_lite::future::poll_once(opening.as_mut()))
+            .is_none());
         assert_eq!(
             probe.sent(),
             [vec![0x02, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0x01]]
         );
-        runtime.run_until(session.close()).expect("actor closes");
+        assert!(!dropped.load(std::sync::atomic::Ordering::SeqCst));
+        drop(opening);
+        assert!(dropped.load(std::sync::atomic::Ordering::SeqCst));
     }
 
     #[cfg(feature = "runtime-tokio")]

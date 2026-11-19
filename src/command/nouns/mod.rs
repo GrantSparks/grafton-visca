@@ -212,6 +212,14 @@ macro_rules! forward_request {
             }
             #[cfg(any(feature = "blocking", feature = "async"))]
             #[allow(private_interfaces)]
+            fn is_pan_tilt_drive(&self, authority: $crate::requests::RequestContractAuthority) -> bool {
+                <$inner as $crate::Request>::is_pan_tilt_drive(
+                    $crate::command::nouns::forward_request!(@inner self [$($value)*]),
+                    authority,
+                )
+            }
+            #[cfg(any(feature = "blocking", feature = "async"))]
+            #[allow(private_interfaces)]
             fn applied_state_projection(
                 &self,
                 authority: $crate::requests::AppliedStateAuthority,

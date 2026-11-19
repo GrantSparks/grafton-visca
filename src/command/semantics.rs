@@ -124,10 +124,13 @@ pub(crate) enum BuiltinRequestClass {
 }
 
 impl BuiltinCommand {
-    /// The directional and STOP encodings of the same pan/tilt drive command.
+    /// Directional, STOP and menu encodings of the pan/tilt drive command.
     #[cfg(any(feature = "blocking", feature = "async"))]
     pub(crate) const fn is_pan_tilt_drive(self) -> bool {
-        matches!(self, Self::PanTiltDrive | Self::PanTiltStop)
+        matches!(
+            self,
+            Self::PanTiltDrive | Self::PanTiltStop | Self::MenuNavigate
+        )
     }
 }
 

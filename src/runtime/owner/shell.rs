@@ -1763,6 +1763,7 @@ mod tests {
                 prepared: crate::prepared::PreparedHalt {
                     target: TargetSlot::CAMERA_1,
                     axes: None,
+                    zoom_high_resolution: None,
                     requests: [None, None, None],
                     budget: Duration::from_secs(1),
                 },
@@ -2067,6 +2068,7 @@ mod tests {
             prepared: crate::prepared::PreparedHalt {
                 target: TargetSlot::CAMERA_1,
                 axes: Some(crate::AffectedAxes::MOVEMENT),
+                zoom_high_resolution: None,
                 requests: [
                     Some(Ok(declared_request(true).into())),
                     Some(Ok(declared_request(true).into())),
@@ -2119,6 +2121,7 @@ mod tests {
                     prepared: crate::prepared::PreparedHalt {
                         target: TargetSlot::CAMERA_1,
                         axes: Some(crate::AffectedAxes::MOVEMENT),
+                        zoom_high_resolution: None,
                         requests: [
                             Some(Ok(declared_request(true).into())),
                             Some(Ok(declared_request(true).into())),
@@ -2214,6 +2217,7 @@ mod tests {
                 prepared: crate::prepared::PreparedHalt {
                     target: TargetSlot::CAMERA_1,
                     axes: Some(crate::AffectedAxes::ZOOM),
+                    zoom_high_resolution: None,
                     requests: [None, Some(Ok(declared_request(true).into())), None],
                     budget: Duration::from_secs(1),
                 },

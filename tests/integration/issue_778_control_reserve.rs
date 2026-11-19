@@ -193,7 +193,7 @@ fn every_builtin_halt_passes_saturated_ordinary_admission() {
     use grafton_visca::{
         blocking::Session,
         profiles::{AnyProfile, ProfileId},
-        types::IndividualCameraId,
+        types::{HighResolutionZoomSpeed, IndividualCameraId},
     };
     for id in ProfileId::all() {
         let profile = id.spec().expect("built-in profile");
@@ -212,6 +212,15 @@ fn every_builtin_halt_passes_saturated_ordinary_admission() {
         let camera = session
             .camera::<AnyProfile>(IndividualCameraId::CAMERA_1)
             .expect("camera");
+        if *id == ProfileId::SonyFr7 {
+            camera
+                .zoom()
+                .wide_high_resolution(HighResolutionZoomSpeed::MIN)
+                .expect("FR7 high-resolution drive")
+                .applied()
+                .expect("drive applied");
+            assert_eq!(fake.take_payloads().len(), 1);
+        }
         std::thread::scope(|scope| {
             let querying = camera.clone();
             let inquiry = scope
@@ -231,6 +240,18 @@ fn every_builtin_halt_passes_saturated_ordinary_admission() {
                 .into_result()
                 .expect("every supported STOP applies");
             assert_eq!(fake.write_count(), 1 + expected, "{id:?}");
+            if *id == ProfileId::SonyFr7 {
+                let packets = fake.take_payloads();
+                let high_resolution_stop = [0x81, 1, 0x7e, 4, 0x17, 0, 0, 0, 0, 0, 0xff];
+                assert_eq!(
+                    packets
+                        .iter()
+                        .filter(|packet| packet.as_slice() == high_resolution_stop)
+                        .count(),
+                    1
+                );
+                assert!(!packets.iter().any(|packet| packet == ZOOM_STOP));
+            }
             let metrics = session.metrics().expect("metrics");
             assert_eq!(metrics.control_reserve_admitted, expected as u64, "{id:?}");
             assert_eq!(metrics.control_reserve_rejected, 0, "{id:?}");

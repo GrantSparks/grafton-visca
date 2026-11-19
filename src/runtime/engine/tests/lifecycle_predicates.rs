@@ -460,7 +460,7 @@ fn reachable_request_classes_keep_stop_gates_and_physical_pacing() {
             engine.pacing.last_command = Some(start + Duration::from_millis(1));
             engine.pacing.last_inquiry = Some(start + Duration::from_millis(5));
             let entry = engine.entry(id).unwrap();
-            let occupancy = Occupancy::build(&engine.entries);
+            let occupancy = Occupancy::build(&engine.entries, start);
             assert_eq!(
                 engine.pre_ack_bypass_in(entry, camera(1), &occupancy),
                 stop,

@@ -1451,15 +1451,18 @@ impl ProfileSpec {
             .is_some_and(|supported| supported.contains(axes))
     }
 
-    /// Fully validated STOP paths, with one encoding per independent axis set.
+    /// Fully validated STOP paths, with both zoom drive encodings when offered.
     #[cfg(any(feature = "blocking", feature = "async"))]
     pub(crate) fn stop_paths(&self) -> crate::stop_request::StopPaths {
+        use crate::command::semantics::StopCommand;
         let mut paths = crate::stop_request::StopPaths::default();
-        for stop in crate::command::semantics::StopCommand::ALL {
+        for stop in StopCommand::ALL {
             if stop.validate(self).is_err() {
                 continue;
             }
-            let path = if stop.axes() == AffectedAxes::PAN_TILT {
+            let path = if *stop == StopCommand::Fr7ZoomHighResolutionStop {
+                &mut paths.zoom_high_resolution
+            } else if stop.axes() == AffectedAxes::PAN_TILT {
                 &mut paths.pan_tilt
             } else if stop.axes() == AffectedAxes::ZOOM {
                 &mut paths.zoom
@@ -1468,6 +1471,9 @@ impl ProfileSpec {
             };
             // Alternative encodings of one axis share its reserve slot.
             path.get_or_insert(*stop);
+        }
+        if paths.zoom.is_none() {
+            paths.zoom = paths.zoom_high_resolution.take();
         }
         paths
     }

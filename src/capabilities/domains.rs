@@ -173,17 +173,15 @@ pub struct ZoomCaps {
 
 impl ZoomCaps {
     /// Converts a normalized position through a documented zoom domain.
+    ///
+    /// Uses the selected range's nearest-integer rounding, with halves away
+    /// from zero.
     pub fn position_at(
         &self,
         position: crate::units::UnitInterval,
         domain: crate::ZoomDomain,
     ) -> crate::Result<crate::types::ZoomPosition> {
-        crate::inquiry_conversions::zoom_from_normalized(
-            position,
-            domain,
-            self.optical_max,
-            self.digital_max,
-        )
+        crate::types::ZoomPosition::new(self.normalization_range(domain)?.denormalize(position))
     }
 
     /// Normalizes a raw position within the selected documented domain.
@@ -192,12 +190,23 @@ impl ZoomCaps {
         position: crate::types::ZoomPosition,
         domain: crate::ZoomDomain,
     ) -> crate::Result<crate::units::UnitInterval> {
-        let max = crate::inquiry_conversions::zoom_domain_max(
-            domain,
-            self.optical_max,
-            self.digital_max,
-        )?;
-        CapabilityRange::<u16>::new(0, max)?.normalize(position.value())
+        self.normalization_range(domain)?
+            .normalize(position.value())
+    }
+
+    pub(crate) fn normalization_range(
+        &self,
+        domain: crate::ZoomDomain,
+    ) -> crate::Result<CapabilityRange<u16>> {
+        match domain {
+            crate::ZoomDomain::Optical => Ok(self.optical_range()),
+            crate::ZoomDomain::OpticalPlusDigital => {
+                let maximum = self.digital_max.ok_or(crate::Error::FeatureNotSupported {
+                    feature: "optical-plus-digital zoom range",
+                })?;
+                CapabilityRange::<u16>::new(0, maximum)
+            }
+        }
     }
 }
 

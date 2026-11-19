@@ -12,7 +12,7 @@
 use grafton_visca::{
     command::system::VersionInquiry,
     config::SessionConfig,
-    profiles::{GenericVisca, SonyFr7},
+    profiles::{SonyEviH100, SonyFr7},
     types::{IndividualCameraId, PowerStatus, VersionInfo},
 };
 use grafton_visca_test_support::{
@@ -76,14 +76,37 @@ facade_matrix! {
     fn raw_version_has_no_sony_envelope() {
         let fake = FakeCamera::new(|write, answer| {
             if write == RAW_VERSION {
-                answer.reply(VERSION_REPLY);
+                // EVI-H100V model ID, with a synthetic ROM revision.
+                answer.reply([0x90, 0x50, 0x00, 0x01, 0x05, 0x0e, 0x12, 0x34, 0x02, 0xff]);
             }
         });
-        let config = SessionConfig::from_compile_time::<GenericVisca>().expect("raw VISCA config");
+        let config = SessionConfig::from_compile_time::<SonyEviH100>().expect("raw VISCA config");
         let session = open!(fake, config).expect("raw VISCA session");
-        let camera = session.camera::<GenericVisca>(IndividualCameraId::CAMERA_1).expect("raw VISCA view");
-        assert_eq!(wait!(camera.inquire(&VersionInquiry)).expect("raw version"), VERSION);
+        let camera = session.camera::<SonyEviH100>(IndividualCameraId::CAMERA_1).expect("raw VISCA view");
+        assert_eq!(wait!(camera.inquire(&VersionInquiry)).expect("raw version"), VersionInfo {
+            model: 0x050e,
+            ..VERSION
+        });
         assert_eq!(fake.writes(), [RAW_VERSION]);
         wait!(session.close()).expect("close raw VISCA session");
+    }
+
+    fn sony_length_delimited_version_accepts_ff_data() {
+        let fake = FakeCamera::new(|write, answer| {
+            if write == FACADE_VERSION {
+                // The low ROM byte is synthetic. The envelope still gives the
+                // actual frame boundary after the socket-count byte.
+                answer.reply([0x01, 0x11, 0, 10, 0, 0, 0, 0, 0x90, 0x50, 0, 1, 0x05, 0x1e, 0x12, 0xff, 2, 0xff]);
+            }
+        });
+        let config = SessionConfig::from_compile_time::<SonyFr7>().expect("FR7 config");
+        let session = open!(fake, config).expect("FR7 session");
+        let camera = session.camera::<SonyFr7>(IndividualCameraId::CAMERA_1).expect("FR7 view");
+        assert_eq!(wait!(camera.system().version()).expect("Sony version"), VersionInfo {
+            rom_version: 0x12ff,
+            ..VERSION
+        });
+        assert_eq!(fake.writes(), [FACADE_VERSION]);
+        wait!(session.close()).expect("close FR7 session");
     }
 }

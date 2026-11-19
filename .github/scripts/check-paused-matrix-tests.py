@@ -38,6 +38,10 @@ SUITES = {
     "issue_975_lazy_settlement": "",
     "issue_979_owner_read_timeout": "",
     "issue_1129_version_envelope": "",
+    "issue_1133_halt_order": "",
+    "issue_1135_lens_sampling": "",
+    "issue_1136_sony_inquiry_retry": "",
+    "issue_1138_sony_startup_reset": "",
 }
 
 

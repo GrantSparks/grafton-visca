@@ -224,9 +224,10 @@ mod paused {
             let fake = FakeCamera::visca(|request, answer| {
                 if request == [0x81, 0x09, 0x06, 0x12, 0xff] {
                     answer.reply(frames::inquiry_reply(&[0; 8]));
-                } else if request == ZOOM_POSITION_INQUIRY
-                    || request == [0x81, 0x09, 0x04, 0x48, 0xff] {
+                } else if request == ZOOM_POSITION_INQUIRY {
                     answer.reply(nibble_position(0));
+                } else if request == [0x81, 0x09, 0x04, 0x48, 0xff] {
+                    answer.reply(nibble_position(0x1000));
                 } else {
                     answer.reply(frames::ack(1)).reply(frames::complete(1));
                 }

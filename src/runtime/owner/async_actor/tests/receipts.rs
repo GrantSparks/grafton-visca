@@ -1139,6 +1139,7 @@ async fn terminal_handle_work_and_metrics_are_stable<R: Executor>(runtime: R) {
         let halt = crate::prepared::PreparedHalt {
             target: TargetSlot::CAMERA_1,
             axes: None,
+            zoom_high_resolution: None,
             requests: [None, None, None],
             budget: Duration::from_secs(1),
         };

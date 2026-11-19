@@ -1245,6 +1245,7 @@ mod metrics {
         let prepared = crate::prepared::PreparedHalt {
             target: TargetSlot::CAMERA_1,
             axes: Some(AffectedAxes::PAN_TILT),
+            zoom_high_resolution: None,
             requests: [None, None, None],
             budget: ACK,
         };
@@ -1650,6 +1651,118 @@ mod metrics {
         ));
     }
 
+    #[test]
+    fn a_refused_retry_and_a_stale_write_receipt_leave_settlement_attribution_intact() {
+        use crate::AffectedAxes;
+
+        let now = Instant::now();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), now).unwrap();
+        let mut older = command(retrying());
+        let context = older.context_mut();
+        context.motion = Some(MotionEffect {
+            axes: AffectedAxes::ZOOM,
+        });
+        context.submission_order = 1;
+
+        let permit = state.permits.try_acquire(&older).unwrap();
+        let (input, _, _) = super::stage_admission(&mut state, older.clone(), permit);
+        let first = input
+            .complete(&mut state, now)
+            .into_iter()
+            .find_map(|effect| match state.apply_effect(effect, now) {
+                AppliedEffect::Transmit(staged) => Some(staged),
+                _ => None,
+            })
+            .expect("initial write");
+        let effects = state.finish_write(&first, WriteOutcome::Sent(TransmissionMeta::Known), now);
+        drain(&mut state, effects, None, now);
+
+        let busy = state.input(
+            frame(
+                None,
+                DecodedResponse::Error {
+                    socket: None,
+                    code: 0x03.into(),
+                },
+            ),
+            now,
+        );
+        let retry_at = busy
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::RetryScheduled { ready_at, .. } => Some(*ready_at),
+                _ => None,
+            })
+            .expect("retry scheduled");
+        drain(&mut state, busy, None, now);
+
+        let mut newer = older;
+        newer.context_mut().submission_order = 2;
+        let turn = state.begin_input_turn(now);
+        let permit = state.permits.try_acquire(&newer).unwrap();
+        let (_receiver, observer) = TerminalObserver::<CommandOutcome>::pair();
+        let admitted = state
+            .admit_operation_in_turn(
+                &turn,
+                newer,
+                MotionEffect {
+                    axes: AffectedAxes::ZOOM,
+                },
+                permit,
+                observer,
+            )
+            .unwrap();
+        let effects = state.finish_input_turn(turn, EngineTurn::Complete);
+        drain(&mut state, effects, None, now);
+        let socket = Some(ViscaSocket::S1);
+        apply(
+            &mut state,
+            frame(None, DecodedResponse::Ack { socket }),
+            now,
+        );
+        apply(
+            &mut state,
+            frame(None, DecodedResponse::Completion { socket }),
+            now,
+        );
+        let id = crate::OperationId::from_nonzero(admitted.admitted.id().as_nonzero());
+
+        let second = state
+            .advance(retry_at)
+            .into_iter()
+            .find_map(|effect| match state.apply_effect(effect, retry_at) {
+                AppliedEffect::Transmit(staged) => Some(staged),
+                _ => None,
+            })
+            .expect("retry write staged");
+        assert_eq!(second.request, first.request);
+
+        let ignored = state.finish_write(
+            &first,
+            WriteOutcome::Sent(TransmissionMeta::Known),
+            retry_at,
+        );
+        assert!(ignored
+            .iter()
+            .any(|effect| matches!(effect, Effect::Ignored(_))));
+        assert!(
+            admitted.motion.check(id).is_ok(),
+            "the first receipt is retired"
+        );
+        let refused = state.finish_write(
+            &second,
+            WriteOutcome::NotSent(Error::InvalidState {
+                reason: "locally refused".into(),
+            }),
+            retry_at,
+        );
+        drain(&mut state, refused, None, retry_at);
+        assert!(
+            admitted.motion.check(id).is_ok(),
+            "the retry did not reach the wire"
+        );
+    }
+
     #[cfg(any(feature = "async", feature = "blocking"))]
     #[test]
     fn halt_owner_acceptance_orders_concurrent_ingress_and_settlement_generation() {
@@ -1966,6 +2079,7 @@ mod metrics {
         let prepared = crate::prepared::PreparedHalt {
             target: TargetSlot::CAMERA_1,
             axes: Some(crate::AffectedAxes::MOVEMENT),
+            zoom_high_resolution: None,
             requests: [
                 Some(Ok(stop.clone().into())),
                 Some(Ok(stop.clone().into())),

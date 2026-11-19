@@ -56,6 +56,7 @@ pub struct OperationPreparation<K: completion::Kind> {
 
 impl OperationPreparation<completion::Targeted> {
     /// Materializes the cached polling templates as `settled()` would do.
+    /// Clones the cached plan as each settlement observation would do.
     /// Repeated calls reuse the same templates without performing I/O.
     ///
     /// # Errors
@@ -64,7 +65,7 @@ impl OperationPreparation<completion::Targeted> {
         if let crate::prepared::SettlementPlan::Poll { queries, .. } =
             self.prepared.settlement_plan()
         {
-            std::hint::black_box(queries.get()?);
+            std::hint::black_box(queries.get()?.clone());
         }
         Ok(())
     }

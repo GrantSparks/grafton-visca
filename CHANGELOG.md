@@ -32,7 +32,9 @@ verification.
 
 - Release gates verify characterization-test citations and generate the request
   semantics tables from the command ledger. The owner safe-retry allocation
-  baseline is restored for raw and Sony framing (#959).
+  baseline is restored for raw and Sony framing (#959). The request semantics
+  guide traces iris, ND filter, preset recall and write-only state through
+  their current preparation and owner paths (#1142).
 
 - (#933) Community profile promotion tools: per-surface encoding families,
   `profile_spec export` and `check`, JSON-aligned registry facts, and an ignored
@@ -73,7 +75,8 @@ verification.
   wider than the configured reply frame minus its three framing bytes returns
   `InvalidParameter` before admission or I/O. Built-in and canonical derived
   inquiries get their shape from the decoder table, and pan/tilt position
-  shapes use the same per-profile axis words as decoding (#892, #1116).
+  shapes use the same per-profile axis words as decoding. On raw VISCA, the
+  first `FF` ends the frame before the shape check (#892, #1116, #1137).
 
 - `test-utils` (#832, #884): `testkit::ManualClock`, a virtual clock for owner
   deadline tests. A blocking session opened with `ManualClock::open_blocking_session` or
@@ -882,14 +885,17 @@ verification.
 
 ### Fixed
 
-- Pan/tilt motion queries and targeted settlement validate sampled raw positions
-  against the registered mount and axis ranges. An invalid sample fails the
-  observation with the original response bytes (#1120).
+- Motion queries and targeted settlement validate sampled positions against
+  the registered pan/tilt mount and axis ranges and the profile's documented
+  lens readback domains. An invalid sample fails the observation with the
+  original response bytes (#1120, #1135).
 - Raw and downstream requests reject standard VISCA command frames declared as
   inquiries, and standard inquiry frames declared as commands or operations,
   before admission (#1121).
 - A targeted settlement wait checks for supersession before each position
-  inquiry, including between axes, and retains its superseded result (#1122).
+  inquiry, including between axes, and retains its superseded result. An
+  older overlapping write that can affect the camera after the operation's
+  own write also supersedes its unfinished polling proof (#1122, #1134).
 - Abnormal owner teardown invalidates uncertain cached writes before releasing
   waiters. All external closers share one verdict, and clean shutdown succeeds
   only after the owned transport is released (#1123, #1124).
@@ -898,12 +904,29 @@ verification.
 - DNS resolution and socket setup spend one connection timeout across all
   address attempts, using the clock that drives the async runtime's timer (#1126).
 - FR7 pan/tilt drive socket cancellation waits at least 200 ms after the drive
-  write. Once cancellation is sent, a subsequent drive requires a matching
-  `Command Canceled` response and at least 200 ms after the cancel write (#1127).
+  write, including menu navigation. Once cancellation is sent, a subsequent
+  drive requires a matching `Command Canceled` response and at least 200 ms
+  after the cancel write. An inconclusive cancellation blocks later drives on
+  that camera with `PanTiltDriveRestartBlocked`, which carries the camera ID
+  and failure certainty. Reopening clears the target's drive latch
+  (#1127, #1132, #1141).
 - Sony sequence and message-type errors reach diagnostics independently of
   VISCA request correlation (#1128).
 - FR7 and BRC-H900 version inquiries use the Sony device-setting envelope
   (`01 20`), including on retry (#1129).
+- Sony read-only built-in inquiries can retry with a fresh sequence within
+  the same budget after the first same-sequence replay produces no usable
+  reply (#1136).
+- Opting in to a Sony sequence reset requires the camera's RESET ACK within
+  the configured write timeout before the session opens (#1138).
+- Command and inquiry spacing starts when the matched transport write
+  returns, including a failed write. Pre-I/O refusals add no spacing (#1131).
+- A halt STOP that can still retry stays ahead of later overlapping motion
+  on its target. Other axes remain eligible during the retry backoff (#1133).
+  On FR7, the zoom halt selects the documented high-resolution STOP when the
+  latest continuous drive that may have taken effect uses that family (#1140).
+- Normalized zoom writes and readbacks use the checked capability range and
+  its shared rounding rule (#1139).
 
 - An applied or cancellation wait that observes a late terminal returns
   `ObservationTimeout`. A fresh wait on that handle can recover the terminal

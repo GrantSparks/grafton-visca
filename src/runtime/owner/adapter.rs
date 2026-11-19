@@ -43,7 +43,14 @@ use super::{
     NoProgressReason, OwnerReceive, RawRetention, ReceiveFatal, RetainedInput, RetainedStreamInput,
 };
 #[cfg(any(feature = "async", feature = "blocking"))]
-use crate::transport::{HasTransportConfig, ReceiveOutcome};
+use crate::transport::{envelope::SONY_RESET_ACK_CODE, HasTransportConfig, ReceiveOutcome};
+
+#[cfg(any(feature = "async", feature = "blocking"))]
+pub(super) enum SonyResetProgress {
+    Confirmed,
+    Waiting,
+    Idle,
+}
 
 /// Associate each sealed envelope with its framing and routing proofs.
 pub(crate) trait AdapterEnvelope: Envelope {
@@ -424,6 +431,57 @@ where
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 impl<T, F> TransportAdapter<T, F> {
+    /// Both facades use the owner decoder's exact RESET ACK grammar. Old
+    /// VISCA traffic and Sony error diagnostics carry no startup evidence.
+    pub(super) fn classify_sony_reset_read(
+        &mut self,
+        received: OwnerReceive,
+        buffers: &mut OwnerBuffers,
+        acknowledged: &mut bool,
+    ) -> Result<SonyResetProgress, Error> {
+        let mut frames = match received {
+            OwnerReceive::Frames(frames) => frames,
+            OwnerReceive::NoProgress(NoProgressReason::MalformedDatagram) => {
+                return Ok(SonyResetProgress::Waiting);
+            }
+            OwnerReceive::NoProgress(_) | OwnerReceive::Transient(_) => {
+                return Ok(SonyResetProgress::Idle);
+            }
+            OwnerReceive::Fatal(ReceiveFatal::TransportClosed { cause }) => {
+                return Err(Error::connection_closed(cause.map(Arc::new)));
+            }
+            OwnerReceive::Fatal(ReceiveFatal::FramingFailure { cause }) => return Err(cause),
+        };
+
+        loop {
+            let failure = frames.framing_failure.take();
+            *acknowledged |= frames.iter().any(|frame| {
+                matches!(
+                    frame.response,
+                    DecodedResponse::SonyControl {
+                        code: SONY_RESET_ACK_CODE
+                    }
+                )
+            });
+            buffers.recycle_frames(frames);
+            if let Some(cause) = failure {
+                return Err(Arc::unwrap_or_clone(cause));
+            }
+            if !*acknowledged {
+                return Ok(SonyResetProgress::Waiting);
+            }
+            // Retained stream bytes also predate application requests. Drain
+            // complete frames now and leave partial ones to the next read.
+            if let Some(OwnerReceive::Frames(queued)) = self.buffered(buffers) {
+                frames = queued;
+            } else if self.retained().is_some() {
+                return Ok(SonyResetProgress::Waiting);
+            } else {
+                return Ok(SonyResetProgress::Confirmed);
+            }
+        }
+    }
+
     /// Complete frames a prior receive left buffered, delivered before the
     /// adapter reads again; see [`AdapterFraming::drain_buffered`].
     pub(super) fn buffered(&mut self, buffers: &mut OwnerBuffers) -> Option<OwnerReceive> {

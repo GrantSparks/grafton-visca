@@ -13,6 +13,7 @@ mod stream;
 mod stream_ledger;
 pub(crate) use lifecycle::*;
 mod types;
+mod zoom_drive;
 
 use correlation::{CorrelationMode, CorrelationRef, CorrelationState};
 use holds::StreamScope;
@@ -26,6 +27,7 @@ use stream_ledger::{
     Standing, StreamLedger,
 };
 pub(crate) use types::*;
+use zoom_drive::{ZoomDriveHistory, ZoomDriveWrite};
 
 use std::{
     cmp::Ordering,
@@ -291,6 +293,10 @@ impl Entry {
         self.lifecycle.logical()
     }
 
+    fn active_write(&self, transmission: TransmissionId) -> Option<ActiveWrite> {
+        self.lifecycle.active()?.active_write(transmission)
+    }
+
     fn reply_family(&self) -> SendingReply {
         SendingReply::new(&self.request)
     }
@@ -343,6 +349,29 @@ impl Entry {
         self.prior.as_ref().map(|prior| &prior.cause)
     }
 
+    /// Before ACK, a rejection may return a halt STOP to Ready while its
+    /// retry budget allows another attempt.
+    fn writable_halt(&self, now: Instant) -> Option<(crate::AffectedAxes, u64)> {
+        let context = self.request.context();
+        let lifecycle = self.lifecycle();
+        if self.request.is_stop()
+            && context
+                .dispatch_deadline
+                .is_some_and(|deadline| now < deadline)
+            && (lifecycle.is_off_wire()
+                || lifecycle.is_sending()
+                || (lifecycle.is_awaiting_ack()
+                    && lifecycle.cancellation_ambiguity().is_none()
+                    && self.retry_count() < context.retry.max_retries))
+        {
+            context
+                .motion
+                .map(|motion| (motion.axes, context.submission_order))
+        } else {
+            None
+        }
+    }
+
     /// A later cause cannot erase an earlier possible camera effect.
     fn terminal_error(&self, cause: Error, evidence: AttemptEvidence) -> Error {
         if self.certainty(evidence) == Certainty::Unconfirmed
@@ -358,10 +387,10 @@ impl Entry {
         }
     }
 
-    /// Every retry replays the request's authoritative Sony sequence. A
-    /// cancellation occupies its own slot and cannot replace that sequence.
+    /// Replays use the request's live Sony sequence. A read-only inquiry can
+    /// retire it after a timed-out replay. Cancellation uses its own slot.
     fn current_sequence(&self) -> Option<u32> {
-        self.sequences[CorrelationKind::Request]
+        self.sequences.get(CorrelationKind::Request)
     }
 
     /// An exact Sony sequence proves a previous written attempt while the
@@ -386,14 +415,7 @@ impl Entry {
         if self.reply_family() == SendingReply::Inquiry {
             return Certainty::FailedConclusively;
         }
-        let current_possible = match evidence {
-            AttemptEvidence::Unwritten | AttemptEvidence::Rejected => {
-                self.lifecycle().is_accepted()
-            }
-            AttemptEvidence::Written => true,
-            AttemptEvidence::Lifecycle => self.lifecycle().attempt().is_some(),
-        };
-        if current_possible
+        if self.current_attempt_may_have_effect(evidence)
             || self
                 .prior
                 .as_ref()
@@ -402,6 +424,16 @@ impl Entry {
             Certainty::Unconfirmed
         } else {
             Certainty::NotAccepted
+        }
+    }
+
+    fn current_attempt_may_have_effect(&self, evidence: AttemptEvidence) -> bool {
+        match evidence {
+            AttemptEvidence::Unwritten | AttemptEvidence::Rejected => {
+                self.lifecycle().is_accepted()
+            }
+            AttemptEvidence::Written => true,
+            AttemptEvidence::Lifecycle => self.lifecycle().attempt().is_some(),
         }
     }
 
@@ -532,6 +564,7 @@ struct TargetState {
     policy: Option<TargetPolicy>,
     motion_fences: [u64; HALT_AXES.len()],
     pan_tilt_drive_restart: PanTiltDriveRestart,
+    zoom_drive: ZoomDriveHistory,
 }
 
 #[derive(Debug, Default)]
@@ -561,9 +594,14 @@ impl TargetState {
     }
 }
 
-fn pan_tilt_drive_restart_error() -> Error {
-    Error::InvalidState {
-        reason: "Pan/tilt drive cancellation remains unconfirmed for this target. Reopen the session before driving again.".into(),
+fn pan_tilt_drive_restart_error(
+    target: TargetSlot,
+    stage: FailureStage,
+    certainty: Certainty,
+) -> Error {
+    Error::PanTiltDriveRestartBlocked {
+        camera: target.individual_camera(),
+        context: FailureContext::new(stage, certainty),
     }
 }
 
@@ -586,7 +624,8 @@ pub(crate) struct EngineCore {
     session: EngineSession,
 }
 
-/// Lane timestamps are authoritative; the session-wide floor is derived.
+/// Lane timestamps record completed transport attempts. The session-wide
+/// floor is derived from them.
 #[derive(Debug, Default)]
 struct Pacing {
     last_command: Option<Instant>,
@@ -705,6 +744,28 @@ impl ProtocolEngine {
         self.entries
             .get(&id)
             .map(|entry| entry.may_have_effect(AttemptEvidence::Lifecycle))
+    }
+
+    /// Identify motion at the owner write boundary using the same active
+    /// transmission identity that governs protocol receipt handling.
+    pub(crate) fn active_write_motion(
+        &self,
+        request: RequestId,
+        transmission: TransmissionId,
+    ) -> Option<(TargetSlot, crate::AffectedAxes, u64)> {
+        let entry = self.entries.get(&request)?;
+        let context = entry.request.context();
+        let motion = context.motion?;
+        entry.active_write(transmission)?;
+        Some((context.target, motion.axes, context.submission_order))
+    }
+
+    pub(crate) fn offer_high_resolution_zoom_stop(
+        &mut self,
+        id: RequestId,
+        wire: Arc<EncodedMessage>,
+    ) {
+        self.entries.offer_high_resolution_zoom_stop(id, wire);
     }
 
     /// Project the retained cause from the engine's complete terminal verdict.
@@ -1044,6 +1105,9 @@ trait EngineMethods: EngineAccess {
                 let Some(policy) = self.targets[target].policy else {
                     return true;
                 };
+                if state.halt_stop_blocks(&entry.request) {
+                    return true;
+                }
                 !self
                     .stop_wait_bound_in(entry)
                     .is_some_and(|bound| now >= bound)
@@ -1476,7 +1540,11 @@ trait EngineMethods: EngineAccess {
         let context = *request.context();
         context.validate_at(now)?;
         if self.targets[context.target].pan_tilt_drive_restart_unconfirmed(&request) {
-            return Err(pan_tilt_drive_restart_error());
+            return Err(pan_tilt_drive_restart_error(
+                context.target,
+                FailureStage::PreAdmission,
+                Certainty::NotAccepted,
+            ));
         }
         if let Some(axes) = self.motion_superseded(&request) {
             return Err(Error::MotionSuperseded {
@@ -1537,7 +1605,7 @@ trait EngineMethods: EngineAccess {
     }
 
     fn select_dispatch(&self, now: Instant) -> Option<DispatchSelection> {
-        let occupancy = Occupancy::build(&self.entries);
+        let occupancy = Occupancy::build(&self.entries, now);
         let request = self
             .entries
             .ready_candidates()
@@ -1554,12 +1622,9 @@ trait EngineMethods: EngineAccess {
         }
     }
 
-    /// Sends every pacing-eligible cancellation whose ACK established a
-    /// socket it still owns after the available replies have been applied.
-    /// Cancellations take priority over ordinary queued work, and their writes
-    /// advance the shared command spacing deadline. Re-scan so zero-spacing
-    /// profiles drain the complete urgent set; a positive spacing naturally
-    /// stops the scan after the first write advances [`Pacing::last_request`].
+    /// Stages eligible cancellations before ordinary work, in request-ID
+    /// order. With command spacing, the first write's result determines
+    /// when the next cancellation can send.
     fn drain_pending_cancellations(&mut self, now: Instant, effects: &mut Decision) {
         if !matches!(self.session, EngineSession::Running) {
             return;
@@ -1579,11 +1644,8 @@ trait EngineMethods: EngineAccess {
             let Some((id, pending)) = pending else {
                 return;
             };
-            let before = self.entries.get(&id).map(|entry| entry.lifecycle());
-            let last_sent = self.pacing.last_request();
             self.emit_cancel(id, pending, now, effects);
-            let after = self.entries.get(&id).map(|entry| entry.lifecycle());
-            if before == after && self.pacing.last_request() == last_sent {
+            if !self.policy.command_spacing.is_zero() {
                 return;
             }
         }
@@ -1596,27 +1658,32 @@ trait EngineMethods: EngineAccess {
         effects: &mut Decision,
     ) {
         let request = selected.request;
-        if self.entries.get(&request).is_some_and(|entry| {
-            self.targets[entry.request.context().target]
+        if let Some(error) = self.entries.get(&request).and_then(|entry| {
+            let target = entry.request.context().target;
+            self.targets[target]
                 .pan_tilt_drive_restart_unconfirmed(&entry.request)
+                .then(|| {
+                    pan_tilt_drive_restart_error(
+                        target,
+                        FailureStage::Terminal,
+                        entry.certainty(AttemptEvidence::Unwritten),
+                    )
+                })
         }) {
-            self.finish_terminal_error(
-                request,
-                pan_tilt_drive_restart_error(),
-                AttemptEvidence::Unwritten,
-                now,
-                effects,
-            );
+            self.finish_terminal_error(request, error, AttemptEvidence::Unwritten, now, effects);
             return;
         }
         let Some(transmission) = self.allocate_transmission_id() else {
             self.finish(request, Error::RuntimeIdentityExhausted, now, effects);
             return;
         };
+        if let Some(target) = self.entries.halt_zoom_target(request) {
+            let high_resolution = self.targets[target].zoom_drive.use_high_resolution_stop();
+            self.entries.select_halt_zoom_stop(request, high_resolution);
+        }
         let Some(entry) = self.entries.get(&request) else {
             return;
         };
-        let lane = entry.request.lane();
         let target = entry.request.context().target;
         let dispatched_socket_capacity =
             (entry.reply_family() != SendingReply::Inquiry).then(|| {
@@ -1655,7 +1722,6 @@ trait EngineMethods: EngineAccess {
             reply,
         };
         self.transition(request, lifecycle, now, effects);
-        self.pacing.record(lane, now);
         effects.push(Effect::Transmit {
             transmission,
             request,
@@ -1670,9 +1736,10 @@ trait EngineMethods: EngineAccess {
 
     /// The per-lane dispatch gate: whether protocol state, rather than
     /// pacing, keeps ready `entry` from being written. Raw holds, protocol
-    /// capacity, ordered state writes, the raw command gate, the stream ledger
-    /// and uncorrelated raw shapes each block. A byte-stream STOP that has waited
-    /// out its [`Self::stop_wait_bound_in`] by `now` bypasses the command gates.
+    /// capacity, ordered state writes, live halt STOPs, the raw command gate,
+    /// the stream ledger and uncorrelated raw shapes each block. A byte-stream
+    /// STOP that has waited out its [`Self::stop_wait_bound_in`] by `now`
+    /// bypasses the command gates.
     /// Pacing (spacing and the inquiry cooldown) is [`Self::candidate_send_at`]'s
     /// alone.
     #[cfg(test)]
@@ -1709,6 +1776,20 @@ trait EngineMethods: EngineAccess {
                                 || other.prior.is_some()
                                 || !other.lifecycle().is_ready()))
                 });
+                let context = entry.request.context();
+                let halt_conflict = !entry.request.is_stop()
+                    && context.motion.is_some_and(|motion| {
+                        self.entries.values().any(|other| {
+                            other.request.context().target == target
+                                && other.writable_halt(now).is_some_and(|(axes, cutoff)| {
+                                    cutoff < context.submission_order
+                                        && axes.intersection(motion.axes).is_some()
+                                })
+                        })
+                    });
+                if halt_conflict {
+                    return true;
+                }
                 !self.stop_wait_ended(entry, now)
                     && (state_conflict
                         || self.raw_hold_blocks_dispatch(entry, target)
@@ -2202,10 +2283,9 @@ trait EngineMethods: EngineAccess {
         request: RequestId,
         transmission: TransmissionId,
     ) -> Option<TransmissionOwner> {
-        let lifecycle = self.entries.get(&request)?.lifecycle.active()?;
         Some(TransmissionOwner {
             request,
-            write: lifecycle.active_write(transmission)?,
+            write: self.entries.get(&request)?.active_write(transmission)?,
         })
     }
 
@@ -2230,6 +2310,26 @@ trait EngineMethods: EngineAccess {
             effects.push(Effect::Ignored(reason));
             return;
         };
+        // Even a failed or late I/O attempt may have put bytes on the wire.
+        if !matches!(&result, WriteOutcome::NotSent(_)) {
+            let lane = match owner.write {
+                ActiveWrite::Request {
+                    reply: SendingReply::Inquiry,
+                    ..
+                } => Lane::Inquiry,
+                ActiveWrite::Request { .. } | ActiveWrite::Cancellation(_) => Lane::Command,
+            };
+            self.pacing.record(lane, now);
+            if matches!(owner.write, ActiveWrite::Request { .. }) {
+                let zoom_drive = self.entries.get(&request).and_then(|entry| {
+                    let write = ZoomDriveWrite::from_request(&entry.request, transmission)?;
+                    Some((entry.request.context().target, write))
+                });
+                if let Some((target, write)) = zoom_drive {
+                    self.targets[target].zoom_drive.record(request, write);
+                }
+            }
+        }
         match result {
             WriteOutcome::NotSent(error) => self.transmission_not_sent(owner, error, now, effects),
             // Failure means bytes may have left. Its certainty and correlation
@@ -3311,6 +3411,9 @@ trait EngineMethods: EngineAccess {
             ),
         };
         if let Some(changed) = claim.install(next) {
+            // Once this attempt is accepted, a later cancellation or error
+            // cannot establish that its continuous drive had no effect.
+            self.targets[target].zoom_drive.retire(id, true);
             effects.push(Effect::Transition {
                 id,
                 from: changed.from,
@@ -3904,7 +4007,6 @@ trait EngineMethods: EngineAccess {
                 framing,
             },
         });
-        self.pacing.record(Lane::Command, now);
     }
 
     fn schedule_retry(
@@ -3923,6 +4025,13 @@ trait EngineMethods: EngineAccess {
         let Some(entry) = self.entries.get(&id) else {
             return;
         };
+        // The initial reply timeout keeps the current sequence for an exact
+        // replay. If that write also times out, the camera may already have
+        // processed it. Spend the next attempt on a fresh read-only inquiry.
+        let retire_request_sequence = matches!(evidence, AttemptEvidence::Written)
+            && entry.lifecycle().is_awaiting_reply()
+            && entry.request.permits_fresh_sony_sequence()
+            && entry.sequences.request_replayed();
         let certainty = entry.certainty(evidence);
         if let Some(axes) = self
             .entries
@@ -3987,6 +4096,14 @@ trait EngineMethods: EngineAccess {
             self.finish_terminal_error(id, error, evidence, now, effects);
             return;
         }
+        if let Some((target, possibly_applied)) = self.entries.get(&id).map(|entry| {
+            (
+                entry.request.context().target,
+                entry.current_attempt_may_have_effect(evidence),
+            )
+        }) {
+            self.targets[target].zoom_drive.retire(id, possibly_applied);
+        }
         self.retire_answers(id, now, effects);
         self.release_attempt_ownership(id);
         if let Some(changed) = self.entries.transition(
@@ -3994,6 +4111,7 @@ trait EngineMethods: EngineAccess {
             EntryChange::Retry {
                 ready_at,
                 previous_attempt: retry.attempt(),
+                retire_request_sequence,
                 prior: PriorAttempts {
                     count: NonZeroU32::MIN.saturating_add(retry_count),
                     cause: error,
@@ -4616,7 +4734,7 @@ trait EngineMethods: EngineAccess {
         if !matches!(self.session, EngineSession::Running) {
             return None;
         }
-        let occupancy = Occupancy::build(&self.entries);
+        let occupancy = Occupancy::build(&self.entries, now);
         let mut wake = occupancy
             .due
             .map(|due| due.at)
@@ -4759,6 +4877,9 @@ trait EngineMethods: EngineAccess {
         let outcome = outcome.into().for_request(&entry.request);
         let context = entry.request.context();
         let target = context.target;
+        self.targets[target]
+            .zoom_drive
+            .retire(id, entry.current_attempt_may_have_effect(evidence));
         if self.targets[target]
             .pan_tilt_drive_cancel_interval(context)
             .is_some()
@@ -5275,8 +5396,8 @@ fn unique_requests(
 
 fn correlation_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
     match kind {
-        // Sony sequences deliberately outlive an attempt across retry. A
-        // queued/backoff owner therefore needs evidence of an earlier attempt;
+        // Sony sequences retained for replay outlive an attempt. A queued or
+        // backed-off owner therefore needs evidence of an earlier attempt;
         // the ordinary response phases must also agree with the reply shape.
         CorrelationKind::Request => {
             !entry.lifecycle().is_off_wire() || entry.previous_written_attempt().is_some()
