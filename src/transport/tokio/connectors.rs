@@ -69,7 +69,7 @@ async fn lookup_hostname(
         }),
         abandoned,
     };
-    let result = (&mut lookup.task).await.map_err(io::Error::other)?;
+    let result = (&mut lookup.task).await.map_err(io::Error::from)?;
     if lookup.abandoned.load(Ordering::Acquire) {
         return Err(io::ErrorKind::Interrupted.into());
     }
@@ -310,14 +310,6 @@ mod tests {
             };
             let short = Duration::from_millis(100);
             let long = Duration::from_secs(10);
-            let dropped = new_probe();
-            let mut connector = Box::pin(Arc::clone(&dropped).connect(hostname.clone(), long));
-            assert!(futures_lite::future::poll_once(connector.as_mut())
-                .await
-                .is_none());
-            dropped.queued.notified().await;
-            drop(connector);
-
             let expired = new_probe();
             let connector = tokio::spawn(Arc::clone(&expired).connect(hostname.clone(), short));
             expired.queued.notified().await;
@@ -328,9 +320,25 @@ mod tests {
             ));
 
             let live = new_probe();
-            let connector = tokio::spawn(Arc::clone(&live).connect(hostname, long));
+            let connector = tokio::spawn(Arc::clone(&live).connect(hostname.clone(), long));
             live.queued.notified().await;
+
+            let dropped = new_probe();
+            let mut dropped_connector = Box::pin(Arc::clone(&dropped).connect(hostname, long));
+            assert!(futures_lite::future::poll_once(dropped_connector.as_mut())
+                .await
+                .is_none());
+            dropped.queued.notified().await;
+            drop(dropped_connector);
+
+            // Drain the blocking queue before Tokio can poll the aborted
+            // connector. Dropping it must signal its queued job immediately.
+            let (barrier, drained) = mpsc::channel();
+            let barrier = tokio::task::spawn_blocking(move || barrier.send(()).unwrap());
             release_worker.send(()).unwrap();
+            drained.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert_eq!(calls.load(Ordering::Relaxed), 1);
+            barrier.await.unwrap();
             worker.await.unwrap();
             assert!(connector.await.unwrap().is_ok());
             assert_eq!(calls.load(Ordering::Relaxed), 1);
