@@ -160,9 +160,12 @@ pub(crate) enum SonyResponse<'a> {
         payload: &'a [u8],
         sequence: FrameSequence,
     },
-    /// A Sony transport-control message used only for diagnostics.
+    /// A Sony transport-control message.
     Control { code: u16 },
 }
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+pub(crate) const SONY_RESET_ACK_CODE: u16 = 0x0001;
 
 impl Envelope for RawVisca {
     const KIND: ProfileEnvelope = ProfileEnvelope::RawVisca;
@@ -340,7 +343,9 @@ impl SonyEncapsulated {
                     code: u16::from_be_bytes([0x0F, *detail]),
                 })
             }
-            (PayloadType::ControlReply, [0x01]) => Ok(SonyResponse::Control { code: 0x0001 }),
+            (PayloadType::ControlReply, [0x01]) => Ok(SonyResponse::Control {
+                code: SONY_RESET_ACK_CODE,
+            }),
             (kind @ (PayloadType::ControlCommand | PayloadType::ControlReply), _) => {
                 Err(SonyMalformed::ControlPayload(kind).into())
             }

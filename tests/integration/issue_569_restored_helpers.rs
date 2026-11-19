@@ -12,8 +12,9 @@ use std::time::{Duration, Instant};
 
 use grafton_visca::{
     blocking::Session,
-    config::SessionConfig,
+    config::{SessionConfig, TransportKind},
     profiles::{ProfileSpec, PtzOpticsG2, SonyBrc300, SonyEviH100, SonyFr7},
+    transport::SendSemantics,
     types::{
         AffectedAxes, Degrees, MotionQuery, MotionSyncSpeed, NdFilterMode, NdiQuality, PanSpeed,
         PanTiltDirection, PanTiltLimitCorner, PanTiltPosition, PanTiltSpeedMode, PresetSpeed,
@@ -235,6 +236,33 @@ fn normalized_zoom_maps_the_unit_interval_across_explicit_combined_domains() {
         "the combined domain's midpoint is half the digital range",
     );
 
+    session.shutdown().expect("shutdown");
+}
+
+#[test]
+fn evi_h100_normalized_zoom_encodes_the_position_below_the_half_step() {
+    let fake = recording_camera();
+    let serial = fake
+        .blocking_wire()
+        .with_transport_kind(TransportKind::Serial)
+        .with_semantics(SendSemantics::Stream);
+    let config = SessionConfig::from_compile_time::<SonyEviH100>().expect("EVI-H100 config");
+    let session = Session::open(serial, &config).expect("serial session");
+    let camera = session
+        .camera::<SonyEviH100>(grafton_visca::types::IndividualCameraId::CAMERA_1)
+        .expect("EVI-H100 camera");
+
+    // At the documented 0x7AC0 endpoint, this fraction is just below 1.5 positions.
+    let fraction = UnitInterval::new(f32::from_bits(0x3848_3639)).expect("valid fraction");
+    let mut operation = camera
+        .zoom()
+        .set_normalized(fraction, ZoomDomain::OpticalPlusDigital)
+        .expect("normalized target");
+    operation.applied().expect("target applied");
+    assert_eq!(
+        fake.take_only_payload(),
+        [0x81, 0x01, 0x04, 0x47, 0, 0, 0, 1, 0xff],
+    );
     session.shutdown().expect("shutdown");
 }
 

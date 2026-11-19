@@ -545,7 +545,7 @@ ND-filter position inquiries.
 | Concrete async `_op` methods (`pan_tilt_*_op`, `set_*_op`, `preset_recall_op`, and similar) | Construct the typed request and call `submit`; use the returned targeted/applied-only handle. |
 | `start_*`, `*_and_wait`, `_result`, and `*_op` twins | One noun method for ordinary completion, or one `submit` call for lifecycle control. No aliases or result twins. |
 | `await_completion` | `applied`; use `settled` only on a targeted operation. |
-| `InFlight::await_applied(timeout)` / `BlockingInFlight::await_applied(timeout)`, and `await_settled(timeout)` | `Operation::applied()` / `settled()` for the request's configured deadline, or `applied_with_timeout(timeout)` / `settled_with_timeout(timeout)` for an explicit one. `settled*` exists only on a targeted operation and returns `Settlement` evidence. Stable samples are attributed to that operation only while no later conflicting motion has been admitted; they do not prove arrival at its endpoint. |
+| `InFlight::await_applied(timeout)` / `BlockingInFlight::await_applied(timeout)`, and `await_settled(timeout)` | `Operation::applied()` / `settled()` for the request's configured deadline, or `applied_with_timeout(timeout)` / `settled_with_timeout(timeout)` for an explicit one. `settled*` exists only on a targeted operation and returns `Settlement` evidence. See the polling attribution rules below. |
 | `send_command_with_id(&cmd) -> (CommandId, _)` followed later by `cancel(command_id)` | `camera.submit::<K, _>(&op)` returns an `Operation<K>` **handle**; hold it and call `operation.cancel()`, which waits for the cancellation's `CancellationOutcome`. The handle itself is the cancellation authority. |
 | `CommandId` used as a cancellation key | `OperationId` (from `operation.id()`) is read-only observability only; it can no longer authorize waiting or cancellation. Cancel through the owning `Operation` handle. |
 | `cancel_command(ViscaSocket)` and `cancel_socket(ViscaSocket)` (cancel by socket) | There is no public cancel-by-socket call — socket cancellation is owner-only and is driven by cancelling the specific `Operation`. `ViscaSocket` still exists (`grafton_visca::types::ViscaSocket`) as a value type but is not a cancellation entry point. To force motion to end, submit the typed STOP. |
@@ -760,12 +760,15 @@ The fence is established when the owner accepts the halt. Older declared motion
 on supported axes is suppressed if still queued, including work retained in an
 ingress channel; already-written attempts retain correlation and uncertainty,
 while their future retries are suppressed. Submissions ordered after acceptance
-remain eligible. Concurrent calls are ordered by this acceptance boundary, not
-by when a caller begins preparation. Independent STOP admission and dispatch respect protocol socket, ACK-correlation,
-and pacing gates; they do not wait for another STOP's completion. Each STOP retains the same absolute cutoff
-and cannot begin a late write. Once the owner claims acceptance, the caller may
-finish waiting for its bounded bookkeeping reply; that never renews the STOP or
-observation budget. Applied STOPs provide protocol evidence, not physical feedback.
+remain eligible on other axes and targets. Overlapping motion waits until the
+corresponding STOP can no longer write, including after any allowed retry for
+`CommandBufferFull`. Concurrent calls are ordered by the acceptance boundary.
+Independent STOP admission and dispatch respect protocol socket,
+ACK-correlation, and pacing gates. Each STOP shares the absolute cutoff for
+starting a write. Once the owner claims acceptance, the caller may finish
+waiting for its bounded bookkeeping reply within the original STOP and
+observation budget. Use the motion view for physical feedback after an applied
+STOP.
 
 Custom plain requests may declare `Request::motion_axes()`; `raw::PlainRequest` has
 `with_motion_axes`. Operation requests already declare their affected axes.
@@ -822,14 +825,16 @@ inquiries are never held back by it (#795).
 
 A later admitted motion on overlapping axes supersedes an earlier operation's
 unfinished polled settlement, even if the later motion is cancelled before it
-writes. Rejected submissions and other axes or targets do not supersede it.
-`Error::SettlementSuperseded` preserves the earlier operation's application
-result; it does not prove that movement failed or authorize replay. Successful
-cached evidence and profile-declared exact completion remain valid after later
-motion. Polling failures retain their source in
-`Error::SettlementObservationFailed`, with `Observation/Unconfirmed` context for
-the original operation. A polling inquiry's conclusive failure does not make
-replaying the original move safe.
+writes. An older request can also supersede the proof if its write may have
+reached the same target and overlapping axes after the operation wrote.
+`Error::SettlementSuperseded` preserves the operation's application result
+and gives no authority to replay the move. Successful cached evidence and
+profile-declared exact completion remain valid after later motion. Polling
+checks the registered pan/tilt and documented lens readback domains before
+comparing position samples. Failures retain their source in
+`Error::SettlementObservationFailed`, with
+`Observation/Unconfirmed` context for the original operation. A polling inquiry's
+conclusive failure does not make replaying the original move safe.
 
 Borrowing waits classify outcomes by the injected owner clock at delivery.
 Delivery before or exactly at the observer deadline can satisfy that wait;
@@ -1050,6 +1055,7 @@ Retained public protocol values also changed shape:
 | --- | --- |
 | `DirectMenuControl::new(control1, control2)` returning the value directly | `DirectMenuControl::new(control1, control2)?`; the constructor rejects a data `FF` followed by an address byte because that would begin a second VISCA frame. |
 | `envelope.frame_into(visca, kind, out)` returning framing metadata directly | `envelope.frame_into(visca, kind, out)?`; malformed/non-terminated Sony payloads are validation errors and leave `out` unchanged. An empty message is rejected with `Error::InvalidRequest` (it used to clear `out` and succeed), and with IP addressing every address byte, including the `88` broadcast address, is sent as camera 1 (`81`), because VISCA over IP fixes the camera address at 1. |
+| Sending a Sony sequence RESET to resynchronize | `with_sony_sequence_reset_on_connect(true)` waits for the camera's RESET ACK during session startup. A lost ACK or write failure returns an open error. |
 | `<R as RuntimeSerial>::SerialTransport` | `<R as Runtime>::SerialTransport`; `RuntimeSerial` remains the `connect_serial` extension trait, while the associated transport type lives on `Runtime` so `TransportHandle<R>` stays runtime-paired. |
 | `command::FocusSpeed` (a second focus-speed type) | `types::FocusSpeed`, the concrete speed accepted by `focus().far_variable(..)` and `focus().near_variable(..)`. Out-of-range values now report `ParameterOutOfRange`. |
 | `Coarse` (`grafton_visca::Coarse`, `types::Coarse`), a second name for `SpeedLevel`, and `PanSpeed::from_coarse`, `TiltSpeed::from_coarse`, `ZoomSpeed::from_coarse`, `FocusSpeed::from_coarse` | `SpeedLevel` or `Speed<ZoomSpeed>` for profile-aware lowering, for example `zoom().tele_variable(SpeedLevel::Fast)`. Concrete wire speeds no longer implement a profile-independent conversion from `SpeedLevel`. |

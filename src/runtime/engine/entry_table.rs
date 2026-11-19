@@ -6,15 +6,16 @@
 use std::{
     collections::{btree_map, BTreeMap, VecDeque},
     ops::{Index, IndexMut},
+    sync::Arc,
     time::Instant,
 };
 
 use smallvec::SmallVec;
 
 use super::{
-    AttemptFacts, CorrelationKind, CorrelationOwner, Entry, ExecutingCancellation, Lifecycle,
-    RequestId, RequestedCancellation, ResolvingCancellation, RuntimeRequest, SendingReply,
-    SequenceRecord, TargetSlot, TransmissionId, TransmissionMeta, ViscaSocket,
+    AttemptFacts, CorrelationKind, CorrelationOwner, EncodedMessage, Entry, ExecutingCancellation,
+    Lifecycle, RequestId, RequestedCancellation, ResolvingCancellation, RuntimeRequest,
+    SendingReply, SequenceRecord, TargetSlot, TransmissionId, TransmissionMeta, ViscaSocket,
 };
 use crate::target::PerTarget;
 
@@ -42,44 +43,68 @@ impl<T> IndexMut<ViscaSocket> for SocketSlots<T> {
     }
 }
 
-/// Each Sony request replays one sequence; cancellation has its own sequence.
+/// Live Sony sequence identities. Cancellation has its own slot.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct SequenceSlots {
-    request: Option<u32>,
+    request: Option<RequestSequence>,
     cancellation: Option<u32>,
 }
 
-impl Index<CorrelationKind> for SequenceSlots {
-    type Output = Option<u32>;
-
-    fn index(&self, kind: CorrelationKind) -> &Self::Output {
-        match kind {
-            CorrelationKind::Request => &self.request,
-            CorrelationKind::Cancellation => &self.cancellation,
-        }
-    }
-}
-
-impl IndexMut<CorrelationKind> for SequenceSlots {
-    fn index_mut(&mut self, kind: CorrelationKind) -> &mut Self::Output {
-        match kind {
-            CorrelationKind::Request => &mut self.request,
-            CorrelationKind::Cancellation => &mut self.cancellation,
-        }
-    }
+/// An exact sequence and whether an additional write replayed it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RequestSequence {
+    value: u32,
+    replayed: bool,
 }
 
 impl SequenceSlots {
+    pub(super) fn get(self, kind: CorrelationKind) -> Option<u32> {
+        match kind {
+            CorrelationKind::Request => self.request.map(|sequence| sequence.value),
+            CorrelationKind::Cancellation => self.cancellation,
+        }
+    }
+
+    fn clear(&mut self, kind: CorrelationKind) {
+        match kind {
+            CorrelationKind::Request => self.request = None,
+            CorrelationKind::Cancellation => self.cancellation = None,
+        }
+    }
+
     pub(super) fn records(self) -> impl DoubleEndedIterator<Item = SequenceRecord> {
         [CorrelationKind::Request, CorrelationKind::Cancellation]
             .into_iter()
-            .filter_map(move |kind| self[kind].map(|sequence| SequenceRecord { sequence, kind }))
+            .filter_map(move |kind| {
+                self.get(kind)
+                    .map(|sequence| SequenceRecord { sequence, kind })
+            })
     }
 
-    fn record(&mut self, kind: CorrelationKind, sequence: u32) {
-        // Fresh allocation is planned only while this correlation slot is empty.
-        // Replays carry `Known` and never change either sequence index.
-        self[kind].get_or_insert(sequence);
+    fn record_written(&mut self, kind: CorrelationKind, receipt: TransmissionMeta) {
+        match (kind, receipt) {
+            // Fresh allocation is planned only while the correlation slot is empty.
+            (CorrelationKind::Request, TransmissionMeta::Allocated { sequence }) => {
+                self.request.get_or_insert(RequestSequence {
+                    value: sequence,
+                    replayed: false,
+                });
+            }
+            (CorrelationKind::Cancellation, TransmissionMeta::Allocated { sequence }) => {
+                self.cancellation.get_or_insert(sequence);
+            }
+            (CorrelationKind::Request, TransmissionMeta::Known) => {
+                // Raw writes also carry Known, but have no sequence to replay.
+                if let Some(sequence) = &mut self.request {
+                    sequence.replayed = true;
+                }
+            }
+            (CorrelationKind::Cancellation, TransmissionMeta::Known) => {}
+        }
+    }
+
+    pub(super) fn request_replayed(self) -> bool {
+        self.request.is_some_and(|sequence| sequence.replayed)
     }
 }
 
@@ -297,6 +322,7 @@ pub(super) enum EntryChange {
         ready_at: Instant,
         previous_attempt: AttemptFacts,
         prior: super::PriorAttempts,
+        retire_request_sequence: bool,
     },
     CloseObserver,
     DisplaceSocket,
@@ -332,7 +358,7 @@ impl IndexFacts {
             if entry.lifecycle.active().is_none()
                 || !super::correlation_phase_compatible(entry, kind)
             {
-                sequences[kind] = None;
+                sequences.clear(kind);
             }
         }
         Self {
@@ -352,6 +378,9 @@ impl IndexFacts {
 #[derive(Debug, Default)]
 pub(super) struct EntryTable {
     entries: BTreeMap<RequestId, Entry>,
+    // Only pending dual-family halt STOPs need an alternative. Use the same
+    // admission bound as their entry and drop this wire at dispatch or retirement.
+    halt_zoom_alternatives: BTreeMap<RequestId, Arc<EncodedMessage>>,
     ready: [VecDeque<RequestId>; 4],
     sequences: BTreeMap<u32, SmallVec<[CorrelationOwner; 2]>>,
     lower_sequences: BTreeMap<u16, SmallVec<[CorrelationOwner; 2]>>,
@@ -390,6 +419,42 @@ impl EntryTable {
     pub(super) fn active_entries(&self) -> impl Iterator<Item = (&RequestId, &Entry)> {
         self.iter()
             .filter(|(_, entry)| entry.lifecycle.active().is_some())
+    }
+    pub(super) fn offer_high_resolution_zoom_stop(
+        &mut self,
+        id: RequestId,
+        wire: Arc<EncodedMessage>,
+    ) {
+        debug_assert!(self
+            .entries
+            .get(&id)
+            .is_some_and(|entry| entry.request.is_stop()));
+        self.halt_zoom_alternatives.insert(id, wire);
+    }
+
+    pub(super) fn halt_zoom_target(&self, id: RequestId) -> Option<TargetSlot> {
+        let entry = self.entries.get(&id)?;
+        (entry.request.context().dispatch_deadline.is_some()
+            && self.halt_zoom_alternatives.contains_key(&id))
+        .then_some(entry.request.context().target)
+    }
+
+    pub(super) fn select_halt_zoom_stop(&mut self, id: RequestId, high_resolution: bool) {
+        // Consume the choice before staging the first write. A retry must
+        // replay the same bytes under its original Sony sequence.
+        let alternate = self.halt_zoom_alternatives.remove(&id);
+        if let (
+            Some(alternate),
+            Some(Entry {
+                request: RuntimeRequest::Command { wire, .. },
+                ..
+            }),
+        ) = (
+            alternate.filter(|_| high_resolution),
+            self.entries.get_mut(&id),
+        ) {
+            *wire = alternate;
+        }
     }
     pub(super) fn ready_candidates(&self) -> impl Iterator<Item = RequestId> + '_ {
         let candidates = self.ready.iter().rev().flatten().copied();
@@ -485,7 +550,11 @@ impl EntryTable {
                 ready_at,
                 previous_attempt,
                 prior,
+                retire_request_sequence,
             } => {
+                if retire_request_sequence {
+                    entry.sequences.clear(CorrelationKind::Request);
+                }
                 entry.lifecycle = entry.lifecycle.transition(Lifecycle::Backoff {
                     ready_at,
                     previous_attempt,
@@ -500,9 +569,7 @@ impl EntryTable {
                 if let Some(at) = pan_tilt_drive_written_at {
                     entry.pan_tilt_drive_written_at = Some(at);
                 }
-                if let TransmissionMeta::Allocated { sequence } = receipt {
-                    entry.sequences.record(kind, sequence);
-                }
+                entry.sequences.record_written(kind, receipt);
             }
             EntryChange::CloseObserver => {
                 let mut to = entry.lifecycle();
@@ -534,6 +601,7 @@ impl EntryTable {
 
     pub(super) fn remove(&mut self, id: &RequestId) -> Option<Entry> {
         let entry = self.entries.remove(id)?;
+        self.halt_zoom_alternatives.remove(id);
         self.remove_indexes(*id, &IndexFacts::of(&entry));
         Some(entry)
     }
@@ -583,12 +651,12 @@ impl EntryTable {
             }
         }
         for record in before.sequences.records() {
-            if after.sequences[record.kind] != Some(record.sequence) {
+            if after.sequences.get(record.kind) != Some(record.sequence) {
                 self.remove_sequence(id, record);
             }
         }
         for record in after.sequences.records() {
-            if before.sequences[record.kind] != Some(record.sequence) {
+            if before.sequences.get(record.kind) != Some(record.sequence) {
                 self.add_sequence(id, record);
             }
         }

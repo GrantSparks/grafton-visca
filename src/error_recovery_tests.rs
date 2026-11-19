@@ -453,6 +453,39 @@ fn cases() -> Vec<Case> {
             Abandon
         ),
         case!(
+            PanTiltDriveRestartBlocked,
+            "refused before admission",
+            Error::PanTiltDriveRestartBlocked {
+                camera: crate::IndividualCameraId::CAMERA_1,
+                context: FailureContext::new(PreAdmission, NotAccepted),
+            },
+            NotExecutable,
+            context(PreAdmission, NotAccepted),
+            Abandon
+        ),
+        case!(
+            PanTiltDriveRestartBlocked,
+            "queued drive unwritten",
+            Error::PanTiltDriveRestartBlocked {
+                camera: crate::IndividualCameraId::CAMERA_1,
+                context: FailureContext::new(Terminal, NotAccepted),
+            },
+            NotExecutable,
+            context(Terminal, NotAccepted),
+            Abandon
+        ),
+        case!(
+            PanTiltDriveRestartBlocked,
+            "earlier attempt uncertain",
+            Error::PanTiltDriveRestartBlocked {
+                camera: crate::IndividualCameraId::CAMERA_1,
+                context: FailureContext::new(Terminal, Unconfirmed),
+            },
+            NotExecutable,
+            context(Terminal, Unconfirmed),
+            Reconcile
+        ),
+        case!(
             CommandFailedAfterAck,
             "",
             Error::command_failed_after_ack(Error::NoSocket),

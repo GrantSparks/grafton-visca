@@ -104,7 +104,7 @@ impl Session {
     /// [`CameraSession::open`] additionally validates its camera configuration's selection.
     ///
     /// Startup validates the profiles, tuning, transport buffers, and the
-    /// immutable owner policy, and sends the optional Sony sequence RESET on
+    /// immutable owner policy, and confirms the optional Sony sequence RESET on
     /// the calling thread, before it starts exactly one worker thread. Any
     /// failure, including a failed thread spawn, drops the transport and
     /// returns the error; no worker is left running.
@@ -147,7 +147,7 @@ impl Session {
             config.strict_unconfirmed_poison(),
         );
         if config.sony_sequence_reset_on_connect() {
-            adapter.send_sony_sequence_reset(policy.write_timeout.get())?;
+            adapter.confirm_sony_sequence_reset(&policy, &clock)?;
         }
         Ok(Self {
             owner: BlockingOwnerHandle::spawn(policy, adapter, clock)?,
@@ -627,8 +627,14 @@ mod tests {
     }
 
     #[test]
-    fn session_open_sends_opt_in_sony_sequence_reset_before_owner_work() {
-        let transport = ScriptedBlockingTransport::new(CUSTOM_IP_STREAM, []);
+    fn session_open_confirms_opt_in_sony_sequence_reset_before_owner_work() {
+        let transport = ScriptedBlockingTransport::new(
+            CUSTOM_IP_STREAM,
+            [Step::on_send(
+                Some(vec![2, 0, 0, 1, 0, 0, 0, 0, 1]),
+                vec![vec![2, 1, 0, 1, 0, 0, 0, 0, 1]],
+            )],
+        );
         let probe = transport.clone();
         let config = SessionConfig::from_compile_time::<crate::profiles::SonyFr7>()
             .unwrap()

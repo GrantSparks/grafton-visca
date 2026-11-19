@@ -465,21 +465,13 @@ pub(crate) fn instant_after(
 ///
 /// The clock is always passed in, so executor-driven code can use its virtual
 /// clock and stay deterministic under the test executor.
-#[cfg(any(
-    feature = "blocking",
-    feature = "runtime-tokio",
-    feature = "runtime-smol"
-))]
+#[cfg(any(feature = "async", feature = "blocking"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Deadline {
     deadline: Instant,
 }
 
-#[cfg(any(
-    feature = "blocking",
-    feature = "runtime-tokio",
-    feature = "runtime-smol"
-))]
+#[cfg(any(feature = "async", feature = "blocking"))]
 impl Deadline {
     /// Starts a `timeout` budget at `now`.
     ///
@@ -493,7 +485,6 @@ impl Deadline {
     }
 
     /// Returns the absolute instant for a timer driven by the same clock.
-    #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
     pub(crate) const fn instant(self) -> Instant {
         self.deadline
     }

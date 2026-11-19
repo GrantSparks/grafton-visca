@@ -39,7 +39,8 @@ pub(crate) struct BuiltinInquiryAuthority(private::SealedToken);
 #[derive(Default)]
 pub(crate) struct BuiltinInquiryProtocol {
     pub(crate) syntax_retry: bool,
-    pub(crate) sony_payload_type: Option<crate::protocol::sony::PayloadType>,
+    /// Envelope type of a reviewed Sony read-only inquiry, eligible for a fresh sequence.
+    pub(crate) sony_read_only_payload: Option<crate::protocol::sony::PayloadType>,
 }
 
 mod private {
@@ -420,6 +421,40 @@ impl From<AffectedAxes> for u8 {
 
 type SharedDecoder<R> = dyn Fn(&[u8]) -> Result<R> + Send + Sync + 'static;
 
+#[cfg(any(feature = "blocking", feature = "async"))]
+#[derive(Clone)]
+enum LensSampleDomain {
+    Zoom(crate::capabilities::CapabilityRange<u16>),
+    Focus(crate::capabilities::CapabilityRange<u16>),
+    // Share the registered iris domain, including user-defined gap tables.
+    Iris(crate::TargetRegistration),
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl LensSampleDomain {
+    fn validate(&self, value: u16) -> Result<u16> {
+        match self {
+            Self::Zoom(range) => range.validate("zoom position", value),
+            Self::Focus(range) => range.validate("focus position", value),
+            Self::Iris(target) => Self::iris_domain(target)?.validate("iris position", value),
+        }
+    }
+
+    fn iris_domain(
+        target: &crate::TargetRegistration,
+    ) -> Result<&crate::capabilities::CapabilityDomain<u16>> {
+        target
+            .profile()
+            .capabilities()
+            .exposure
+            .as_ref()
+            .and_then(|exposure| exposure.iris_range.as_ref())
+            .ok_or(Error::FeatureNotSupported {
+                feature: "iris position inquiry",
+            })
+    }
+}
+
 enum DecoderInner<R> {
     Function(fn(&[u8]) -> Result<R>),
     NormalizedZoom {
@@ -436,6 +471,11 @@ enum DecoderInner<R> {
         coordinates: crate::profiles::TargetPanTiltCoordinates,
         lift:
             fn(crate::profiles::TargetPanTiltCoordinates, crate::types::PanTiltUnits) -> Result<R>,
+    },
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    LensPosition {
+        domain: LensSampleDomain,
+        decode: fn(&LensSampleDomain, &[u8]) -> Result<R>,
     },
     ColorTemperature {
         steps: Arc<[u16]>,
@@ -557,6 +597,8 @@ impl<R> ResponseDecoder<R> {
                 })
                 .map_err(|error| inquiry_structs::reply_value_error(error, payload))
             }
+            #[cfg(any(feature = "blocking", feature = "async"))]
+            DecoderInner::LensPosition { domain, decode } => decode(domain, payload),
             DecoderInner::ColorTemperature { steps, lift } => {
                 let response = crate::command::inquiry_structs::dispatch(
                     crate::command::InquiryKind::ColorTemperature,
@@ -638,6 +680,100 @@ impl ResponseDecoder<crate::types::PanTiltUnits> {
     }
 }
 
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl<R> ResponseDecoder<R>
+where
+    R: crate::wire::WireValue + Copy,
+    R::Wire: Into<u16>,
+{
+    const fn for_lens_sample<Q: crate::command::inquiry_structs::GeneratedInquiry<Response = R>>(
+        domain: LensSampleDomain,
+    ) -> Self {
+        Self {
+            inner: DecoderInner::LensPosition {
+                domain,
+                decode: Self::decode_lens_sample::<Q>,
+            },
+        }
+    }
+
+    fn decode_lens_sample<Q: crate::command::inquiry_structs::GeneratedInquiry<Response = R>>(
+        domain: &LensSampleDomain,
+        payload: &[u8],
+    ) -> Result<R> {
+        use crate::command::inquiry_structs::{decode_payload, reply_value_error};
+        let reading = decode_payload::<Q>(payload)?;
+        domain
+            .validate(reading.to_wire().into())
+            .map_err(|error| reply_value_error(error, payload))?;
+        Ok(reading)
+    }
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl ResponseDecoder<crate::types::ZoomPosition> {
+    pub(crate) fn for_zoom_sample(target: &crate::TargetRegistration) -> Result<Self> {
+        use crate::capabilities::{CapabilityRange, TypedSupportSurface};
+        let capabilities = target.profile().capabilities();
+        let zoom = capabilities
+            .zoom
+            .as_ref()
+            .ok_or(Error::FeatureNotSupported {
+                feature: "zoom position inquiry",
+            })?;
+        let maximum = if capabilities.supports(TypedSupportSurface::ClearImageZoom) {
+            // FR7 uses the same inquiry for optical and Clear Image Zoom, even
+            // though its direct positioning range is optical only.
+            zoom.digital_max
+                .unwrap_or(zoom.optical_max)
+                .max(crate::types::ClearImageZoomPosition::MAX.value())
+        } else if capabilities.profile_id == Some(crate::profiles::ProfileId::SonyBrcH900) {
+            // R11 p. 37 documents position only across the 14x optical range.
+            zoom.optical_max
+        } else if let Some(maximum) = zoom.digital_max {
+            maximum
+        } else {
+            // An optical endpoint alone does not bound the inquiry's readback.
+            return Ok(crate::command::ZoomPositionInquiry.decoder());
+        };
+        Ok(
+            Self::for_lens_sample::<crate::command::ZoomPositionInquiry>(LensSampleDomain::Zoom(
+                CapabilityRange::<u16>::from_registry(0, maximum),
+            )),
+        )
+    }
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl ResponseDecoder<crate::types::FocusPosition> {
+    pub(crate) fn for_focus_sample(target: &crate::TargetRegistration) -> Result<Self> {
+        let focus =
+            target
+                .profile()
+                .capabilities()
+                .focus
+                .as_ref()
+                .ok_or(Error::FeatureNotSupported {
+                    feature: "focus position inquiry",
+                })?;
+        Ok(
+            Self::for_lens_sample::<crate::command::FocusPositionInquiry>(LensSampleDomain::Focus(
+                focus.range,
+            )),
+        )
+    }
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl ResponseDecoder<crate::types::IrisLevel> {
+    pub(crate) fn for_iris_sample(target: &crate::TargetRegistration) -> Result<Self> {
+        LensSampleDomain::iris_domain(target)?;
+        Ok(Self::for_lens_sample::<crate::command::IrisInquiry>(
+            LensSampleDomain::Iris(target.clone()),
+        ))
+    }
+}
+
 impl<R> Clone for ResponseDecoder<R> {
     fn clone(&self) -> Self {
         let inner = match &self.inner {
@@ -660,6 +796,11 @@ impl<R> Clone for ResponseDecoder<R> {
                 coordinates: *coordinates,
                 lift: *lift,
             },
+            #[cfg(any(feature = "blocking", feature = "async"))]
+            DecoderInner::LensPosition { domain, decode } => DecoderInner::LensPosition {
+                domain: domain.clone(),
+                decode: *decode,
+            },
             DecoderInner::ColorTemperature { steps, lift } => DecoderInner::ColorTemperature {
                 steps: Arc::clone(steps),
                 lift: *lift,
@@ -678,7 +819,9 @@ impl<R> fmt::Debug for ResponseDecoder<R> {
             | DecoderInner::NormalizedZoom { .. }
             | DecoderInner::ColorTemperature { .. } => "inline-builtin",
             #[cfg(any(feature = "blocking", feature = "async"))]
-            DecoderInner::PanTiltPosition { .. } => "inline-builtin",
+            DecoderInner::PanTiltPosition { .. } | DecoderInner::LensPosition { .. } => {
+                "inline-builtin"
+            }
             DecoderInner::Shared(_) => "shared-context",
         };
         formatter
@@ -1104,7 +1247,10 @@ impl<T> PlainCommand for T where T: Request<Class = request::PlainClass> + ?Size
 /// Structural evidence describing an inquiry's decoded data payload.
 ///
 /// Exact lengths count one or more data bytes, excluding the VISCA address,
-/// reply header and terminator. Shape constrains framing and nibble width.
+/// reply header and terminator. The transport finds the frame boundary first.
+/// Raw VISCA treats the first `0xFF` as the terminator, even if the declared
+/// length has yet to be reached. The length in a Sony IP envelope allows
+/// its VISCA reply to carry `0xFF` as a data byte.
 /// The response decoder checks documented values, padding and profile ranges.
 ///
 /// # Examples
@@ -1122,7 +1268,7 @@ pub enum PayloadShape {
     /// No declared structure. Admits every payload and overlaps every shape.
     #[default]
     Unknown,
-    /// Exactly this many data bytes, with unrestricted byte values.
+    /// Exactly this many decoded data bytes, with unrestricted byte values.
     Bytes(NonZeroUsize),
     /// Exactly this many data bytes, each in `0x00..=0x0F`.
     Nibbles(NonZeroUsize),
@@ -1201,7 +1347,7 @@ pub trait Inquiry: Request<Class = request::InquiryClass> {
         Ok(self.decoder())
     }
 
-    /// Returns crate-authorized syntax-error replay and Sony framing facts.
+    /// Returns crate-authorized syntax-error replay and Sony inquiry protocol facts.
     #[doc(hidden)]
     #[allow(private_interfaces)]
     fn builtin_inquiry_syntax_retry(

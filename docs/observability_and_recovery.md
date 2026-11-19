@@ -394,6 +394,9 @@ exhausts all Address Set attempts remains `MaxRetriesExceeded` (`Timeout` /
 | `UnsequencedCommandUnconfirmed` | `Unconfirmed` | Terminal / Unconfirmed | `Reconcile` |
 | `InquiryCorrelationLost / lane latched` | `NotExecutable` | Terminal / NotAccepted | `Abandon` |
 | `CommandCorrelationLost / lane latched` | `NotExecutable` | Terminal / NotAccepted | `Abandon` |
+| `PanTiltDriveRestartBlocked / refused before admission` | `NotExecutable` | PreAdmission / NotAccepted | `Abandon` |
+| `PanTiltDriveRestartBlocked / queued drive unwritten` | `NotExecutable` | Terminal / NotAccepted | `Abandon` |
+| `PanTiltDriveRestartBlocked / earlier attempt uncertain` | `NotExecutable` | Terminal / Unconfirmed | `Reconcile` |
 | `CommandFailedAfterAck` | `Unconfirmed` | Terminal / Unconfirmed | `Reconcile` |
 | `RequestUnconfirmed / later rejection after a lost ACK` | `Unconfirmed` | Terminal / Unconfirmed | `Reconcile` |
 | `RuntimeIdentityExhausted` | `Other` | — | `Abandon` |

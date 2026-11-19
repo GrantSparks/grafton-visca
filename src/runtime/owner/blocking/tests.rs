@@ -1796,6 +1796,7 @@ fn caller_halt_timeouts_record_each_stop_before_enqueue_or_owner_claim() {
                         prepared: crate::prepared::PreparedHalt {
                             target: crate::target::TargetSlot::CAMERA_1,
                             axes: None,
+                            zoom_high_resolution: None,
                             requests: [None, None, None],
                             budget: PROMPTLY,
                         },

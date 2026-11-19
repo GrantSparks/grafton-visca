@@ -40,6 +40,9 @@ forward_request!(
 ///
 /// If the menu is closed, the same packet drives physical pan/tilt movement.
 /// Send a bounded STOP to end that movement; dropping its handle does not stop it.
+///
+/// On the Sony FR7, menu navigation shares the cancellation timing and restart
+/// gate of other pan/tilt drive requests.
 #[derive(Debug, Clone, Copy)]
 pub struct Navigate {
     inner: crate::command::MenuNavigate,

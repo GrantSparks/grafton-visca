@@ -525,7 +525,7 @@ fn sequence_slots_keep_the_request_sequence_across_retries_and_cancellation() {
         let entry = engine.entry(id).unwrap();
         assert_eq!(entry.current_sequence(), Some(sequence));
         assert_eq!(
-            entry.sequences[CorrelationKind::Cancellation],
+            entry.sequences.get(CorrelationKind::Cancellation),
             Some(sequence + 1)
         );
         assert_eq!(entry.sequences.records().count(), 2);

@@ -321,7 +321,7 @@ mod paused {
         fn high_resolution_zoom_is_observed_and_queued_motion_is_halt_fenced() {
             const DRIVE: &[u8] = &[0x81, 1, 0x7e, 4, 0x17, 2, 0, 0, 0, 0, 0xff];
             const PAN_TILT_STOP: &[u8] = &[0x81, 1, 6, 1, 12, 10, 3, 3, 0xff];
-            const ZOOM_STOP: &[u8] = &[0x81, 1, 4, 7, 0, 0xff];
+            const ZOOM_STOP: &[u8] = &[0x81, 1, 0x7e, 4, 0x17, 0, 0, 0, 0, 0, 0xff];
             const FOCUS_STOP: &[u8] = &[0x81, 1, 4, 8, 0, 0xff];
             let mut moving = false;
             let mut sample = 0;
@@ -364,6 +364,55 @@ mod paused {
             }
             assert_eq!(payloads.len(), 8, "drive, four samples and three STOPs; no queued reverse drive");
             assert_sony_writes(&fake, 8);
+            wait!(session.close()).expect("close motion session");
+        }
+
+        fn fr7_halt_matches_the_latest_drive_that_may_have_applied() {
+            const WIDE_HIGH_RESOLUTION: &[u8] = &[0x81, 1, 0x7e, 4, 0x17, 3, 0, 0, 0, 0, 0xff];
+            const TELE: &[u8] = &[0x81, 1, 4, 7, 2, 0xff];
+            const WIDE: &[u8] = &[0x81, 1, 4, 7, 3, 0xff];
+            const PAN_TILT_STOP: &[u8] = &[0x81, 1, 6, 1, 12, 10, 3, 3, 0xff];
+            const HIGH_RESOLUTION_STOP: &[u8] = &[0x81, 1, 0x7e, 4, 0x17, 0, 0, 0, 0, 0, 0xff];
+            const STANDARD_STOP: &[u8] = &[0x81, 1, 4, 7, 0, 0xff];
+            const FOCUS_STOP: &[u8] = &[0x81, 1, 4, 8, 0, 0xff];
+            let fake = FakeCamera::visca(|request, answer| match request {
+                TELE => {
+                    answer.reply([0x90, 0x60, 0x03, 0xff]); // BufferFull before ACK.
+                }
+                WIDE_HIGH_RESOLUTION | WIDE | PAN_TILT_STOP | HIGH_RESOLUTION_STOP | STANDARD_STOP | FOCUS_STOP => {
+                    answer.reply([0x90, 0x41, 0xff]).reply([0x90, 0x51, 0xff]);
+                }
+                other => panic!("unexpected zoom or halt packet {other:02x?}"),
+            });
+            let backoff = Duration::from_secs(2);
+            let config = SessionConfig::from_compile_time::<SonyFr7>().expect("FR7 config")
+                .with_tuning(OperationalTuning::new()
+                    .with_initial_retry_backoff(backoff)
+                    .with_maximum_retry_backoff(backoff));
+            let session = open!(fake, config).expect("FR7 motion session");
+            let view = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("FR7 camera");
+            let mut high_resolution = wait!(view.zoom().wide_high_resolution(HighResolutionZoomSpeed::MIN)).expect("high-resolution drive");
+            wait!(high_resolution.applied()).expect("high-resolution drive applied");
+            let mut rejected = wait!(view.zoom().tele()).expect("standard drive admission");
+            assert!(matches!(
+                wait!(rejected.applied_with_timeout(Duration::from_millis(100))),
+                Err(Error::ObservationTimeout { .. }),
+            ));
+            assert_eq!(fake.write_count(), 2, "rejected drive is waiting to retry");
+            let report = wait!(view.motion().stop_all()).expect("FR7 halt");
+            assert!(matches!(report.zoom, HaltOutcome::Applied));
+            report.into_result().expect("all supported STOPs applied");
+            assert!(matches!(wait!(rejected.applied()), Err(Error::MotionSuperseded { .. })));
+            assert_eq!(fake.take_payloads(), [
+                WIDE_HIGH_RESOLUTION, TELE, PAN_TILT_STOP, HIGH_RESOLUTION_STOP, FOCUS_STOP,
+            ]);
+
+            let mut standard = wait!(view.zoom().wide()).expect("standard drive");
+            wait!(standard.applied()).expect("standard drive applied");
+            let report = wait!(view.motion().stop_all()).expect("FR7 halt after standard drive");
+            assert!(matches!(report.zoom, HaltOutcome::Applied));
+            report.into_result().expect("all supported STOPs applied");
+            assert_eq!(fake.take_payloads(), [WIDE, PAN_TILT_STOP, STANDARD_STOP, FOCUS_STOP]);
             wait!(session.close()).expect("close motion session");
         }
 

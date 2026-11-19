@@ -155,8 +155,13 @@ macro_rules! session_policy_accessors {
             self.policy.admission_capacity
         }
 
-        /// Opts in to sending Sony's sequence-number RESET control command
-        /// before the owner starts accepting requests.
+        /// Opts in to confirming Sony's sequence-number RESET before the
+        /// owner starts accepting requests.
+        ///
+        /// Sending RESET and receiving its positive acknowledgement share
+        /// the transport's configured `write_timeout`. If confirmation fails,
+        /// opening returns an error and drops the transport. After confirmation,
+        /// the first VISCA request uses sequence zero.
         ///
         /// This is disabled by default because opening a session otherwise
         /// performs no protocol write. (A serial transport's optional Address
@@ -171,8 +176,8 @@ macro_rules! session_policy_accessors {
             self
         }
 
-        /// Returns whether session startup sends Sony's sequence-number
-        /// RESET.
+        /// Returns whether session startup requires confirmation of Sony's
+        /// sequence-number RESET.
         #[must_use]
         pub const fn sony_sequence_reset_on_connect(&self) -> bool {
             self.policy.sony_sequence_reset_on_connect

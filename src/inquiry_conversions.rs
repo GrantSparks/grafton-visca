@@ -1,6 +1,4 @@
-//! Normalization domain and private profile-lowering helpers.
-
-use crate::{types::ZoomPosition, units::UnitInterval};
+//! Zoom normalization domains.
 
 /// Zoom domain for normalization.
 ///
@@ -31,216 +29,143 @@ pub enum ZoomDomain {
 }
 
 #[cfg(test)]
-impl ZoomPosition {
-    /// Normalizes the zoom position to `0.0..=1.0` within a profile's zoom
-    /// domain; [`zoom_from_normalized`] is the inverse.
-    ///
-    /// # Parameters
-    /// - `domain`: whether to normalize against the optical or full zoom range
-    /// - `optical_max`: the profile's maximum optical zoom value
-    /// - `digital_max`: the profile's maximum digital zoom value, if supported
-    ///
-    /// # Errors
-    /// Returns an error if the requested domain has no documented maximum, or
-    /// if the raw position exceeds the selected domain maximum.
-    pub(crate) fn normalize_with_max(
-        &self,
-        domain: ZoomDomain,
-        optical_max: u16,
-        digital_max: Option<u16>,
-    ) -> Result<UnitInterval, crate::Error> {
-        let max = zoom_domain_max(domain, optical_max, digital_max)?;
-
-        if max == 0 {
-            return Ok(UnitInterval::MIN);
-        }
-
-        if self.value() > max {
-            return Err(crate::Error::parameter_out_of_range(
-                "zoom position",
-                i32::from(self.value()),
-                0,
-                i32::from(max),
-            ));
-        }
-
-        UnitInterval::new(f32::from(self.value()) / f32::from(max))
-    }
-}
-
-/// Returns the documented raw zoom maximum for a normalization domain.
-///
-/// Optical normalization always uses the profile optical maximum. Digital-domain
-/// normalization requires an explicit digital maximum and never falls back to
-/// the optical range.
-pub(crate) fn zoom_domain_max(
-    domain: ZoomDomain,
-    optical_max: u16,
-    digital_max: Option<u16>,
-) -> Result<u16, crate::Error> {
-    match domain {
-        ZoomDomain::Optical => Ok(optical_max),
-        ZoomDomain::OpticalPlusDigital => digital_max.ok_or(crate::Error::FeatureNotSupported {
-            feature: "optical-plus-digital zoom range",
-        }),
-    }
-}
-
-/// Creates a zoom position from a normalized value within a profile's zoom
-/// domain. Dividing a raw position by that domain's maximum is the inverse.
-///
-/// Like every unit conversion in the crate, the arithmetic is `f32`, rounding
-/// to the nearest unit with halves away from zero.
-pub(crate) fn zoom_from_normalized(
-    normalized: UnitInterval,
-    domain: ZoomDomain,
-    optical_max: u16,
-    digital_max: Option<u16>,
-) -> Result<ZoomPosition, crate::Error> {
-    let max = zoom_domain_max(domain, optical_max, digital_max)?;
-
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let raw_value = (normalized.value() * f32::from(max)).round() as u16;
-    ZoomPosition::new(raw_value)
-}
-
-#[cfg(test)]
 mod tests {
-    use super::*;
+    use super::ZoomDomain;
+    use crate::{
+        capabilities::{CapabilityRange, ZoomCaps},
+        profiles::ProfileId,
+        types::ZoomPosition,
+        units::UnitInterval,
+        Error,
+    };
 
     #[test]
-    fn generic_visca_optical_endpoints_round_trip() -> Result<(), crate::Error> {
-        let profile = crate::profiles::ProfileId::GenericVisca.spec()?;
+    fn built_in_zoom_normalization_matches_the_selected_capability_range() -> crate::Result<()> {
+        let inputs = [
+            UnitInterval::MIN,
+            UnitInterval::new(f32::from_bits(0x3848_3639))?,
+            UnitInterval::new(0.5)?,
+            UnitInterval::MAX,
+        ];
+        for &id in ProfileId::all() {
+            let profile = id.spec()?;
+            let Some(zoom) = &profile.capabilities().zoom else {
+                continue;
+            };
+            for (domain, maximum) in [
+                (ZoomDomain::Optical, Some(zoom.optical_max)),
+                (ZoomDomain::OpticalPlusDigital, zoom.digital_max),
+            ] {
+                let Some(maximum) = maximum else {
+                    for result in [
+                        zoom.position_at(UnitInterval::MAX, domain).map(|_| ()),
+                        zoom.normalize(ZoomPosition::MIN, domain).map(|_| ()),
+                    ] {
+                        assert!(
+                            matches!(
+                                result,
+                                Err(Error::FeatureNotSupported {
+                                    feature: "optical-plus-digital zoom range",
+                                })
+                            ),
+                            "{id:?} {domain:?}: {result:?}"
+                        );
+                    }
+                    continue;
+                };
+                let range = CapabilityRange::<u16>::new(0, maximum)?;
+                for input in inputs {
+                    let position = zoom.position_at(input, domain)?;
+                    assert_eq!(
+                        position.value(),
+                        range.denormalize(input),
+                        "{id:?} {domain:?}"
+                    );
+                    assert_eq!(
+                        zoom.normalize(position, domain)?,
+                        range.normalize(position.value())?,
+                        "{id:?} {domain:?}",
+                    );
+                }
+                assert_eq!(
+                    zoom.normalize(ZoomPosition::MIN, domain)?,
+                    UnitInterval::MIN
+                );
+                if maximum != 0 {
+                    assert_eq!(
+                        zoom.normalize(ZoomPosition::new(maximum)?, domain)?,
+                        UnitInterval::MAX
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn normalized_zoom_rounds_at_the_actual_half_step() -> crate::Result<()> {
+        let profile = ProfileId::SonyEviH100.spec()?;
         let zoom = profile
             .capabilities()
             .zoom
             .as_ref()
-            .ok_or(crate::Error::FeatureNotSupported { feature: "zoom" })?;
-        for (normalized, expected) in [(UnitInterval::MIN, 0), (UnitInterval::MAX, 0x4000)] {
-            let position = zoom.position_at(normalized, ZoomDomain::Optical)?;
+            .ok_or(Error::FeatureNotSupported { feature: "zoom" })?;
+        for (bits, expected) in [(0x3848_3639, 1), (0x3848_363a, 2)] {
+            let input = UnitInterval::new(f32::from_bits(bits))?;
+            let position = zoom.position_at(input, ZoomDomain::OpticalPlusDigital)?;
             assert_eq!(position.value(), expected);
-            assert_eq!(zoom.normalize(position, ZoomDomain::Optical)?, normalized);
+        }
+
+        let zoom = ZoomCaps {
+            optical_max: 3,
+            digital_max: None,
+            ..*zoom
+        };
+        let tie = 0.5_f32.to_bits();
+        for (bits, expected) in [(tie - 1, 1), (tie, 2), (tie + 1, 2)] {
+            let input = UnitInterval::new(f32::from_bits(bits))?;
+            let position = zoom.position_at(input, ZoomDomain::Optical)?;
+            assert_eq!(position.value(), expected);
         }
         Ok(())
     }
 
     #[test]
-    fn test_zoom_normalization() -> Result<(), crate::Error> {
-        // Use PtzOpticsG2-style values for testing
-        let optical_max: u16 = 0x4000;
-        let digital_max: Option<u16> = Some(0x7000);
-
-        // Test wide end
-        let zoom = ZoomPosition::new(0x0000)?;
-        assert_eq!(
-            zoom.normalize_with_max(ZoomDomain::Optical, optical_max, digital_max)?
-                .value(),
-            0.0
-        );
-        assert_eq!(
-            zoom.normalize_with_max(ZoomDomain::OpticalPlusDigital, optical_max, digital_max)?
-                .value(),
-            0.0
-        );
-
-        // Test optical telephoto end
-        let zoom = ZoomPosition::new(optical_max)?;
-        assert_eq!(
-            zoom.normalize_with_max(ZoomDomain::Optical, optical_max, digital_max)?
-                .value(),
-            1.0
-        );
-        assert!(
-            (zoom
-                .normalize_with_max(ZoomDomain::OpticalPlusDigital, optical_max, digital_max)?
-                .value()
-                - 0.571)
-                .abs()
-                < 0.01
-        );
-
-        // Test digital telephoto end
-        let zoom = ZoomPosition::new(0x7000)?;
-        assert!(matches!(
-            zoom.normalize_with_max(ZoomDomain::Optical, optical_max, digital_max),
-            Err(crate::Error::ParameterOutOfRange {
-                parameter: "zoom position",
-                value: 0x7000,
-                min: 0,
-                max,
-            }) if max == i32::from(optical_max)
-        ));
-        assert_eq!(
-            zoom.normalize_with_max(ZoomDomain::OpticalPlusDigital, optical_max, digital_max)?
-                .value(),
-            1.0
-        );
-
-        // Test middle position
-        let zoom = ZoomPosition::new(0x2000)?;
-        assert_eq!(
-            zoom.normalize_with_max(ZoomDomain::Optical, optical_max, digital_max)?
-                .value(),
-            0.5
-        );
-        assert!(
-            (zoom
-                .normalize_with_max(ZoomDomain::OpticalPlusDigital, optical_max, digital_max)?
-                .value()
-                - 0.286)
-                .abs()
-                < 0.01
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_zoom_from_normalized() -> Result<(), crate::Error> {
-        let optical_max: u16 = 0x4000;
-        let digital_max: Option<u16> = Some(0x7000);
-
-        // Test optical domain
-        let norm = UnitInterval::new(0.5)?;
-        let zoom = zoom_from_normalized(norm, ZoomDomain::Optical, optical_max, digital_max)?;
-        assert_eq!(zoom.value(), 0x2000);
-
-        // Test digital domain
-        let norm = UnitInterval::new(1.0)?;
-        let zoom = zoom_from_normalized(
-            norm,
-            ZoomDomain::OpticalPlusDigital,
-            optical_max,
-            digital_max,
-        )?;
-        assert_eq!(zoom.value(), 0x7000);
-
-        // Test edge cases
-        let norm = UnitInterval::new(0.0)?;
-        let zoom = zoom_from_normalized(norm, ZoomDomain::Optical, optical_max, digital_max)?;
-        assert_eq!(zoom.value(), 0x0000);
-        Ok(())
-    }
-
-    #[test]
-    fn test_zoom_from_normalized_rejects_undocumented_digital_domain() -> Result<(), crate::Error> {
-        let result = zoom_from_normalized(
+    fn singleton_zoom_domain_normalizes_to_zero_and_rejects_other_positions() -> crate::Result<()> {
+        let zoom = ZoomCaps {
+            optical_max: 0,
+            digital_max: None,
+            speed: CapabilityRange::<u8>::new(0, 0)?,
+            direct: true,
+            variable: false,
+            optical_ratio: None,
+        };
+        let domain = ZoomDomain::Optical;
+        for input in [
+            UnitInterval::MIN,
+            UnitInterval::new(0.5)?,
             UnitInterval::MAX,
-            ZoomDomain::OpticalPlusDigital,
-            0x4000,
-            None,
+        ] {
+            assert_eq!(zoom.position_at(input, domain)?, ZoomPosition::MIN);
+        }
+        assert_eq!(
+            zoom.normalize(ZoomPosition::MIN, domain)?,
+            UnitInterval::MIN
         );
-
         assert!(matches!(
-            result,
-            Err(crate::Error::FeatureNotSupported {
-                feature: "optical-plus-digital zoom range"
+            zoom.normalize(ZoomPosition::new(1)?, domain),
+            Err(Error::ParameterOutOfRange {
+                parameter: "capability value",
+                value: 1,
+                min: 0,
+                max: 0,
             })
         ));
         Ok(())
     }
 
     #[test]
-    fn test_unit_interval_validation() -> Result<(), crate::Error> {
+    fn test_unit_interval_validation() -> crate::Result<()> {
         assert!(UnitInterval::new(0.0).is_ok());
         assert!(UnitInterval::new(0.5).is_ok());
         assert!(UnitInterval::new(1.0).is_ok());

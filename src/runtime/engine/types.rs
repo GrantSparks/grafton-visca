@@ -32,11 +32,11 @@ impl EngineTurn {
     }
 }
 
-/// Prepared VISCA bytes and any Sony envelope classification selected for them.
+/// Prepared VISCA bytes and any reviewed Sony read-only inquiry envelope.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct EncodedMessage {
     bytes: SmallVec<[u8; INLINE_BYTES]>,
-    sony_payload_type: Option<PayloadType>,
+    sony_read_only_payload: Option<PayloadType>,
 }
 
 impl EncodedMessage {
@@ -55,7 +55,7 @@ impl EncodedMessage {
         }
         Ok(Self {
             bytes: SmallVec::from_slice(bytes),
-            sony_payload_type: None,
+            sony_read_only_payload: None,
         })
     }
 
@@ -81,14 +81,14 @@ impl EncodedMessage {
         Ok((
             Self {
                 bytes,
-                sony_payload_type: None,
+                sony_read_only_payload: None,
             },
             result,
         ))
     }
 
-    pub(crate) fn with_sony_payload_type(mut self, payload_type: Option<PayloadType>) -> Self {
-        self.sony_payload_type = payload_type;
+    pub(crate) fn with_sony_read_only_payload(mut self, payload_type: Option<PayloadType>) -> Self {
+        self.sony_read_only_payload = payload_type;
         self
     }
 
@@ -487,10 +487,14 @@ impl RuntimeRequest {
     pub(super) fn sony_payload_type(&self) -> PayloadType {
         match self {
             Self::Command { .. } => PayloadType::ViscaCommand,
-            Self::Inquiry { wire, .. } => {
-                wire.sony_payload_type.unwrap_or(PayloadType::ViscaInquiry)
-            }
+            Self::Inquiry { wire, .. } => wire
+                .sony_read_only_payload
+                .unwrap_or(PayloadType::ViscaInquiry),
         }
+    }
+
+    pub(super) fn permits_fresh_sony_sequence(&self) -> bool {
+        matches!(self, Self::Inquiry { wire, .. } if wire.sony_read_only_payload.is_some())
     }
 
     /// The protocol lane for dispatch eligibility and outcomes.

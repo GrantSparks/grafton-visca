@@ -563,6 +563,28 @@ mod tests {
     }
 
     #[test]
+    fn raw_inquiry_ends_at_first_delimiter_before_adjacent_ack() {
+        let reply = [0x90, 0x50, 0x00, 0x01, 0x05, 0x0e, 0x12, 0xff];
+        let ack = [0x90, 0x41, 0xff];
+        let stream = [reply.as_slice(), ack.as_slice()].concat();
+        for split in 0..=stream.len() {
+            let mut framer = raw_framer();
+            framer.push_slice(&stream[..split]).unwrap();
+            let mut frames: Vec<_> = framer.drain_frames().collect();
+            framer.push_slice(&stream[split..]).unwrap();
+            frames.extend(framer.drain_frames());
+            assert_eq!(
+                frames,
+                [
+                    Ok(Bytes::copy_from_slice(&reply)),
+                    Ok(Bytes::copy_from_slice(&ack))
+                ],
+                "split at byte {split}"
+            );
+        }
+    }
+
+    #[test]
     fn discard_reports_the_whole_undelimited_fragment() {
         let mut framer = raw_framer();
         framer.push_slice(&[0x90, 0x41]).unwrap();

@@ -21,6 +21,8 @@ pub(super) struct TargetOccupancy {
     /// through socket displacement and retry backoff until terminal settlement.
     first_setters: PerStateKey<Option<RequestId>>,
     speed_mode_setter_dispatched: bool,
+    /// Earliest owner halt cutoff with a STOP that may still write each axis.
+    pending_halt_cutoffs: [Option<u64>; HALT_AXES.len()],
     shapes: InquiryShapes,
     shapes_overflow: bool,
 }
@@ -32,6 +34,20 @@ impl TargetOccupancy {
             || (request.context().requires_extended_pan_tilt_speed
                 && self.first_setters[StateKey::PanTiltSpeedMode]
                     .is_some_and(|first| first < id || self.speed_mode_setter_dispatched))
+    }
+
+    pub(super) fn halt_stop_blocks(&self, request: &RuntimeRequest) -> bool {
+        let context = request.context();
+        !request.is_stop()
+            && context.motion.is_some_and(|motion| {
+                self.pending_halt_cutoffs
+                    .into_iter()
+                    .zip(HALT_AXES)
+                    .any(|(cutoff, axis)| {
+                        motion.axes.contains(axis)
+                            && cutoff.is_some_and(|cutoff| cutoff < context.submission_order)
+                    })
+            })
     }
 
     pub(super) fn overlaps(&self, shape: PayloadShape) -> bool {
@@ -57,7 +73,7 @@ pub(super) struct Occupancy {
     pub(super) due: Option<DueWork>,
 }
 impl Occupancy {
-    pub(super) fn build(entries: &EntryTable) -> Self {
+    pub(super) fn build(entries: &EntryTable, now: Instant) -> Self {
         let mut occupancy = Self::default();
         for (id, entry) in entries.iter() {
             let lifecycle = entry.lifecycle();
@@ -76,6 +92,13 @@ impl Occupancy {
             }
             target.pan_tilt_drive_cancel_pending |= entry.request.context().pan_tilt_drive
                 && lifecycle.cancellation_ambiguity().is_some();
+            if let Some((axes, cutoff)) = entry.writable_halt(now) {
+                for (pending, axis) in target.pending_halt_cutoffs.iter_mut().zip(HALT_AXES) {
+                    if axes.contains(axis) {
+                        *pending = Some(pending.map_or(cutoff, |previous| previous.min(cutoff)));
+                    }
+                }
+            }
             target.commands += usize::from(lifecycle.is_command_on_wire());
             if lifecycle.is_live_inquiry() {
                 target.inquiries += 1;

@@ -1694,11 +1694,13 @@ macro_rules! motion_table {
             ///
             /// The owner fences older declared motion at acceptance and
             /// dispatches one STOP per supported axis under a common deadline,
-            /// respecting protocol gates. Inspect each supported axis in the
-            /// returned report: an applied STOP is protocol application, not
-            /// proof of physical rest. A STOP the camera refuses is reported
-            /// promptly and not resent: for example a PTZOptics G2 in
-            /// auto-focus mode answers the focus STOP with
+            /// respecting protocol gates. Later motion on an affected axis
+            /// waits while its STOP can still write, including a retry after
+            /// [`Error::CommandBufferFull`](crate::Error::CommandBufferFull).
+            /// An applied STOP in the report confirms protocol
+            /// application. Physical rest requires separate observation.
+            /// For example, a PTZOptics G2 in auto-focus mode answers the
+            /// focus STOP with the terminal rejection
             /// [`Error::CommandNotExecutable`](crate::Error::CommandNotExecutable),
             /// so `focus` is `Failed` while the lens is under auto-focus
             /// control.

@@ -28,12 +28,13 @@ impl StopCommand {
     }
 }
 
-/// One admissible STOP per independent axis set, in halt report order.
+/// Validated STOP encodings that share one reserve slot per axis.
 #[derive(Debug, Clone, Copy, Default)]
 #[cfg(any(feature = "blocking", feature = "async"))]
 pub(crate) struct StopPaths {
     pub(crate) pan_tilt: Option<StopCommand>,
     pub(crate) zoom: Option<StopCommand>,
+    pub(crate) zoom_high_resolution: Option<StopCommand>,
     pub(crate) focus: Option<StopCommand>,
 }
 

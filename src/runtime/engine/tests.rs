@@ -20,6 +20,7 @@ mod cancellation_holds;
 mod due_actions;
 mod effects_sink;
 mod entry_table;
+mod halt_order;
 mod inquiry_shape_reservations;
 mod inquiry_shapes;
 mod late_evidence;
@@ -27,6 +28,7 @@ mod lifecycle_predicates;
 mod lifecycle_transition_matrix;
 mod occupancy_cost;
 mod occupancy_oracle;
+mod pacing_receipts;
 mod pan_tilt_drive_cancellation;
 mod prepared_retry;
 mod raw_evidence;
@@ -38,6 +40,7 @@ mod sony_socket_reuse;
 mod speed_mode_order;
 mod stop_quarantine;
 mod write_outcomes;
+mod zoom_drive_stop;
 
 fn extend_fixture_hold(
     engine: &mut ProtocolEngine,
@@ -2751,48 +2754,85 @@ fn pending_cancellation_transmits_before_ordinary_work_and_advances_spacing() {
         ),
         start,
     );
+    let (second, second_id) = admit(&mut engine, 2, command(2), start);
+    send_ok(&mut engine, &second, None, start);
+    engine.handle(
+        frame(
+            2,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
 
     engine.policy.command_spacing = Duration::from_millis(10);
     let queued = engine.handle(
         Input::Admit {
-            ticket: AdmissionTicket(2),
+            ticket: AdmissionTicket(3),
             request: command(1),
         },
         start + Duration::from_millis(1),
     );
     let queued_id = admitted(&queued);
     assert!(request_transmit_optional(&queued).is_none());
-    let requested = engine.handle(
-        engine.cancel_input(first_id),
-        start + Duration::from_millis(1),
-    );
-    assert!(cancel_transmit_optional(&requested).is_none());
+    for id in [second_id, first_id] {
+        let requested = engine.handle(engine.cancel_input(id), start + Duration::from_millis(1));
+        assert!(cancel_transmit_optional(&requested).is_none());
+    }
 
     let first_eligible = start + Duration::from_millis(10);
     let cancellation = engine.advance(first_eligible);
     assert_eq!(cancel_transmit(&cancellation).1, first_id);
     assert!(request_transmit_optional(&cancellation).is_none());
-    assert_eq!(engine.pacing.last_request(), Some(first_eligible));
+    assert_eq!(
+        cancellation
+            .iter()
+            .filter(|effect| matches!(effect, Effect::Transmit { .. }))
+            .count(),
+        1
+    );
+    assert_eq!(engine.pacing.last_request(), Some(start));
     assert!(matches!(
         engine.entry(queued_id).map(Entry::phase),
         Some(Phase::Ready)
     ));
-    assert_eq!(
-        engine.next_wake(start),
-        Some(start + Duration::from_millis(20))
-    );
-
     let (transmission, request, _) = cancel_transmit(&cancellation);
-    engine.handle(
+    let first_written = first_eligible + Duration::from_millis(4);
+    let first_finished = engine.handle(
         Input::TransmissionFinished {
             request,
             transmission,
             result: WriteOutcome::Sent(TransmissionMeta::Known),
         },
-        first_eligible,
+        first_written,
     );
+    assert!(cancel_transmit_optional(&first_finished).is_none());
+    assert!(request_transmit_optional(&first_finished).is_none());
+    assert_eq!(engine.pacing.last_request(), Some(first_written));
 
-    let ordinary = engine.advance(start + Duration::from_millis(20));
+    let second_eligible = first_written + Duration::from_millis(10);
+    let early = engine.advance(second_eligible - Duration::from_nanos(1));
+    assert!(cancel_transmit_optional(&early).is_none());
+    assert!(request_transmit_optional(&early).is_none());
+    let second_cancel = engine.advance(second_eligible);
+    let (transmission, request, _) = cancel_transmit(&second_cancel);
+    assert_eq!(request, second_id);
+    assert!(request_transmit_optional(&second_cancel).is_none());
+    let second_written = second_eligible + Duration::from_millis(2);
+    let second_finished = engine.handle(
+        Input::TransmissionFinished {
+            request,
+            transmission,
+            result: WriteOutcome::Failed(Error::io_timeout()),
+        },
+        second_written,
+    );
+    assert!(request_transmit_optional(&second_finished).is_none());
+    assert_eq!(engine.pacing.last_request(), Some(second_written));
+
+    let ordinary = engine.advance(second_written + Duration::from_millis(10));
     assert_eq!(request_transmit(&ordinary).1, queued_id);
     assert!(!ordinary.iter().any(|effect| matches!(
         effect,
@@ -4870,7 +4910,7 @@ fn fuzz_step(
                     engine
                         .entries
                         .get(request)
-                        .and_then(|entry| entry.sequences[owner.write.kind()])
+                        .and_then(|entry| entry.sequences.get(owner.write.kind()))
                 })
                 .or(write_sequence);
             let fails = match transport {

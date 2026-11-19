@@ -63,7 +63,7 @@ struct ScannedTarget {
 }
 
 pub(super) fn assert_agrees<E: EngineMethods + ?Sized>(engine: &E, now: Instant) {
-    let occupancy = Occupancy::build(&engine.entries);
+    let occupancy = Occupancy::build(&engine.entries, now);
     let due = engine
         .entries
         .iter()

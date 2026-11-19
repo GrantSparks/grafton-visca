@@ -468,6 +468,36 @@ CommandCorrelationLost/lane latched/TransmissionNotSent/NotAccepted	NotExecutabl
 CommandCorrelationLost/lane latched/TransmissionNotSent/FailedConclusively	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
 CommandCorrelationLost/lane latched/TransmissionNotSent/StillLive	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
 CommandCorrelationLost/lane latched/TransmissionNotSent/Unconfirmed	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+PanTiltDriveRestartBlocked/refused before admission/bare	NotExecutable	false	Some(FailureContext { stage: PreAdmission, certainty: NotAccepted })	Abandon
+PanTiltDriveRestartBlocked/refused before admission/WithContext	NotExecutable	false	Some(FailureContext { stage: PreAdmission, certainty: NotAccepted })	Abandon
+PanTiltDriveRestartBlocked/refused before admission/InquiryFailed	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+PanTiltDriveRestartBlocked/refused before admission/TransportError	Transport	false	Some(FailureContext { stage: PreAdmission, certainty: NotAccepted })	Resubmit { after: 50ms }
+PanTiltDriveRestartBlocked/refused before admission/SettlementObservationFailed	NotExecutable	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+PanTiltDriveRestartBlocked/refused before admission/CancellationObservationFailed	NotExecutable	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+PanTiltDriveRestartBlocked/refused before admission/TransmissionNotSent/NotAccepted	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+PanTiltDriveRestartBlocked/refused before admission/TransmissionNotSent/FailedConclusively	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+PanTiltDriveRestartBlocked/refused before admission/TransmissionNotSent/StillLive	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+PanTiltDriveRestartBlocked/refused before admission/TransmissionNotSent/Unconfirmed	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+PanTiltDriveRestartBlocked/queued drive unwritten/bare	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+PanTiltDriveRestartBlocked/queued drive unwritten/WithContext	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+PanTiltDriveRestartBlocked/queued drive unwritten/InquiryFailed	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+PanTiltDriveRestartBlocked/queued drive unwritten/TransportError	Transport	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 50ms }
+PanTiltDriveRestartBlocked/queued drive unwritten/SettlementObservationFailed	NotExecutable	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+PanTiltDriveRestartBlocked/queued drive unwritten/CancellationObservationFailed	NotExecutable	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+PanTiltDriveRestartBlocked/queued drive unwritten/TransmissionNotSent/NotAccepted	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+PanTiltDriveRestartBlocked/queued drive unwritten/TransmissionNotSent/FailedConclusively	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+PanTiltDriveRestartBlocked/queued drive unwritten/TransmissionNotSent/StillLive	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+PanTiltDriveRestartBlocked/queued drive unwritten/TransmissionNotSent/Unconfirmed	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+PanTiltDriveRestartBlocked/earlier attempt uncertain/bare	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+PanTiltDriveRestartBlocked/earlier attempt uncertain/WithContext	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+PanTiltDriveRestartBlocked/earlier attempt uncertain/InquiryFailed	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+PanTiltDriveRestartBlocked/earlier attempt uncertain/TransportError	Transport	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+PanTiltDriveRestartBlocked/earlier attempt uncertain/SettlementObservationFailed	NotExecutable	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+PanTiltDriveRestartBlocked/earlier attempt uncertain/CancellationObservationFailed	NotExecutable	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+PanTiltDriveRestartBlocked/earlier attempt uncertain/TransmissionNotSent/NotAccepted	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+PanTiltDriveRestartBlocked/earlier attempt uncertain/TransmissionNotSent/FailedConclusively	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+PanTiltDriveRestartBlocked/earlier attempt uncertain/TransmissionNotSent/StillLive	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+PanTiltDriveRestartBlocked/earlier attempt uncertain/TransmissionNotSent/Unconfirmed	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
 CommandFailedAfterAck//bare	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
 CommandFailedAfterAck//WithContext	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
 CommandFailedAfterAck//InquiryFailed	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon

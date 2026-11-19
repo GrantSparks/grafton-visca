@@ -1,6 +1,8 @@
 //! Sony R7 p. 5 sets independent wire intervals before cancel and restart.
 use super::*;
 
+use crate::error::{ErrorKind, Recovery};
+
 const DRIVE_SEQUENCE: u32 = 0x1001;
 const CANCEL_SEQUENCE: u32 = 0x1002;
 
@@ -35,6 +37,29 @@ fn drive(target: u8, stop: bool) -> RuntimeRequest {
     context.timeout.completion = NonZeroDuration::from_secs::<5>();
     context.timeout.ambiguity = NonZeroDuration::from_secs::<1>();
     request
+}
+
+fn assert_restart_blocked(error: &Error, stage: FailureStage, certainty: Certainty) {
+    let context = FailureContext::new(stage, certainty);
+    assert!(
+        matches!(
+            error,
+            Error::PanTiltDriveRestartBlocked { camera, context: actual }
+                if *camera == crate::IndividualCameraId::CAMERA_1 && *actual == context
+        ),
+        "{error:?}"
+    );
+    assert_eq!(error.failure_context(), Some(context));
+    assert_eq!(error.kind(), ErrorKind::NotExecutable);
+    assert!(!error.requires_new_session());
+    assert_eq!(
+        error.recovery(),
+        if certainty == Certainty::Unconfirmed {
+            Recovery::Reconcile
+        } else {
+            Recovery::Abandon
+        }
+    );
 }
 
 fn start_drive(engine: &mut ProtocolEngine, start: Instant, stop: bool) -> RequestId {
@@ -214,12 +239,11 @@ fn natural_completion_releases_the_gate_only_before_cancel_is_written() {
                     outcome: RuntimeOutcome::Command(CommandOutcome::Applied),
                 } if *id == drive_id
             )));
-            assert!(completion.iter().any(|effect| matches!(
-                effect, Effect::Terminal {
-                    id,
-                    outcome: RuntimeOutcome::Command(CommandOutcome::Failed(Error::InvalidState { .. })),
-                } if *id == next
-            )));
+            assert_restart_blocked(
+                &terminal_failure(&completion, next).unwrap(),
+                FailureStage::Terminal,
+                Certainty::NotAccepted,
+            );
             assert!(request_transmit_optional(&engine.advance(at(407))).is_none());
         } else {
             let completion = complete_drive(&mut engine, at(100));
@@ -245,22 +269,57 @@ fn inconclusive_cancellation_refuses_only_the_same_targets_drive_family() {
 
     let refusal = cancel_error(&mut engine, 0x05, at(220));
     assert!(request_transmit_optional(&refusal).is_none());
-    assert!(refusal.iter().any(|effect| matches!(
-        effect, Effect::Terminal {
-            id,
-            outcome: RuntimeOutcome::Command(CommandOutcome::Failed(Error::InvalidState { .. })),
-        } if *id == next
-    )));
+    assert_restart_blocked(
+        &terminal_failure(&refusal, next).unwrap(),
+        FailureStage::Terminal,
+        Certainty::NotAccepted,
+    );
     let turn = engine.begin_input_turn(at(250));
-    assert!(matches!(
-        engine.admit_in_turn(&turn, drive(1, false)),
-        Err(Error::InvalidState { .. })
-    ));
+    assert_restart_blocked(
+        &engine.admit_in_turn(&turn, drive(1, false)).unwrap_err(),
+        FailureStage::PreAdmission,
+        Certainty::NotAccepted,
+    );
     let (zoom, _) = admit(&mut engine, 3, command(1), at(250));
     assert!(request_transmit_optional(&zoom).is_some());
     send_ok(&mut engine, &zoom, Some(0x1003), at(250));
     let (other_target, _) = admit(&mut engine, 4, drive(2, false), at(285));
     assert!(request_transmit_optional(&other_target).is_some());
+}
+
+#[test]
+fn refused_drive_retry_preserves_uncertainty_from_its_prior_write() {
+    let mut engine = engine_with_drive_rule();
+    let start = Instant::now();
+    let at = |ms| start + Duration::from_millis(ms);
+    let drive_id = start_drive(&mut engine, start, false);
+    ack_drive(&mut engine, at(10));
+
+    let mut retrying_drive = drive(1, false);
+    let context = retrying_drive.context_mut();
+    context.timeout.ack = NonZeroDuration::new(Duration::from_millis(20)).unwrap();
+    context.retry = retrying();
+    let (write, retry_id) = admit(&mut engine, 2, retrying_drive, at(50));
+    send_ok(&mut engine, &write, Some(0x1003), at(50));
+    engine.handle(engine.cancel_input(drive_id), at(60));
+
+    let retry = engine.advance(at(70));
+    assert!(retry.iter().any(|effect| matches!(
+        effect,
+        Effect::RetryScheduled { id, .. } if *id == retry_id
+    )));
+    assert!(request_transmit_optional(&retry).is_none());
+    let cancel = engine.advance(at(207));
+    assert_eq!(cancel_transmit(&cancel).1, drive_id);
+    finish_cancel_write(&mut engine, &cancel, at(207));
+
+    let refusal = cancel_error(&mut engine, 0x05, at(210));
+    assert!(request_transmit_optional(&refusal).is_none());
+    assert_restart_blocked(
+        &terminal_failure(&refusal, retry_id).unwrap(),
+        FailureStage::Terminal,
+        Certainty::Unconfirmed,
+    );
 }
 
 #[test]
@@ -279,10 +338,11 @@ fn another_sony_profile_uses_ordinary_cancel_spacing() {
         engine.cancel_input(drive_id),
         start + Duration::from_millis(15),
     );
-    assert_eq!(
-        cancel_transmit(&engine.advance(start + Duration::from_millis(35))).1,
-        drive_id
-    );
+    // The preceding write returned at 7 ms. The 35 ms spacing starts there.
+    let eligible = start + Duration::from_millis(42);
+    let early = engine.advance(eligible - Duration::from_nanos(1));
+    assert!(cancel_transmit_optional(&early).is_none());
+    assert_eq!(cancel_transmit(&engine.advance(eligible)).1, drive_id);
 }
 
 #[test]
@@ -320,9 +380,10 @@ fn socket_reassignment_without_confirmation_keeps_the_drive_family_restricted() 
         phase_of(&engine, drive_id),
         Some(Phase::ExecutingDisplaced { .. })
     ));
-    assert!(matches!(
-        terminal_failure(&reassignment, next),
-        Some(Error::InvalidState { .. })
-    ));
+    assert_restart_blocked(
+        &terminal_failure(&reassignment, next).unwrap(),
+        FailureStage::Terminal,
+        Certainty::NotAccepted,
+    );
     assert!(request_transmit_optional(&engine.advance(at(407))).is_none());
 }

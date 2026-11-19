@@ -4,28 +4,69 @@
 use std::future::Future;
 
 use crate::{
+    executor::Executor,
     runtime::engine::WriteOutcome,
+    timeout::{within, Deadline},
     transport::{AsyncTransport, HasTransportConfig},
     Error,
 };
 
 use super::{
-    adapter::{AsyncIo, TransportAdapter},
-    AsyncOwnerDriver, OwnerBuffers, OwnerReceive, WireWrite,
+    adapter::{AsyncIo, SonyResetProgress, TransportAdapter},
+    turn::TRANSIENT_RECEIVE_PAUSE,
+    AsyncOwnerDriver, OwnerBuffers, OwnerPolicy, OwnerReceive, WireWrite,
 };
 
 impl<T> TransportAdapter<T, AsyncIo>
 where
     T: AsyncTransport + HasTransportConfig,
 {
-    /// Send Sony's sequence-number RESET before the owner actor starts.
-    pub(crate) async fn send_sony_sequence_reset(&mut self) -> Result<(), Error> {
+    /// Confirm Sony's sequence-number RESET before the owner actor starts.
+    pub(crate) async fn confirm_sony_sequence_reset(
+        &mut self,
+        policy: &OwnerPolicy,
+        executor: &impl Executor,
+    ) -> Result<(), Error> {
         let mut frame = bytes::BytesMut::new();
         if !self.framing.frame_sony_sequence_reset(&mut frame) {
             return Ok(());
         }
-        let sent = self.transport.send(frame.as_ref()).await;
-        sent.map_err(|error| self.framing.send_error(error))
+        let mut buffers = OwnerBuffers::new(policy.limits);
+        let deadline =
+            Deadline::after(executor.now(), policy.write_timeout.get(), "write_timeout")?;
+        within(
+            async {
+                self.transport
+                    .send(frame.as_ref())
+                    .await
+                    .map_err(|error| self.framing.send_error(error))?;
+
+                let mut acknowledged = false;
+                loop {
+                    deadline.remaining_or(executor.now(), Error::io_timeout)?;
+                    let received = self.receive(&mut buffers).await;
+                    let progress =
+                        self.classify_sony_reset_read(received, &mut buffers, &mut acknowledged)?;
+                    let received_at = executor.now();
+                    match progress {
+                        SonyResetProgress::Confirmed if received_at <= deadline.instant() => {
+                            return Ok(())
+                        }
+                        SonyResetProgress::Confirmed => return Err(Error::io_timeout()),
+                        SonyResetProgress::Waiting => futures_lite::future::yield_now().await,
+                        SonyResetProgress::Idle => {
+                            let pause = deadline
+                                .remaining_at(received_at)
+                                .min(TRANSIENT_RECEIVE_PAUSE);
+                            executor.sleep(pause).await;
+                        }
+                    }
+                }
+            },
+            executor.timer(deadline.instant()),
+        )
+        .await
+        .ok_or_else(Error::io_timeout)?
     }
 }
 
@@ -67,7 +108,7 @@ mod tests {
     use super::*;
     use crate::{
         config::OperationalTuning,
-        profiles::{GenericVisca, ProfileSpec, SonyFr7},
+        profiles::{GenericVisca, ProfileSpec},
         protocol::framer::RawIncompletePrefix,
         runtime::{
             engine::RawPrefixEvidence,
@@ -179,27 +220,6 @@ mod tests {
             frames[0].response,
             crate::runtime::engine::DecodedResponse::Ack { .. }
         ));
-    }
-
-    #[test]
-    fn startup_sony_sequence_reset_writes_the_control_frame() {
-        let transport = ScriptedTransport {
-            config: Default::default(),
-            sent: Vec::new(),
-            receives: std::collections::VecDeque::new(),
-            semantics: SendSemantics::Datagram,
-        };
-        let profile = ProfileSpec::from_compile_time::<SonyFr7>().unwrap();
-        let (mut adapter, _) =
-            AsyncTransportAdapter::new(transport, &profile, crate::target::TargetSlot::CAMERA_1)
-                .unwrap();
-
-        futures_lite::future::block_on(adapter.send_sony_sequence_reset()).unwrap();
-
-        assert_eq!(
-            adapter.transport.sent,
-            [vec![0x02, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0x01]]
-        );
     }
 
     /// A consumed over-size datagram reports a truncated outcome; its valid

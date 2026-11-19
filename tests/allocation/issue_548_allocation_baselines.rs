@@ -973,41 +973,63 @@ fn warmed_raw_and_sony_retries_reuse_owner_buffers() {
 #[test]
 fn targeted_operation_preparation_does_not_build_unused_polling_queries() {
     use grafton_visca::{
-        command::pan_tilt::Home,
+        command::{
+            exposure::IrisReset, focus::SetPosition as SetFocus, pan_tilt::Home,
+            zoom::SetPosition as SetZoom,
+        },
         config::{OperationalTuning, TargetRegistration},
         operation::Targeted,
-        profiles::{ProfileSpec, SonyBrc300, SonyFr7},
+        profiles::{ProfileSpec, SonyBrc300, SonyEviH100, SonyFr7},
+        request::OperationCommand,
         testing::preparation,
+        types::{FocusPosition, IndividualCameraId, ZoomPosition},
     };
-    for profile in [
-        ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7"),
-        ProfileSpec::from_compile_time::<SonyBrc300>().expect("BRC-300"),
-    ] {
-        let target =
-            TargetRegistration::new(grafton_visca::types::IndividualCameraId::CAMERA_1, profile);
-        preparation::check_operation::<Targeted, _>(&Home, &target, OperationalTuning::new())
+
+    fn check(operation: &impl OperationCommand<Targeted>, profile: ProfileSpec) {
+        let target = TargetRegistration::new(IndividualCameraId::CAMERA_1, profile);
+        preparation::check_operation::<Targeted, _>(operation, &target, OperationalTuning::new())
             .expect("warm operation preparation");
         let allocations = allocations_during(|| {
-            preparation::check_operation::<Targeted, _>(&Home, &target, OperationalTuning::new())
-                .expect("operation preparation");
+            preparation::check_operation::<Targeted, _>(
+                operation,
+                &target,
+                OperationalTuning::new(),
+            )
+            .expect("operation preparation");
         });
         assert_eq!(allocations, 0, "targeted operation preparation allocated");
-        let prepared =
-            preparation::check_operation::<Targeted, _>(&Home, &target, OperationalTuning::new())
-                .expect("retained operation preparation");
+        let prepared = preparation::check_operation::<Targeted, _>(
+            operation,
+            &target,
+            OperationalTuning::new(),
+        )
+        .expect("retained operation preparation");
         let first =
             allocations_during(|| prepared.check_settlement().expect("first settlement plan"));
-        assert_eq!(
-            first, 1,
-            "one pan/tilt inquiry template is allocated lazily"
-        );
+        assert_eq!(first, 1, "only the inquiry template is allocated lazily");
         let repeated = allocations_during(|| {
             for _ in 0..10 {
                 prepared.check_settlement().expect("cached settlement plan");
             }
         });
-        assert_eq!(repeated, 0, "repeated settlement waits reuse the plan");
+        assert_eq!(repeated, 0, "cloning a cached settlement plan allocated");
     }
+
+    check(
+        &Home,
+        ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7"),
+    );
+    check(
+        &Home,
+        ProfileSpec::from_compile_time::<SonyBrc300>().expect("BRC-300"),
+    );
+    let evi = ProfileSpec::from_compile_time::<SonyEviH100>().expect("EVI-H100");
+    check(&SetZoom::new(ZoomPosition::MIN), evi.clone());
+    check(
+        &SetFocus::new(FocusPosition::new(0x1000).expect("focus position")),
+        evi.clone(),
+    );
+    check(&IrisReset, evi);
 }
 
 #[test]

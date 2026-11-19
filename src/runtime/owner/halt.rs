@@ -1,9 +1,8 @@
 //! One owner halt transaction; STOP slots live only in its bounded report.
 use super::boundary::{AdmissionRejection, BoundaryClaim};
 use super::{Effect, EngineTurn, OwnerInputTurn, OwnerState, ReceiptCore, TerminalObserver};
-use crate::{prepared::PreparedHalt, Error, HaltOutcome, HaltReport};
-use std::collections::VecDeque;
-use std::time::Instant;
+use crate::{prepared::PreparedHalt, AffectedAxes, Error, HaltOutcome, HaltReport};
+use std::{collections::VecDeque, sync::Arc, time::Instant};
 
 #[derive(Debug)]
 pub(super) struct HaltBoundary {
@@ -82,11 +81,30 @@ impl OwnerState {
         // All admissions are input-only: no axis's write or observation can
         // delay admission of another STOP. Released ordinary permits and the
         // existing target control reserve participate in the same allocator.
+        let mut zoom_high_resolution = prepared.zoom_high_resolution;
         let slots = prepared.requests.map(|request| {
             request.map(|request| {
                 let mut request = request.inspect_err(|error| {
                     self.record_admission_rejection(prepared.target, super::Lane::Command, error);
                 })?;
+                let alternate = if request
+                    .context()
+                    .motion
+                    .is_some_and(|motion| motion.axes == AffectedAxes::ZOOM)
+                {
+                    zoom_high_resolution
+                        .take()
+                        .transpose()
+                        .inspect_err(|error| {
+                            self.record_admission_rejection(
+                                prepared.target,
+                                super::Lane::Command,
+                                error,
+                            );
+                        })?
+                } else {
+                    None
+                };
                 request.context_mut().submission_order = cutoff;
                 request.context_mut().dispatch_deadline = Some(deadline);
                 // The engine budget expires queued STOPs at the SAME absolute
@@ -101,6 +119,12 @@ impl OwnerState {
                 })?;
                 let (completion, observer) = TerminalObserver::pair();
                 let admitted = self.admit_in_turn(&turn, request.into_inner(), permit, observer)?;
+                if let Some(alternate) = alternate {
+                    self.engine.offer_high_resolution_zoom_stop(
+                        admitted.identity.request_id(),
+                        Arc::clone(alternate.wire()),
+                    );
+                }
                 ReceiptCore::admitted(admitted, completion, remaining.get())
             })
         });

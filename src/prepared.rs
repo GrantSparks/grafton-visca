@@ -616,7 +616,9 @@ where
     let (context, _) = lower_request_context(inquiry, registration, tuning, class);
     let protocol = crate::requests::builtin_inquiry_protocol(inquiry);
     Ok(PreparedInquiry {
-        wire: PreparedWire::Owned(wire.with_sony_payload_type(protocol.sony_payload_type)),
+        wire: PreparedWire::Owned(
+            wire.with_sony_read_only_payload(protocol.sony_read_only_payload),
+        ),
         context,
         payload_shape: inquiry.payload_shape_for_profile(profile),
         syntax: protocol.syntax_retry,
@@ -4959,6 +4961,7 @@ pub(crate) struct PreparedHalt {
     pub(crate) target: TargetSlot,
     pub(crate) axes: Option<AffectedAxes>,
     pub(crate) requests: [Option<Result<LaneRequest<CommandOutcome>>>; 3],
+    pub(crate) zoom_high_resolution: Option<Result<LaneRequest<CommandOutcome>>>,
     pub(crate) budget: Duration,
 }
 
@@ -4969,7 +4972,10 @@ pub(crate) fn prepare_halt(
 ) -> PreparedHalt {
     let target = registration.slot();
     let profile = registration.profile();
-    use crate::request::builtin::{FocusStop, ZoomStop};
+    use crate::{
+        command::semantics::StopCommand,
+        request::builtin::{FocusStop, ZoomStop},
+    };
     let mut budget = tuning
         .resolve(&profile.timing())
         .completion(CommandTimeoutClass::Movement)
@@ -4982,39 +4988,43 @@ pub(crate) fn prepare_halt(
             })
         })
     };
+    // StopCommand is generated from every stop:true ledger row. A new
+    // STOP cannot compile until its concrete halt request is handled.
+    let mut prepare_stop = |stop| {
+        lower(match stop {
+            StopCommand::PanTiltStop => crate::stop_request::pan_tilt_stop_request(profile)
+                .and_then(|request| {
+                    prepare_operation(&request, registration, tuning, ClassSelection::Request)
+                }),
+            StopCommand::ZoomStop => {
+                prepare_operation(&ZoomStop, registration, tuning, ClassSelection::Request)
+            }
+            StopCommand::FocusStop => {
+                prepare_operation(&FocusStop, registration, tuning, ClassSelection::Request)
+            }
+            StopCommand::Fr7ZoomHighResolutionStop => prepare_operation(
+                &crate::command::Fr7ZoomHighResolutionStop,
+                registration,
+                tuning,
+                ClassSelection::Request,
+            ),
+        })
+    };
     let paths = profile.stop_paths();
     let mut axes: Option<AffectedAxes> = None;
     let requests = paths.rows().map(|path| {
         path.map(|stop| {
-            use crate::command::semantics::StopCommand;
             let axis = stop.axes();
             axes = Some(axes.map_or(axis, |old| old.union(axis)));
-            // StopCommand is generated from every stop:true ledger row. A new
-            // STOP cannot compile until its concrete halt request is handled.
-            lower(match stop {
-                StopCommand::PanTiltStop => crate::stop_request::pan_tilt_stop_request(profile)
-                    .and_then(|request| {
-                        prepare_operation(&request, registration, tuning, ClassSelection::Request)
-                    }),
-                StopCommand::ZoomStop => {
-                    prepare_operation(&ZoomStop, registration, tuning, ClassSelection::Request)
-                }
-                StopCommand::FocusStop => {
-                    prepare_operation(&FocusStop, registration, tuning, ClassSelection::Request)
-                }
-                StopCommand::Fr7ZoomHighResolutionStop => prepare_operation(
-                    &crate::command::Fr7ZoomHighResolutionStop,
-                    registration,
-                    tuning,
-                    ClassSelection::Request,
-                ),
-            })
+            prepare_stop(stop)
         })
     });
+    let zoom_high_resolution = paths.zoom_high_resolution.map(prepare_stop);
     PreparedHalt {
         target,
         axes,
         requests,
+        zoom_high_resolution,
         budget,
     }
 }

@@ -477,10 +477,14 @@ all use that decision; a raw datagram inquiry can retain its reply-skew hold
 while retrying, whereas a raw stream inquiry retains owed reply evidence and
 never retries a missing reply (#995).
 
-Retry follows the same evidence boundary. Sony timeout recovery resends the
-same logical request with the same sequence while it is unacknowledged. A
-conclusive camera rejection before ACK, such as buffer-full or no-socket,
-proves that the command did not start and may be retried under policy. A raw command that was successfully written but then
+Retry follows the same evidence boundary. Sony timeout recovery first uses
+the same sequence. After an exact replay also misses its reply deadline, a
+reviewed read-only inquiry can retire its old sequence and spend the next
+attempt on a fresh one within the original retry count and deadline. Sony
+control replies remain diagnostic. Commands retain their sequence throughout
+permitted replay. A conclusive camera rejection before ACK, such as
+buffer-full or no-socket, proves that the command did not start and may be
+retried under policy. A raw command that was successfully written but then
 loses its ACK, completion, or cancellation resolution is different: replay
 could perform a relative move or preset twice, while a naive continuation could
 let a late reply bind to later work. Once an uncancelled command crosses the
@@ -903,10 +907,12 @@ the time-bounded holds; the Sony envelope correlates by sequence.
 
 ### Sony full-width and lower-16 sequence identity
 
-Outgoing Sony frames always carry a complete 32-bit sequence, and a retry
-reuses that exact logical sequence instead of allocating another one. On
-receive, a nonzero upper half is unambiguously `FrameSequence::Full32` and must
-match one live, target-compatible full-width owner exactly.
+Outgoing Sony frames always carry a complete 32-bit sequence. An exact replay
+reuses that sequence. When a timed-out read-only replay is scheduled to retry
+with a fresh sequence, the entry transition clears both correlation indexes
+for the prior sequence. On receive, a nonzero upper half is unambiguously
+`FrameSequence::Full32` and must match one live, target-compatible full-width
+owner exactly.
 
 Some cameras return only the low 16 bits and zero the upper half. Because a
 genuine small 32-bit sequence has the same wire spelling, the decoder calls
@@ -1423,8 +1429,14 @@ without interrupting in-flight I/O.
 Urgency bypasses ordinary admission backlog, not command-to-command physical
 pacing. A preceding inquiry does not start the urgent command clock (#712).
 Owner-issued socket cancellation is selected before ordinary ready work when
-eligible, but is transmitted only after the preceding command/cancellation's
-command-spacing deadline and itself advances that deadline.
+eligible and observes the shared command-spacing floor.
+Both facades start the full spacing interval when the transport write returns.
+Successful and failed transport writes count because either can put bytes on
+the wire. Local refusals, STOPs that expire before I/O, and stale receipts
+leave the lane timestamps unchanged (#1131). With positive command spacing
+the owner stages one eligible cancellation and uses its write receipt to pace
+the next. At zero spacing it stages eligible cancellations in request-ID order
+before ordinary work.
 
 Every arbitration decision of an async owner turn belongs to one
 executor-free coordinator (`OwnerCoordinator` in `runtime/owner/turn`, #776);
@@ -1557,9 +1569,13 @@ fails only its own request with unconfirmed effect and retained correlation
 protection. A stalled peer can never park the actor and block `close()`. The blocking owner cannot preempt arbitrary synchronous code,
 so `BlockingTransport` exposes only deadline-bearing reads and writes and
 requires implementations to return within the supplied bound. Both facades
-use the validated owner-held write timeout, including Sony startup reset;
-transport configuration is read at construction rather than again per write
-(#986). Built-in TCP,
+use the validated owner-held write timeout. Opt-in Sony startup RESET uses
+that same interval as one absolute budget for sending RESET and reading its
+positive control reply. The owner starts only after confirmation, so the first
+application request uses Sony sequence zero after the peer has reset its counter.
+For a Sony stream, startup also finishes and discards any partial frame
+buffered with the acknowledgement within that budget.
+Transport configuration is read at construction (#986). Built-in TCP,
 UDP, and serial transports install that bound at the OS/device layer, and
 construction rejects a zero advertised read or write timeout. A serial device
 receives a whole-millisecond timeout rounded up, with a one-millisecond floor,
@@ -1627,16 +1643,18 @@ the cache before it consults the owner. Application is cached, so `settled`
 after `applied` continues from it. Settlement proven by position polling is
 cached once proven; polling state is local to one wait, and a wait abandoned
 mid-proof restarts with a fresh two-sample proof. A fixed per-target/per-axis
-generation bank orders successful engine admissions against establishment of
-polled evidence under one lock. Only operation receipts retain the generation
-stamp for their affected axes (#1059). A later conflicting admission supersedes an
-unfinished proof even if the new command is cancelled before writing. The
-waiter checks the stamp before each inquiry, including when moving to the next
-axis in a sample, and caches the superseded verdict. It also checks the stamp
-under the generation lock when committing the result. Rejected admissions do
-not advance generations. Evidence already cached and exact
-profile completion remain valid. Polling errors retain their source while
-reporting observation uncertainty for the original move.
+generation bank orders successful engine admissions and matched transport
+receipts against establishment of polled evidence under one lock. Targeted
+receipts retain the admission token for their affected axes (#1059). A later
+conflicting admission supersedes an unfinished proof even if that operation
+is cancelled before writing. If priority scheduling or a retry puts an
+older, overlapping write on the wire after the current operation wrote, its
+receipt clears attribution for the overlapping axes. The write receipt must
+indicate possible delivery, including a transport error (#1134). The waiter
+checks its token before each inquiry, including when moving to the next axis
+in a sample, and under the generation lock when committing the result. Evidence already cached and
+exact profile completion remain valid. Polling errors retain their source
+while reporting observation uncertainty for the original move.
 
 The owner's cancellation intent is a closed requested/recorded state. A
 refusal is returned synchronously by the same engine cancellation input, rather

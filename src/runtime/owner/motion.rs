@@ -7,9 +7,17 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 #[derive(Debug, Default)]
 pub(super) struct MotionRegistry {
-    // One opaque generation token per registered target/axis. Tokens are the
-    // unique ingress ordinals; equality, never numeric order, establishes attribution.
-    generations: Mutex<PerTarget<[u64; 5]>>,
+    // Each target/axis tracks the current admission and whether it has written.
+    // The unique ingress ordinal identifies that admission.
+    generations: Mutex<PerTarget<[AxisGeneration; 5]>>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+enum AxisGeneration {
+    #[default]
+    Unattributed,
+    Admitted(u64),
+    Written(u64),
 }
 
 #[derive(Debug, Clone)]
@@ -17,24 +25,34 @@ pub(crate) struct MotionStamp {
     registry: Arc<MotionRegistry>,
     target: TargetSlot,
     axes: AffectedAxes,
-    generations: [u64; 5],
+    token: u64,
 }
 
-fn stamp(bank: &mut PerTarget<[u64; 5]>, target: TargetSlot, axes: AffectedAxes, token: u64) {
-    let current = &mut bank[target];
-    for (index, value) in current.iter_mut().enumerate() {
+fn stamp(
+    bank: &mut PerTarget<[AxisGeneration; 5]>,
+    target: TargetSlot,
+    axes: AffectedAxes,
+    token: u64,
+) {
+    for (index, generation) in bank[target].iter_mut().enumerate() {
         if axes.bits() & (1 << index) != 0 {
-            *value = token;
+            *generation = AxisGeneration::Admitted(token);
         }
     }
 }
 
-fn superseded(bank: &PerTarget<[u64; 5]>, stamp: &MotionStamp) -> bool {
+fn superseded(bank: &PerTarget<[AxisGeneration; 5]>, stamp: &MotionStamp) -> bool {
     bank[stamp.target]
         .iter()
-        .zip(stamp.generations)
         .enumerate()
-        .any(|(index, (now, then))| stamp.axes.bits() & (1 << index) != 0 && *now != then)
+        .any(|(index, generation)| {
+            stamp.axes.bits() & (1 << index) != 0
+                && !matches!(
+                    generation,
+                    AxisGeneration::Admitted(token) | AxisGeneration::Written(token)
+                        if *token == stamp.token
+                )
+        })
 }
 
 impl MotionRegistry {
@@ -65,6 +83,30 @@ impl MotionRegistry {
         stamp(&mut bank, target, axes, token);
     }
 
+    /// Record a matched transport receipt whose bytes may have reached the
+    /// camera. A conflicting write before the current operation writes cannot
+    /// invalidate its proof. A conflict afterward clears attribution without
+    /// reviving the older writer or letting a retry restore the invalidated stamp.
+    pub(super) fn possibly_written(&self, target: TargetSlot, axes: AffectedAxes, token: u64) {
+        let mut bank = self
+            .generations
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        for (index, generation) in bank[target].iter_mut().enumerate() {
+            if axes.bits() & (1 << index) != 0 {
+                *generation = match *generation {
+                    AxisGeneration::Admitted(current) if current == token => {
+                        AxisGeneration::Written(token)
+                    }
+                    AxisGeneration::Written(current) if current != token => {
+                        AxisGeneration::Unattributed
+                    }
+                    state => state,
+                };
+            }
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn establish(
         self: &Arc<Self>,
@@ -81,7 +123,7 @@ impl MotionRegistry {
             registry: Arc::clone(self),
             target,
             axes,
-            generations: bank[target],
+            token,
         }
     }
 }
@@ -91,7 +133,7 @@ impl MotionRegistry {
 /// before owner bookkeeping, due work or dispatch can begin.
 pub(super) struct MotionAdmission<'a> {
     registry: &'a Arc<MotionRegistry>,
-    bank: MutexGuard<'a, PerTarget<[u64; 5]>>,
+    bank: MutexGuard<'a, PerTarget<[AxisGeneration; 5]>>,
     target: TargetSlot,
     axes: AffectedAxes,
     token: u64,
@@ -118,15 +160,15 @@ impl MotionAdmission<'_> {
             registry: Arc::clone(self.registry),
             target: self.target,
             axes: self.axes,
-            generations: self.bank[self.target],
+            token: self.token,
         };
         Ok((id, stamp))
     }
 }
 
 impl MotionStamp {
-    /// Comparison and successful evidence caching share admission's lock.
-    /// Once cached, later admissions cannot retroactively invalidate evidence.
+    /// Comparison and evidence caching share the admission and write lock.
+    /// Cached evidence survives conflicting admissions and writes.
     pub(crate) fn commit(
         &self,
         id: OperationId,
@@ -277,6 +319,47 @@ mod tests {
             }
         }
         Ok(())
+    }
+
+    #[test]
+    fn only_an_overlapping_write_after_the_current_write_can_break_the_proof() {
+        let registry = Arc::new(MotionRegistry::default());
+        let target = TargetSlot::CAMERA_1;
+        let axes = AffectedAxes::MOVEMENT;
+        let old = registry.establish(target, AffectedAxes::ZOOM, 1);
+        let mut preset = TargetedObservation::new(registry.establish(target, axes, 2));
+        let id = OperationId::from_raw(2);
+
+        // Priority or a retry can dispatch work out of admission order.
+        registry.possibly_written(target, AffectedAxes::ZOOM, 1);
+        assert!(preset.check(id).is_ok(), "the preset has not written yet");
+        registry.possibly_written(target, axes, 2);
+        registry.possibly_written(TargetSlot::CAMERA_2, AffectedAxes::ZOOM, 1);
+        registry.possibly_written(target, AffectedAxes::IRIS, 1);
+        assert!(preset.check(id).is_ok(), "disjoint targets and axes");
+        let samples = Settlement::observed_stable(
+            axes,
+            std::time::Duration::from_millis(25),
+            crate::camera::MovementTolerance::default(),
+        );
+
+        // The final sample has passed its pre-inquiry check and returned,
+        // but the overlapping write wins the lock before the proof commits.
+        registry.possibly_written(target, AffectedAxes::ZOOM, 1);
+        assert!(matches!(
+            preset.commit_position_observation(id, Ok(samples)),
+            Err(Error::SettlementSuperseded { operation, axes: affected })
+                if operation == id && affected == axes
+        ));
+        registry.possibly_written(target, axes, 2);
+        assert!(
+            preset.check(id).is_err(),
+            "a later retry cannot revive a proof"
+        );
+        assert!(
+            old.check(OperationId::from_raw(1)).is_err(),
+            "an out-of-order write cannot revive the older admission"
+        );
     }
 
     #[test]

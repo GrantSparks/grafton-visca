@@ -146,8 +146,9 @@ macro_rules! operation_handle {
             ///
             /// Application is cached, so calling this after
             /// [`applied`](Operation::applied) continues from it. Polled settlement proves observed stability, not arrival at the requested endpoint.
-            /// Later conflicting admission supersedes unfinished polled evidence. Settlement proven
-            /// by position polling is cached once proven; a polling wait that is
+            /// A later overlapping admission or an older overlapping write after
+            /// this operation writes supersedes unfinished polled evidence. Settlement
+            /// proven by position polling is cached. A polling wait that is
             /// abandoned or times out restarts with a fresh proof.
             pub $($async)* fn settled(&mut self) -> Result<crate::Settlement, Error> {
                 self.receipt.settled(None) $($await)*

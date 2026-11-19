@@ -86,7 +86,7 @@ This document does **not** claim full validation of all Sony FR7, Sony BRC, Sony
 | PTZOptics raw IP control | Use raw VISCA bytes over UDP `1259` or TCP `5678`; do not add Sony’s 8-byte header on those raw PTZOptics ports. | Validated |
 | PTZOptics Sony VISCA mode | Sony VISCA mode uses UDP `52381`; support is firmware-gated. | Validated with firmware caveat |
 | Sony VISCA-over-IP | Use an 8-byte header: payload type, payload length, sequence number, then the VISCA frame. UDP port is `52381`. | Validated |
-| Sony UDP retransmission | For Sony-style VISCA-over-IP timeout recovery, retransmit using the **same sequence number**, per Sony’s command manual guidance. | Validated correction |
+| Sony UDP retransmission | First replay the **same sequence number** to recover a lost message. If an exact replay of a reviewed read-only inquiry also times out, use a **fresh sequence** for the next attempt to recover a lost reply. | Sony command manual R7, pp. 9–10 |
 | PTZOptics presets | Treat preset count as control-path-specific: IR = 10; spec capacity = 255 via serial/IP; raw VISCA command table documents `0–127`; web/HTTP UI sources describe `0–254`. Do not guarantee raw VISCA `>0x7F` until target hardware is tested. | Validated with implementation caveat |
 | Bright Direct | Use `81 01 04 4D 00 00 0p 0q FF`. Treat PTZOptics `04 0D` Direct row as a documentation error. | Validated erratum |
 | Gamma | `81 01 04 5B 0p FF`; inquiry `81 09 04 5B FF`. Sony validates the opcode; PTZOptics support is supported by uploaded patched/hardware-test notes. | Validated with PTZOptics hardware-test label |
@@ -251,9 +251,20 @@ delimiter-valued data byte could instead be interpreted by a delimiter-scanning
 camera or intermediary as the start of a second addressed VISCA frame, so that
 specific pair is outside the safe typed-command grammar (#683, #727).
 
-### 5.3 Sony UDP retransmission correction
+### 5.3 Sony UDP retransmission
 
-Earlier drafts and some secondary summaries say to retry Sony VISCA-over-IP with a new sequence number. Sony’s command manual instead describes retransmitting the timed-out message using the **same sequence number** so the controller can infer which message was lost and whether the camera already accepted the original command. This document adopts Sony’s same-sequence retransmission guidance.
+Sony distinguishes a lost inquiry from a lost reply. The first retry replays
+the exact sequence so the camera can process an inquiry it never received.
+If the camera processed it and the reply was lost, the replay can return
+the sequence error `0F 01`. If the replay times out, the next allowed attempt
+for a reviewed built-in read-only inquiry uses a fresh sequence. The previous
+sequence is retired before the new attempt, and both attempts share the
+original retry count and total deadline. This applies to ordinary inquiries
+and to `CAM_VersionInq` in the device-setting envelope.
+
+Control errors remain diagnostic. Commands and custom inquiries keep their
+original sequence on permitted retries. Camera acknowledgement closes the
+command replay window. [Sony ILME-FR7 Command List, pp. 9–10](https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf#page=9)
 
 ## 6. VISCA transaction model
 
@@ -977,13 +988,16 @@ Use cancel for explicit user interrupts or emergency stops, not as a normal subs
 For Sony FR7, the owner waits at least 200 ms after a typed PAN-TILT Drive
 write before sending a socket cancel, and needs an ACK naming the socket.
 After sending the cancel, another typed drive-family write on that target
-(including the STOP encoding) needs both 200 ms and the correlated
+(including STOP and menu navigation) needs both 200 ms and the correlated
 `Command Canceled` response. Natural completion before the cancel goes on the
 wire releases the gate without the second interval. After the cancel is sent,
 natural completion can establish the original command's outcome. The restart
 still requires the cancellation response. If attribution ends without it,
-further typed drive-family writes on that target are refused for the session. Other work retains its
-normal pacing. [Sony ILME-FR7 Command List, pp. 5, 8–9, 18](https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf#page=5).
+the owner refuses further drive-family requests for that target with
+`Error::PanTiltDriveRestartBlocked`. Its failure context records whether the
+request was refused before admission or before a subsequent write and whether
+an earlier attempt may have affected the camera. Other work retains its
+normal pacing. Reopening the session clears this target's drive restriction. [Sony ILME-FR7 Command List, pp. 5, 8–9, 18](https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf#page=5).
 
 ### 11.5 Retry policy
 
@@ -1002,7 +1016,7 @@ polling again.
 |---|---|
 | Raw UDP PTZOptics | Never replay a successfully sent command whose result is ambiguous. Follow the architecture guide's per-request quarantine rule; a conclusive camera rejection may still be retried. Prefer TCP `5678` for high-reliability control. |
 | Raw TCP PTZOptics | TCP preserves byte delivery/order but does not prove camera execution. Use the same canonical raw quarantine rule; retain socket concurrency after an ACK and never infer an ambiguous outcome from FIFO order. |
-| Sony encapsulated UDP | Use the Sony sequence field to correlate replies. This document adopts the Sony-manual correction in §5.3: timeout recovery should retransmit the timed-out message with the same sequence number, rather than blindly issuing a new logical command. The library applies this only while the message is unacknowledged: once the camera ACKs it, acceptance is proven and the message is never retransmitted (#795). |
+| Sony encapsulated UDP | Use the Sony sequence field to correlate replies. Section 5.3 describes exact-sequence replay for a lost message and fresh-sequence recovery for a lost reply to a reviewed read-only inquiry. A camera ACK ends command replay (#795). |
 | Axis | Respect Axis profile ranges and handle fixed replies, especially for inquiries documented as fixed on/off. |
 
 A receive that proves the connection is gone is reported as
