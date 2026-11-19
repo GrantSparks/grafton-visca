@@ -105,6 +105,14 @@ def immutable_changelog(prefix: str, suffix: str) -> str:
     return prefix + "\0UNRELEASED-BODY\0" + suffix
 
 
+def published_history_matches(previous: str, current: str) -> bool:
+    """Accept identical history or the exact approved redaction in its original direction."""
+    return previous == current or (
+        hashlib.sha256(previous.encode("utf-8")).hexdigest(),
+        hashlib.sha256(current.encode("utf-8")).hexdigest(),
+    ) == PUBLISHED_PRIVACY_REDACTION
+
+
 def top_level_sections(text: str) -> list[tuple[int, int]]:
     """Return the span of each `## ` section in a changelog suffix."""
 
@@ -277,12 +285,10 @@ def validated_release_cut(
         if cut is None:
             continue
 
-        if (
-            immutable_changelog(
-                parent_prefix, published_suffix(parent_suffix, unpublished)
-            )
-            != history_immutable
-        ):
+        parent_immutable = immutable_changelog(
+            parent_prefix, published_suffix(parent_suffix, unpublished)
+        )
+        if not published_history_matches(history_immutable, parent_immutable):
             continue
         if head_prefix != cut_prefix or head_suffix != cut_suffix:
             continue
@@ -474,15 +480,7 @@ def main(argv: list[str]) -> int:
         )
 
         errors: list[str] = []
-        if (
-            base_immutable != head_immutable
-            and release_cut is None
-            and (
-                hashlib.sha256(base_immutable.encode("utf-8")).hexdigest(),
-                hashlib.sha256(head_immutable.encode("utf-8")).hexdigest(),
-            )
-            != PUBLISHED_PRIVACY_REDACTION
-        ):
+        if release_cut is None and not published_history_matches(base_immutable, head_immutable):
             diff = list(
                 difflib.unified_diff(
                     base_immutable.splitlines(),

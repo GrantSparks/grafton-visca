@@ -182,6 +182,47 @@ git -C "${fixture}" commit -q -m "docs: cut revised release record" \
     -m "Move the direct parent's retained Unreleased notes into the candidate."
 run_validator
 
+# A range starting before the approved privacy redaction can include a later
+# release cut. Use synthetic text for the pinned pair and keep the same pair
+# when checking that an extra edit before the cut fails.
+make_fixture release-cut-after-redaction
+(
+    cd "${fixture}"
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="${script_dir}" python3 - "${base}" <<'PY'
+import contextlib
+import hashlib
+import importlib
+import io
+import pathlib
+import subprocess
+import sys
+
+validator = importlib.import_module("validate-change-record")
+base = sys.argv[1]
+path = pathlib.Path("CHANGELOG.md")
+original = path.read_text()
+redacted = original.replace("Published behavior.", "Public summary.")
+
+def digest(text):
+    prefix, _, suffix, _ = validator.split_unreleased(text, "fixture")
+    return hashlib.sha256(validator.immutable_changelog(prefix, suffix).encode()).hexdigest()
+
+validator.PUBLISHED_PRIVACY_REDACTION = digest(original), digest(redacted)
+for extra, expected in [("", 0), ("\n- Unrelated edit.\n", 1)]:
+    subprocess.run(["git", "switch", "-qd", base], check=True)
+    path.write_text(redacted + extra)
+    subprocess.run(["git", "commit", "-qam", "Redact published record"], check=True)
+    path.write_text(path.read_text().replace(
+        "## [Unreleased]\n", "## [Unreleased]\n\n## [2.0.0] - 2026-09-05\n"
+    ))
+    subprocess.run(["git", "commit", "-qam", "Cut release"], check=True)
+    with contextlib.redirect_stderr(io.StringIO()) as errors:
+        status = validator.main(["validator", base, "HEAD"])
+    if status != expected or (expected and "published release history is immutable" not in errors.getvalue()):
+        raise SystemExit(f"unexpected release-cut result {status}: {errors.getvalue()}")
+PY
+)
+
 # 3. Rewriting an already released entry is rejected.
 make_fixture released-history
 python3 - "${fixture}" <<'PY'
