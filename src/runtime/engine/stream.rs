@@ -325,22 +325,14 @@ impl StreamContext<'_> {
             || [ViscaSocket::S1, ViscaSocket::S2]
                 .into_iter()
                 .any(|socket| self.socket_owner(target, socket).is_some())
+            || self.raw_live_unassigned(target)
         {
             return;
         }
         for socket in [ViscaSocket::S1, ViscaSocket::S2] {
             self.stream.holds.release_socket(target, socket);
         }
-        if !self.entries.values().any(|entry| {
-            entry.request.context().target == target
-                && matches!(entry.lifecycle(), Lifecycle::ExecutingUnassigned { .. })
-        }) {
-            self.stream.holds.release_unassigned_execution(target);
-        } else {
-            // Preserve this evidence until outstanding anonymous logical entries
-            // also retire.
-            return;
-        }
+        self.stream.holds.release_unassigned_execution(target);
         let learning = &mut self.stream.learning[target];
         learning.terminals.proved_idle = false;
         learning.pending_socketless_completions = None;

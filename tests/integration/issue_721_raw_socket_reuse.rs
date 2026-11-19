@@ -253,7 +253,7 @@ facade_matrix! {
                 }, {
                     assert!(matches!(
                         wait!(first.applied_with_timeout(Duration::from_millis(40))),
-                        Err(Error::ObservationTimeout)
+                        Err(Error::ObservationTimeout { .. })
                     ));
                     assert_eq!(fake.camera.write_count(), 1, "{transport:?}");
                     fake.camera.push(frames::complete(first_socket));

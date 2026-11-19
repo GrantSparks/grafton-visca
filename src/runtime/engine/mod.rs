@@ -2880,17 +2880,18 @@ trait EngineMethods: EngineAccess {
     /// another command is executing on S1 or S2.
     fn raw_held_response(&self, frame: &DecodedFrame) -> bool {
         let target = frame.target;
-        if self
-            .raw_hold(target, RawHoldScope::UnassignedExecution)
-            .is_some()
-            && matches!(
-                frame.response,
-                DecodedResponse::Completion { .. }
-                    | DecodedResponse::Error {
-                        socket: Some(_),
-                        ..
-                    }
-            )
+        let unassigned_terminal = match frame.response {
+            DecodedResponse::Completion { .. } => true,
+            DecodedResponse::Error {
+                socket: Some(_),
+                code,
+            } => !code.answers_named_cancellation(),
+            _ => false,
+        };
+        if unassigned_terminal
+            && self
+                .raw_hold(target, RawHoldScope::UnassignedExecution)
+                .is_some()
         {
             return true;
         }
@@ -3192,10 +3193,14 @@ trait EngineMethods: EngineAccess {
     fn raw_execution_unassigned(&self, target: TargetSlot) -> bool {
         self.raw_hold(target, RawHoldScope::UnassignedExecution)
             .is_some()
-            || self.entries.values().any(|entry| {
-                entry.request.context().target == target
-                    && matches!(entry.lifecycle(), Lifecycle::ExecutingUnassigned { .. })
-            })
+            || self.raw_live_unassigned(target)
+    }
+
+    fn raw_live_unassigned(&self, target: TargetSlot) -> bool {
+        self.entries.values().any(|entry| {
+            entry.request.context().target == target
+                && matches!(entry.lifecycle(), Lifecycle::ExecutingUnassigned { .. })
+        })
     }
 
     fn sole_raw_execution_candidate(

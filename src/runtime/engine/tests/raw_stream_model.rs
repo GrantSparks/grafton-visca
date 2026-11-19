@@ -259,11 +259,7 @@ fn randomized_stream_sessions_bind_every_answer_to_its_originator() {
             kind.seeds,
             totals.summary()
         );
-        assert!(
-            totals.covers_every_path(kind.link.hostile),
-            "{}: {totals:?}",
-            kind.name
-        );
+        assert!(totals.covers_every_path(kind), "{}: {totals:?}", kind.name);
         if kind.within_assumptions() {
             assert_eq!(totals.misbindings, 0, "{}", kind.name);
         }
@@ -478,12 +474,10 @@ impl Coverage {
 
     /// Whether the run exercised every path the link allows (a G2-like link
     /// rarely outlasts a deadline).
-    fn covers_every_path(&self, hostile: bool) -> bool {
+    fn covers_every_path(&self, kind: Kind) -> bool {
         let always = [
             self.acked,
             self.stops,
-            self.cancels,
-            self.cancel_replies,
             self.named_rejections,
             self.socketless_rejections,
             self.inquiry_rejections,
@@ -496,8 +490,14 @@ impl Coverage {
             self.halts_unproven,
         ];
         let hostile_only = [self.executing_timeouts];
+        let cancellations = if kind.socketless_acks {
+            self.cancels == 0 && self.cancel_replies == 0
+        } else {
+            self.cancels > 0 && self.cancel_replies > 0
+        };
         always.iter().all(|count| *count > 0)
-            && (!hostile || hostile_only.iter().all(|count| *count > 0))
+            && cancellations
+            && (!kind.link.hostile || hostile_only.iter().all(|count| *count > 0))
     }
 }
 
