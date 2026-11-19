@@ -290,6 +290,12 @@ The owner correlates replies per target according to the transport.
 | Raw byte stream (TCP or serial) | The ordered ledger attributes first answers to the oldest compatible write, including debt from earlier writes whose answers are still owed. A matching debt consumes the answer. A named terminal uses exact socket evidence when it cannot be an earlier write's first answer. |
 | Sony envelope (UDP or TCP) | The sequence attributes replies, so commands can pipeline before ACK. A named ACK identifies the camera-reported socket. A command that loses the socket can still receive its terminal by sequence. |
 
+A socketless ACK records acceptance without identifying a physical socket.
+On raw transports an ordinary command waits if its replies would overlap
+such an execution. A terminal settles a raw request only when the owner's
+other live requests and retained reply evidence leave a unique attribution.
+Sony sequences identify the terminal even when the ACK omitted the socket.
+
 See [raw reply shapes and dispatch](architecture_2_0.md#raw-response-shapes-and-correlation-ownership)
 and [the raw byte-stream ledger](architecture_2_0.md#the-raw-byte-stream-correlation-ledger)
 for the complete rules, including urgent STOPs and retained reply evidence.
@@ -976,14 +982,22 @@ pre-ACK pipeline and exact reply correlation.
 
 Use cancel for explicit user interrupts or emergency stops, not as a normal substitute for command pacing. Owner-issued cancellation is selected ahead of ordinary queued work, but it still obeys the shared profile-specific minimum spacing between sends and advances that spacing deadline. The uploaded unified guide gives `100 ms` as a hardware-tested PTZOptics G2/G3/30X starting point and `35 ms` for Sony FR7/BRC-H900; treat those as scheduler defaults that should be verified per target firmware and network path.
 
-For Sony FR7, the owner waits at least 200 ms after a typed PAN-TILT Drive
-write before sending a socket cancel, and needs an ACK naming the socket.
-After sending the cancel, another typed drive-family write on that target
-(including STOP and menu navigation) needs both 200 ms and the correlated
-`Command Canceled` response. Natural completion before the cancel goes on the
-wire releases the gate without the second interval. After the cancel is sent,
-natural completion can establish the original command's outcome. The restart
-still requires the cancellation response. If attribution ends without it,
+Sony UDP cancellation requires sufficient evidence that the addressed socket
+still belongs to the original operation. Uncertain ownership returns
+`CancellationUnconfirmed` while the original command remains observable by
+sequence. A matching `Command Canceled` response on the cancellation sequence
+confirms cancellation. A matching `No Socket` ends the attempt and releases
+its socket claim. The original sequence can still report its own terminal.
+
+For Sony FR7, the owner waits at least 200 ms after a PAN-TILT Drive write
+before sending a socket cancel and requires an ACK naming the socket. This
+includes wire-equivalent raw and downstream drive, STOP and menu navigation
+packets. Once the cancel is sent, the next drive-family write on that target
+must wait 200 ms from the owner's receipt of the matching `Command Canceled`
+response. Natural completion before the cancel goes on the wire releases the
+gate immediately. After the cancel is sent, natural completion can establish
+the original command's outcome. If cancellation attribution ends without
+confirmation,
 the owner refuses further drive-family requests for that target with
 `Error::PanTiltDriveRestartBlocked`. Its failure context records whether the
 request was refused before admission or before a subsequent write and whether

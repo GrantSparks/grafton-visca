@@ -455,6 +455,10 @@ rejected attempts preserve previous knowledge. The owner commits either
 change before resolving the request's terminal outcome.
 
 The scheduler orders pan/tilt speed-mode setters by admission on each target.
+Complete addressed raw and downstream speed-mode setter frames on supporting
+targets use the same projection and ordering. A confirmed setter publishes
+the decoded mode. A write that may have taken effect without application
+confirmation, including a write-only request, invalidates the cached mode.
 On profiles that require `Fine50` for speed codes above 24, an extended-speed
 write waits for earlier setters and for any setter already dispatched on that
 target. Immediately before the initial write or a retry, the owner checks the

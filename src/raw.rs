@@ -124,8 +124,8 @@ pub enum RawReplyShape {
     /// other work to use the camera concurrently within its normal limits.
     /// On raw transports it starts only when the target has no other live
     /// command or inquiry. Ordinary same-target work waits while the answer
-    /// is outstanding. Raw UDP retains a bounded quarantine after the
-    /// terminal. On raw TCP or serial, the ledger retains an unanswered
+    /// is outstanding. Raw UDP can retain a bounded quarantine after
+    /// completion or timeout. On raw TCP or serial, the ledger retains an unanswered
     /// write after its deadline. At the end of the ambiguity window, queued
     /// work fails unwritten with [`crate::Error::InquiryCorrelationLost`] or
     /// [`crate::Error::CommandCorrelationLost`] until the answer arrives.
