@@ -630,6 +630,9 @@ contracts in git. Put issue investigations, design reviews, decision records,
 measurements and completion evidence on their GitHub issues and link them from
 the relevant documentation.
 
+Use generic names for public fixtures and CI jobs. Keep private repository
+names, links, identifiers, and validation records in private maintainer records.
+
 Keep generated build and test output under ignored directories such as
 `target/` or in CI artifacts. Commit a deterministic generator instead of its
 output when fixtures or seed files can be recreated reliably. Fuzz starting

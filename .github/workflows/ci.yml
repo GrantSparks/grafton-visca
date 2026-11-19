@@ -408,19 +408,14 @@ jobs:
           if-no-files-found: ignore
 
   downstream:
-    name: Synemantic 2.0 contract fixture
+    name: Downstream 2.0 contract fixture
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - run: cargo test --manifest-path tests/fixtures/synemantic_2_0/Cargo.toml
-      - name: Report external-candidate limitation
-        run: >-
-          echo "The local fixture is a reproducible API contract, not an
-          assertion about an external Synemantic branch. RELEASING.md defines
-          the immutable paired-candidate gate required before publication."
+      - run: cargo test --manifest-path tests/fixtures/downstream_2_0/Cargo.toml
 
   windows:
     name: Windows check and serial tests

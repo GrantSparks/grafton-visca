@@ -14,10 +14,8 @@ fn typed_camera_surface<P: CompileTimeProfile>() -> PhantomData<Camera<P>> {
     PhantomData
 }
 
-/// Synemantic constructs its own object-safe facade around the typed camera,
-/// rather than enabling grafton-visca's optional dynamic projection. Keep the
-/// actual owner-backed Tokio constructor Send: its future crosses the host's
-/// task boundary before the camera is erased behind that facade.
+/// A downstream adapter can move the Tokio constructor future across a task
+/// boundary before erasing the typed camera behind an object-safe facade.
 fn assert_tokio_connector_future<F>(_future: F)
 where
     F: Future<Output = Result<CameraSession<GenericVisca>, Error>> + Send + 'static,
@@ -59,9 +57,8 @@ fn tokio_serial_connector_surface(runtime: TokioRuntime) {
     );
 }
 
-/// The BRC-300 is a migration-sensitive profile: its source-backed image
-/// capability must expose the base noun before Synemantic can dispatch image
-/// operations through its profile-specific adapter.
+/// The BRC-300 typed image noun supplies the base view for downstream
+/// profile-specific adapters.
 fn sony_brc300_image_surface(camera: &Camera<SonyBrc300>) {
     let _ = camera.image();
     let exposure = camera.exposure();
