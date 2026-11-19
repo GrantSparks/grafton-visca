@@ -50,7 +50,7 @@ impl SonyPeer {
             .expect("startup budget")
     }
 
-    #[cfg(feature = "blocking")]
+    #[cfg(all(feature = "blocking", feature = "test-utils"))]
     fn blocking_wire(&self) -> grafton_visca_test_support::fake_camera::BlockingWire {
         let wire = self.0.blocking_wire().with_config(Self::bounds());
         match self.1 {
