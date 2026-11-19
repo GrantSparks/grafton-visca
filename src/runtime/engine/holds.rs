@@ -12,6 +12,7 @@ pub(super) enum StreamScope {
     Socket(ViscaSocket),
     Inquiry(PayloadShape),
     AllResponses,
+    UnassignedExecution,
 }
 
 pub(super) trait Scope: Copy {
@@ -28,6 +29,7 @@ impl Scope for StreamScope {
             Self::Socket(socket) => RawHoldScope::Socket(socket),
             Self::Inquiry(shape) => RawHoldScope::Inquiry(shape),
             Self::AllResponses => RawHoldScope::AllResponses,
+            Self::UnassignedExecution => RawHoldScope::UnassignedExecution,
         }
     }
 }
@@ -77,6 +79,11 @@ impl<S: Scope> HoldTable<S> {
         self.entries
             .remove(&RawHoldKey::new(target, RawHoldScope::Socket(socket)))
     }
+    pub(super) fn release_unassigned_execution(&mut self, target: TargetSlot) {
+        self.entries
+            .remove(&RawHoldKey::new(target, RawHoldScope::UnassignedExecution));
+    }
+
     /// A paid reply leaves only ordinary reply skew, even if its former debt
     /// window was longer than that skew.
     pub(super) fn reset_paid_reply_skew(
@@ -120,7 +127,7 @@ impl HoldTable<StreamScope> {
 /// A stream socket waits for evidence, and a still-owed inquiry reply latches
 /// its shape instead of reopening it at the window deadline.
 pub(super) fn released_by_evidence(key: RawHoldKey, ledger: Option<&StreamLedger>) -> bool {
-    ledger.is_some_and(|ledger| matches!(key.scope, RawHoldScope::Socket(_))
+    ledger.is_some_and(|ledger| matches!(key.scope, RawHoldScope::Socket(_) | RawHoldScope::UnassignedExecution)
         || matches!(key.scope, RawHoldScope::Inquiry(shape) if ledger.owes_reply(key.target, shape)))
 }
 

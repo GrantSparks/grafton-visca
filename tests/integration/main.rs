@@ -32,6 +32,7 @@ mod issue_1133_halt_order;
 mod issue_1135_lens_sampling;
 mod issue_1136_sony_inquiry_retry;
 mod issue_1138_sony_startup_reset;
+mod issue_1146_sony_unnamed_ack;
 mod issue_363_coordinate_systems;
 mod issue_527_transport_compatibility;
 mod issue_542_async_close;

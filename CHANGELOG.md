@@ -377,11 +377,6 @@ verification.
   Push AF and menu selectors. The unsourced motion-sync readback is removed;
   custom integrations provide an evidenced inquiry and decoder (#969).
 
-- Sony named ACKs now bind to the camera's socket after reuse, superseding
-  the other-socket fallback retained by #682 and #721. The displaced
-  predecessor retains sequence-based completion and its original deadline;
-  cancellation is refused instead of targeting its successor (#963).
-
 - Motion idle waits require a positive sampling interval before I/O and during
   deserialization. `IdleWait` exposes private fields through getters and
   `with_*` setters. All position-based observations accept replies delivered
@@ -903,13 +898,32 @@ verification.
   that becomes ready goes behind work already queued at that priority (#1125).
 - DNS resolution and socket setup spend one connection timeout across all
   address attempts, using the clock that drives the async runtime's timer (#1126).
+- Dropping or timing out a Tokio connect cancels its queued hostname lookup
+  and discards any already-running lookup's result (#1153).
+- A Sony UDP socket cancel requires proven ownership at dispatch. Overlapping
+  commands keep their sequence-based terminals, and a cancel that could target
+  the other operation returns `CancellationUnconfirmed` without a cancel write
+  (#963, #1145). A socketless Sony ACK reserves command capacity and preserves
+  sequence-based completion without guessing a cancellable socket (#1146).
+- On Sony transports, only a matching `Command Canceled` response on the
+  cancel sequence confirms cancellation. A matching `No Socket` releases the
+  socket and keeps the original sequence open through its completion deadline
+  (#1149).
+- Socketless ACKs on raw transports record acceptance without claiming a
+  physical socket. Ordinary writes wait when they would overlap an anonymous
+  execution, and an ambiguous terminal cannot settle another command (#1154).
 - FR7 pan/tilt drive socket cancellation waits at least 200 ms after the drive
-  write, including menu navigation. Once cancellation is sent, a subsequent
-  drive requires a matching `Command Canceled` response and at least 200 ms
-  after the cancel write. An inconclusive cancellation blocks later drives on
+  write. Wire-equivalent raw and downstream drives, STOPs and menu navigation
+  share the typed timing rules. After a socket cancel is sent, the 200 ms
+  restart interval begins when the matching `Command Canceled` response arrives.
+  An inconclusive cancellation blocks later drives on
   that camera with `PanTiltDriveRestartBlocked`, which carries the camera ID
   and failure certainty. Reopening clears the target's drive latch
-  (#1127, #1132, #1141).
+  (#1127, #1132, #1141, #1147, #1150).
+- Exact raw FR7 speed-mode setters update or invalidate the same cached state
+  that guards typed extended-speed drives. An earlier setter is ordered ahead
+  of a high-speed write, and a typed speed above 24 still requires confirmed
+  `Fine50` at each attempt (#1148).
 - Sony sequence and message-type errors reach diagnostics independently of
   VISCA request correlation (#1128).
 - FR7 and BRC-H900 version inquiries use the Sony device-setting envelope
@@ -924,9 +938,13 @@ verification.
 - A halt STOP that can still retry stays ahead of later overlapping motion
   on its target. Other axes remain eligible during the retry backoff (#1133).
   On FR7, the zoom halt selects the documented high-resolution STOP when the
-  latest continuous drive that may have taken effect uses that family (#1140).
+  latest continuous drive that may have taken effect uses that family.
+  Standard and high-resolution continuous zoom drive frames with a contradictory
+  raw reply policy fail before transmission (#1140, #1155).
 - Normalized zoom writes and readbacks use the checked capability range and
-  its shared rounding rule (#1139).
+  its shared rounding rule. Normalization rounds the exact integer ratio to
+  the nearest `f32`. Denormalization rounds the exact interpolated value to the
+  nearest integer, with halves away from zero (#1139, #1152).
 
 - An applied or cancellation wait that observes a late terminal returns
   `ObservationTimeout`. A fresh wait on that handle can recover the terminal

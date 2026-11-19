@@ -103,16 +103,19 @@ pub const MAX_BYTES: usize = 1_024;
 /// succeeded, whereas an operation's `applied()` promise requires a terminal
 /// camera response. An [`InquiryRequest`] always awaits its reply, so its policy has
 /// no command reply-shape field.
+///
+/// Standard and high-resolution continuous zoom drive frames on FR7 require
+/// [`AckThenCompletion`](Self::AckThenCompletion). Session preparation returns
+/// [`crate::Error::InvalidRequest`] for a contradictory policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum RawReplyShape {
-    /// The camera acknowledges the command, the owner assigns it a socket, and
-    /// the command completes on the completion frame. This is the default and
-    /// the behavior of every built-in command; existing raw callers are
-    /// unchanged.
+    /// The camera acknowledges the command and then sends a completion.
+    /// A named acknowledgement identifies the camera's socket. This is the
+    /// default and the shape used by built-in commands.
     #[default]
     AckThenCompletion,
     /// The camera replies with a completion (or terminal) frame but no
@@ -121,39 +124,32 @@ pub enum RawReplyShape {
     /// fail or poison it. It terminates on the completion frame or, failing
     /// that, on a bounded completion deadline.
     ///
-    /// Its answer carries no identity, so it is exclusive on its camera: it
-    /// starts only when no other command or inquiry to that camera is live,
-    /// and while it is unanswered no inquiry and no ordinary command to that
-    /// camera is written — they queue, under their own deadlines. On a raw
-    /// byte stream (TCP, serial) that lasts until its completion or
-    /// rejection arrives, even after its own deadline ended it unconfirmed;
-    /// if that answer is still missing when its ambiguity window ends, they
-    /// fail unwritten with [`crate::Error::InquiryCorrelationLost`] or
-    /// [`crate::Error::CommandCorrelationLost`] until it arrives. STOPs are
-    /// never held back by it (#795).
+    /// With a Sony envelope, the sequence identifies the reply, allowing
+    /// other work to use the camera concurrently within its normal limits.
+    /// On raw transports it starts only when the target has no other live
+    /// command or inquiry. Ordinary same-target work waits while the answer
+    /// is outstanding. Raw UDP can retain a bounded quarantine after
+    /// completion or timeout. On raw TCP or serial, the ledger retains an
+    /// unanswered write after its deadline. At the end of the ambiguity window, queued
+    /// work fails unwritten with [`crate::Error::InquiryCorrelationLost`] or
+    /// [`crate::Error::CommandCorrelationLost`] until the answer arrives.
+    /// Urgent STOPs may cross the raw exclusion (#795).
     CompletionOnly,
     /// A plain fire-and-forget command expects nothing back. Its `execute()`
     /// call succeeds once the local transport write succeeds; that result does
     /// not claim camera acceptance or protocol application. The owner never
-    /// holds it waiting for a frame. To keep its later raw-correlation
-    /// quarantine attributable, the owner starts it only when the target has
-    /// no live command or inquiry and excludes same-target work while the
-    /// write is in flight; ordinary command and inquiry work then waits out
-    /// the bounded quarantine, through which its late response is ignored.
-    /// STOPs are never held back by it (#795): a STOP is written at once,
-    /// and its ACK (which this command never sends) and the completion or
-    /// error naming its socket still reach it. A socketless error in that
-    /// window could be this command's rejection or the STOP's, and binds to
-    /// neither: on a raw byte stream the STOP's own ACK proves it was this
-    /// command's; failing such proof the STOP ends
-    /// [`crate::Error::UnsequencedCommandUnconfirmed`]. On a raw byte stream
-    /// its possible rejection stays owed until a later answer from the camera
-    /// settles it (a stall can delay it past any window), so a
-    /// `CompletionOnly` command to that camera waits for that, failing with
-    /// [`crate::Error::CommandCorrelationLost`] once this command's ambiguity
-    /// window has ended; and it is
-    /// itself held back while an earlier command's answer is owed, failing
-    /// with [`crate::Error::CommandCorrelationLost`] once that lane latches.
+    /// holds it waiting for a frame. With a Sony envelope, other work can
+    /// use the camera concurrently within its normal limits. On raw
+    /// transports the owner starts this write only when the target has no
+    /// live command or inquiry. Ordinary response-bearing work waits out
+    /// the bounded quarantine for a late response. An urgent STOP may
+    /// cross the hold. A socketless error that could belong to either command
+    /// is ambiguous. On raw TCP or serial, the ledger retains a
+    /// possible rejection until later evidence settles it. Completion-only
+    /// commands wait for that evidence and fail unwritten with
+    /// [`crate::Error::CommandCorrelationLost`] once the ambiguity window
+    /// has expired. An earlier owed command answer can also gate a new
+    /// `NoReply` write.
     /// Raw operations use [`OperationReplyShape`], which has no such variant.
     NoReply,
 }

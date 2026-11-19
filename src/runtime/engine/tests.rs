@@ -36,7 +36,9 @@ mod raw_stream_model;
 mod retry_history;
 mod session_end;
 mod socketless_ack_conflicts;
+mod sony_cancel_response;
 mod sony_socket_reuse;
+mod sony_unnamed_ack;
 mod speed_mode_order;
 mod stop_quarantine;
 mod write_outcomes;
@@ -4718,9 +4720,9 @@ fn fuzz_directed_frame(engine: &ProtocolEngine, action: u64) -> Option<Input> {
                 }
             }
         }
-        Phase::ExecutingDisplaced { .. } | Phase::AwaitingCompletion { .. } => {
-            DecodedResponse::Completion { socket: None }
-        }
+        Phase::ExecutingUnassigned { .. }
+        | Phase::ExecutingDisplaced { .. }
+        | Phase::AwaitingCompletion { .. } => DecodedResponse::Completion { socket: None },
         Phase::AwaitingReply { .. } => DecodedResponse::InquiryReply {
             payload: smallvec![action as u8],
         },
@@ -5285,15 +5287,9 @@ fn seed_fuzz_coverage(
         *now + Duration::from_micros(2),
     );
     coverage.record(engine, &sent);
-    let cancellation_response = if envelope == EnvelopeKind::Raw {
-        DecodedResponse::Error {
-            socket: Some(ViscaSocket::S2),
-            code: 0x04.into(),
-        }
-    } else {
-        DecodedResponse::Completion {
-            socket: Some(ViscaSocket::S2),
-        }
+    let cancellation_response = DecodedResponse::Error {
+        socket: Some(ViscaSocket::S2),
+        code: 0x04.into(),
     };
     let cancelled = engine.handle(
         frame(1, sequence(0x5105), cancellation_response),
@@ -6497,77 +6493,8 @@ fn datagram_write_failure_fails_exactly_one_request() {
     engine.assert_invariants().unwrap();
 }
 
-/// `90 40 FF` carries no socket nibble, so the ACK binds to the first free
-/// socket, the one the camera assigns next.
-#[test]
-fn socketless_ack_assigns_the_first_free_socket() {
-    let start = Instant::now();
-    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let admission = engine.handle(
-        Input::Admit {
-            ticket: AdmissionTicket(1),
-            request: command(1),
-        },
-        start,
-    );
-    let id = admitted(&admission);
-    send_ok(&mut engine, &admission, None, start);
-    let acked = engine.handle(frame(1, None, DecodedResponse::Ack { socket: None }), start);
-    assert!(ignored_reasons(&acked).is_empty());
-    assert_eq!(socket_of(&engine, id), Some(ViscaSocket::S1));
-
-    // And the socketless completion that such a camera sends finishes it.
-    let done = engine.handle(
-        frame(1, None, DecodedResponse::Completion { socket: None }),
-        start,
-    );
-    assert_eq!(terminal_id(&done), Some(id));
-    engine.assert_invariants().unwrap();
-}
-
-/// With socket one already held, a socketless ACK takes socket two.
-#[test]
-fn socketless_ack_takes_the_second_socket_when_the_first_is_busy() {
-    let start = Instant::now();
-    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let first = engine.handle(
-        Input::Admit {
-            ticket: AdmissionTicket(1),
-            request: command(1),
-        },
-        start,
-    );
-    let first_id = admitted(&first);
-    send_ok(&mut engine, &first, None, start);
-    engine.handle(
-        frame(
-            1,
-            None,
-            DecodedResponse::Ack {
-                socket: Some(ViscaSocket::S1),
-            },
-        ),
-        start,
-    );
-    let second = engine.handle(
-        Input::Admit {
-            ticket: AdmissionTicket(2),
-            request: command(1),
-        },
-        start,
-    );
-    let second_id = admitted(&second);
-    send_ok(&mut engine, &second, None, start);
-    let acked = engine.handle(frame(1, None, DecodedResponse::Ack { socket: None }), start);
-    assert!(ignored_reasons(&acked).is_empty());
-    assert_eq!(socket_of(&engine, first_id), Some(ViscaSocket::S1));
-    assert_eq!(socket_of(&engine, second_id), Some(ViscaSocket::S2));
-    engine.assert_invariants().unwrap();
-}
-
 /// A raw named-socket collision needs mutable reconciliation by the ACK path;
-/// the pure assignment helper never invents the other socket. Socketless ACKs
-/// retain first-free compatibility, and a fully occupied target remains inert.
+/// the pure assignment helper never invents the other socket.
 #[test]
 fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
     let start = Instant::now();
@@ -6603,23 +6530,18 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
 
     // Socket one is taken by another request. A raw named ACK cannot silently
     // become socket two; the authoritative ACK path must displace the stale
-    // owner first (#721). A socketless ACK may still select the free socket.
+    // owner first (#721).
     assert_eq!(
         engine
-            .assign_socket(camera(1), Some(ViscaSocket::S1), second_id)
+            .assign_socket(camera(1), ViscaSocket::S1, second_id)
             .map(SocketClaim::socket),
         None
     );
-    assert_eq!(
-        engine
-            .assign_socket(camera(1), None, second_id)
-            .map(SocketClaim::socket),
-        Some(ViscaSocket::S2)
-    );
+
     // A request keeps the socket it already owns.
     assert_eq!(
         engine
-            .assign_socket(camera(1), Some(ViscaSocket::S1), first_id)
+            .assign_socket(camera(1), ViscaSocket::S1, first_id)
             .map(SocketClaim::socket),
         Some(ViscaSocket::S1)
     );
@@ -6636,15 +6558,10 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
     );
     // Every socket is now held by another request: nothing is invented.
     let stranger = RequestId::from_nonzero(NonZeroU64::new(u64::MAX).unwrap());
+
     assert_eq!(
         engine
-            .assign_socket(camera(1), None, stranger)
-            .map(SocketClaim::socket),
-        None
-    );
-    assert_eq!(
-        engine
-            .assign_socket(camera(1), Some(ViscaSocket::S1), stranger)
+            .assign_socket(camera(1), ViscaSocket::S1, stranger)
             .map(SocketClaim::socket),
         None
     );
@@ -6677,89 +6594,14 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
         start,
     );
     assert_eq!(socket_of(&single, only_id), Some(ViscaSocket::S1));
+
     assert_eq!(
         single
-            .assign_socket(camera(1), None, stranger)
-            .map(SocketClaim::socket),
-        None
-    );
-    assert_eq!(
-        single
-            .assign_socket(camera(1), Some(ViscaSocket::S1), stranger)
+            .assign_socket(camera(1), ViscaSocket::S1, stranger)
             .map(SocketClaim::socket),
         None
     );
     single.assert_invariants().unwrap();
-}
-
-/// A socketless Sony ACK cannot invent capacity when both sockets remain
-/// held. Its sequence proves acceptance but names no owner to displace.
-#[test]
-fn sequenced_socketless_ack_with_two_live_socket_owners_fails_after_ack_without_retry() {
-    let start = Instant::now();
-    let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
-    for (ticket, sequence, socket) in [(1, 0x1001, ViscaSocket::S1), (2, 0x1002, ViscaSocket::S2)] {
-        let admitted_effects = engine.handle(
-            Input::Admit {
-                ticket: AdmissionTicket(ticket),
-                request: command(1),
-            },
-            start,
-        );
-        send_ok(&mut engine, &admitted_effects, Some(sequence), start);
-        engine.handle(
-            frame(
-                1,
-                Some(sequence),
-                DecodedResponse::Ack {
-                    socket: Some(socket),
-                },
-            ),
-            start,
-        );
-    }
-
-    // Capacity correctly leaves C queued. Make its phase the narrow ACK-path
-    // seam so the test can prove assignment itself still reports a conflict
-    // when both physical owners are genuinely live.
-    let queued = engine.handle(
-        Input::Admit {
-            ticket: AdmissionTicket(3),
-            request: command(1),
-        },
-        start,
-    );
-    let third_id = admitted(&queued);
-    engine
-        .entries
-        .transition(
-            third_id,
-            EntryChange::Lifecycle(UnsocketedLifecycle::AwaitingAck {
-                sent_at: start,
-                deadline: start + Duration::from_millis(20),
-                attempt: AttemptFacts {
-                    socket_capacity: Some(CommandSocketCount::TWO),
-                    stream_order: None,
-                },
-                cancellation: None,
-            }),
-        )
-        .unwrap();
-    let mut sink = Vec::new();
-    let mut decision = Decision::new(&mut sink);
-    engine.ack(third_id, None, start, &mut decision);
-    engine.finish_decision(start, decision);
-    let effects = sink;
-    assert_eq!(
-        ignored_reasons(&effects),
-        vec![IgnoreReason::SocketConflict]
-    );
-    assert!(matches!(
-        terminal_failure(&effects, third_id),
-        Some(Error::CommandFailedAfterAck { .. })
-    ));
-    assert!(engine.entry(third_id).is_none());
-    engine.assert_invariants().unwrap();
 }
 
 /// A socketless ACK that matches no in-flight command is inert, exactly like
@@ -7171,7 +7013,13 @@ fn sony_socketless_completion_finishes_the_sequenced_request() {
     let id = admitted(&admission);
     send_ok(&mut engine, &admission, Some(7), start);
     engine.handle(
-        frame(1, Some(7), DecodedResponse::Ack { socket: None }),
+        frame(
+            1,
+            Some(7),
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
         start,
     );
     assert_eq!(socket_of(&engine, id), Some(ViscaSocket::S1));

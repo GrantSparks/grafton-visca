@@ -556,11 +556,12 @@ where
     ) = lower_request_context(command, registration, tuning, class);
     let (wire, lowered, ()) = encode(command, registration, || Ok(()))?;
     context.requires_extended_pan_tilt_speed = lowered.requires_extended_pan_tilt_speed;
+    context.pan_tilt_drive = lowered.pan_tilt_drive;
     context.motion = command
         .motion_axes()
         .map(|axes| crate::runtime::engine::MotionEffect { axes });
     Ok(PreparedCommand {
-        wire: PreparedWire::Owned(wire),
+        wire: PreparedWire::Owned(prepare_zoom_drive(wire, registration, reply_shape)?),
         context,
         reply_shape,
         not_executable,
@@ -662,7 +663,7 @@ where
     context.requires_extended_pan_tilt_speed = lowered.requires_extended_pan_tilt_speed;
     context.pan_tilt_drive = lowered.pan_tilt_drive;
     Ok(PreparedOperation {
-        wire: PreparedWire::Owned(wire),
+        wire: PreparedWire::Owned(prepare_zoom_drive(wire, registration, reply_shape)?),
         context,
         reply_shape,
         not_executable,
@@ -687,18 +688,76 @@ where
     prepare_operation::<K, _>(operation, registration, tuning, ClassSelection::Request)
 }
 
+fn prepare_zoom_drive(
+    wire: EncodedMessage,
+    registration: &crate::TargetRegistration,
+    reply_shape: CommandReply,
+) -> Result<EncodedMessage> {
+    use crate::{command::semantics::StopCommand, runtime::engine::ZoomDriveFamily};
+
+    let address = registration.slot().camera().to_address_byte();
+    let Some(family) = ZoomDriveFamily::classify(wire.as_bytes(), address) else {
+        return Ok(wire);
+    };
+    // Apply the reviewed dual-family protocol only where the high-resolution
+    // STOP is available. Other profiles can give the same bytes a custom meaning.
+    if StopCommand::Fr7ZoomHighResolutionStop
+        .validate(registration.profile())
+        .is_err()
+    {
+        return Ok(wire);
+    }
+    if reply_shape != CommandReply::AckThenCompletion {
+        return Err(Error::InvalidRequest {
+            reason: "FR7 continuous zoom drives require AckThenCompletion replies".into(),
+        });
+    }
+    Ok(wire.with_zoom_drive_family(family))
+}
+
 fn encode<R: Request + ?Sized, T>(
     request: &R,
     registration: &crate::TargetRegistration,
     before_write: impl FnOnce() -> Result<T>,
 ) -> Result<(EncodedMessage, crate::requests::LoweredRequest, T)> {
     let capacity = crate::requests::declared_max_size(request).min(MAX_BYTES);
-    let (message, (lowered, result)) = EncodedMessage::encode(capacity, |bytes| {
+    let (message, (mut lowered, result)) = EncodedMessage::encode(capacity, |bytes| {
         let (lowered, result) =
             crate::requests::encode_for_target(request, registration, bytes, before_write)?;
         Ok((lowered.written, (lowered, result)))
     })?;
+    lowered.pan_tilt_drive =
+        lowered.pan_tilt_drive || is_registered_pan_tilt_drive(registration, message.as_bytes());
     Ok((message, lowered, result))
+}
+
+/// The encoder has already checked the target address. The reviewed drive and
+/// STOP packets carry the same speed operands, and menu navigation is a drive
+/// with preset speeds. Urgent STOP admission uses the typed control policy.
+fn is_registered_pan_tilt_drive(registration: &crate::TargetRegistration, bytes: &[u8]) -> bool {
+    use crate::{
+        command::{bytes::VISCA_TERMINATOR, semantics::BuiltinCommand},
+        profiles::ProfileId,
+    };
+
+    let [_, _, _, _, pan_speed, tilt_speed, _, _, VISCA_TERMINATOR] = bytes else {
+        return false;
+    };
+    let capabilities = registration.profile().capabilities();
+    capabilities
+        .profile_id
+        .and_then(ProfileId::pan_tilt_drive_cancellation_ms)
+        .is_some()
+        && capabilities.pan_tilt.as_ref().is_some_and(|pan_tilt| {
+            pan_tilt.pan_speed.contains(*pan_speed) && pan_tilt.tilt_speed.contains(*tilt_speed)
+        })
+        && [BuiltinCommand::PanTiltDrive, BuiltinCommand::PanTiltStop]
+            .into_iter()
+            .any(|command| {
+                command
+                    .packet()
+                    .is_some_and(|packet| packet.matches_bytes(&bytes[1..]))
+            })
 }
 
 /// The timing and admission facts shared by every lowered request class.

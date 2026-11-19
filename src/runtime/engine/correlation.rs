@@ -19,9 +19,6 @@ pub(super) struct CompletionLearning {
     pub(super) terminals: TerminalDebt,
     pub(super) completion_sockets: CompletionSockets,
     pub(super) pending_socketless_completions: Option<PendingSocketlessCompletions>,
-    /// Owners a completion dropped as ambiguous could have finished. Exact
-    /// evidence can end or replace those owners before the next socketless ACK.
-    pub(super) dropped_completion_owners: [Option<RequestId>; 2],
 }
 
 /// Whether a received terminal belongs to a known family.
@@ -339,6 +336,7 @@ impl StreamCorrelation {
             | Lifecycle::AwaitingCancellationResolution { socket, .. } => {
                 Some(StreamScope::Socket(socket))
             }
+            Lifecycle::ExecutingUnassigned { .. } => Some(StreamScope::UnassignedExecution),
             Lifecycle::Sending {
                 reply: SendingReply::NoReply,
                 ..
@@ -430,6 +428,7 @@ pub(super) fn quarantine_datagram(
         | Lifecycle::AwaitingCancellationResolution { socket, .. } => {
             Some(RawHoldScope::Socket(socket))
         }
+        Lifecycle::ExecutingUnassigned { .. } => Some(RawHoldScope::UnassignedExecution),
         Lifecycle::AwaitingAck { .. } => Some(RawHoldScope::PreAck),
         Lifecycle::AwaitingCompletion { .. } => Some(RawHoldScope::AllResponses),
         Lifecycle::Sending {

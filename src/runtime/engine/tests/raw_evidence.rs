@@ -770,113 +770,37 @@ fn stream_owed_completion_only_answer_holds_back_ordinary_work() {
     engine.assert_invariants().unwrap();
 }
 
-/// Once an owed ACK arrives, its command executes on the camera. A camera
-/// that omits the socket nibble would otherwise complete a live STOP with that
-/// command's late `90 50 FF`.
+/// An owed anonymous ACK must keep its terminal away from the next
+/// command, even when the camera reports an exact socket only at the end.
 #[test]
-fn socketless_late_completion_never_completes_a_live_command() {
-    let now = Instant::now();
-    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
-    let (effects, _) = admit(&mut engine, 1, command(1), now);
-    send_ok(&mut engine, &effects, None, now);
-    engine.advance(now + Duration::from_millis(20));
-    let later = now + Duration::from_millis(30);
-    let (stop_effects, stop) = admit(&mut engine, 2, stop_command(1), later);
-    send_ok(&mut engine, &stop_effects, None, later);
+fn late_unassigned_execution_never_completes_a_successor() {
+    for terminal in [socketless_completion(1), completion(1, ViscaSocket::S2)] {
+        let now = Instant::now();
+        let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
+        let (effects, _) = admit(&mut engine, 1, command(1), now);
+        send_ok(&mut engine, &effects, None, now);
+        engine.advance(now + Duration::from_millis(20));
+        let later = now + Duration::from_millis(30);
+        let socketless_ack = frame(1, None, DecodedResponse::Ack { socket: None });
+        engine.handle(socketless_ack, later);
+        assert!(engine
+            .raw_hold(camera(1), RawHoldScope::UnassignedExecution)
+            .is_some());
 
-    // The owed ACK names no socket, so it holds the first free one.
-    let socketless_ack = || frame(1, None, DecodedResponse::Ack { socket: None });
-    engine.handle(socketless_ack(), later);
-    assert!(engine
-        .raw_hold(camera(1), RawHoldScope::Socket(ViscaSocket::S1))
-        .is_some());
-    // A named ACK proves the STOP's physical socket despite the inert S1
-    // hold. A compatibility ACK here must preserve uncertainty instead of
-    // guessing S2 (socketless_ack_conflicts covers that separate contract).
-    engine.handle(ack(1, ViscaSocket::S2), later);
-    assert!(matches!(
-        phase_of(&engine, stop),
-        Some(Phase::Executing {
-            socket: ViscaSocket::S2,
-            ..
-        })
-    ));
-    let ambiguous = engine.handle(socketless_completion(1), later);
-    assert!(
-        terminal_id(&ambiguous).is_none(),
-        "a socketless completion is ambiguous while the owed command executes"
-    );
-    let applied = engine.handle(completion(1, ViscaSocket::S2), later);
-    assert!(matches!(
-        terminal_outcome(&applied, stop),
-        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
-    ));
-    // With no live socket holder the socketless completion is the owed one.
-    let settled = engine.handle(socketless_completion(1), later);
-    assert!(terminal_id(&settled).is_none());
-    assert!(engine
-        .raw_hold(camera(1), RawHoldScope::Socket(ViscaSocket::S1))
-        .is_none());
-    engine.assert_invariants().unwrap();
-}
-
-#[test]
-fn a_dropped_completion_makes_a_later_socketless_ack_preserve_both_sockets() {
-    let start = Instant::now();
-    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
-    engine.handle(socketless_completion(1), start);
-    assert_eq!(
-        engine.correlation.learning(camera(1)).completion_sockets,
-        CompletionSockets::Omitted
-    );
-
-    let (effects, completion_only) = admit(
-        &mut engine,
-        1,
-        command_with_reply_shape(1, CommandReply::CompletionOnly),
-        start,
-    );
-    send_ok(&mut engine, &effects, None, start);
-    let now = start + Duration::from_millis(1);
-    let (effects, first) = admit(&mut engine, 2, stop_command(1), now);
-    send_ok(&mut engine, &effects, None, now);
-    let socketless_ack = || frame(1, None, DecodedResponse::Ack { socket: None });
-    engine.handle(socketless_ack(), now);
-    assert_eq!(socket_of(&engine, first), Some(ViscaSocket::S1));
-
-    // The first STOP completed, but its frame could be the completion-only
-    // command's. No request can claim it.
-    let dropped = engine.handle(socketless_completion(1), now);
-    assert_eq!(ignored_reasons(&dropped), [IgnoreReason::UnmatchedFrame]);
-    assert_eq!(socket_of(&engine, first), Some(ViscaSocket::S1));
-    let now = start + Duration::from_millis(40);
-    let expired = engine.advance(now);
-    assert!(matches!(
-        terminal_failure(&expired, completion_only),
-        Some(Error::UnsequencedCommandUnconfirmed)
-    ));
-
-    let (effects, second) = admit(&mut engine, 3, stop_command(1), now);
-    send_ok(&mut engine, &effects, None, now);
-    let assigned = engine.handle(socketless_ack(), now);
-    for stop in [first, second] {
-        assert!(matches!(
-            terminal_failure(&assigned, stop),
-            Some(Error::UnsequencedCommandUnconfirmed)
-        ));
-        assert!(socket_of(&engine, stop).is_none());
+        let (queued, successor) = admit(&mut engine, 2, command(1), later);
+        assert!(request_transmit_optional(&queued).is_none());
+        let late = engine.handle(terminal, later);
+        assert!(terminal_id(&late).is_none());
+        assert_eq!(request_transmit(&late).1, successor);
+        assert!(engine
+            .raw_hold(camera(1), RawHoldScope::UnassignedExecution)
+            .is_none());
+        send_ok(&mut engine, &late, None, later);
+        engine.handle(ack(1, ViscaSocket::S1), later);
+        let applied = engine.handle(completion(1, ViscaSocket::S1), later);
+        assert_eq!(terminal_id(&applied), Some(successor));
+        engine.assert_invariants().unwrap();
     }
-    for socket in [ViscaSocket::S1, ViscaSocket::S2] {
-        let hold = engine.raw_hold(camera(1), RawHoldScope::Socket(socket));
-        assert!(hold.is_some_and(|hold| hold.owner.is_none()));
-    }
-    // The camera allocated S1 to the second STOP. Its execution error can
-    // now release a hold without being attributed to the first STOP.
-    let execution_error = engine.handle(named_error(1, ViscaSocket::S1, 0x41), now);
-    assert!(terminal_id(&execution_error).is_none());
-    assert!(engine
-        .raw_hold(camera(1), RawHoldScope::Socket(ViscaSocket::S1))
-        .is_none());
 }
 
 /// A named error is never an inquiry's (an inquiry answers on socket 0,
@@ -1455,31 +1379,6 @@ fn a_named_execution_error_is_kept_as_the_disputed_acks_follow() {
 }
 
 #[test]
-fn a_waiting_stops_own_ack_proves_a_named_error_paid_the_last_terminal() {
-    let (mut engine, at) = socketless_ack_conflicts::engine_with_ambiguous_executions();
-    assert!(terminal_id(&engine.handle(socketless_completion(1), at)).is_none());
-    let (write, waiting) = admit(&mut engine, 4, stop_command(1), at);
-    send_ok(&mut engine, &write, None, at);
-
-    // The remaining operation sends its execution error. Until the STOP
-    // supplies its own first answer, this could be the STOP's rejection.
-    let error = engine.handle(named_error(1, ViscaSocket::S1, 0x41), at);
-    assert!(terminal_id(&error).is_none());
-    assert_eq!(engine.raw_socket_hold_count(camera(1)), 1);
-    let accepted = engine.handle(frame(1, None, DecodedResponse::Ack { socket: None }), at);
-    assert!(terminal_id(&accepted).is_none(), "{accepted:?}");
-    assert_eq!(socket_of(&engine, waiting), Some(ViscaSocket::S1));
-    assert_eq!(engine.raw_socket_hold_count(camera(1)), 0);
-
-    let completed = engine.handle(socketless_completion(1), at);
-    assert!(matches!(
-        terminal_outcome(&completed, waiting),
-        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
-    ));
-    engine.assert_invariants().unwrap();
-}
-
-#[test]
 fn a_held_sockets_late_error_keeps_a_named_cameras_dispute_tracked() {
     let start = Instant::now();
     let mut engine = numbering_camera(start);
@@ -1705,73 +1604,30 @@ fn a_later_first_answer_proves_a_completion_only_debt_accepted() {
     engine.assert_invariants().unwrap();
 }
 
-/// M2: `0x05` answering an emitted cancellation after the ACK ends the
-/// command unconfirmed with its exact camera error on both envelopes.
+/// M2: A raw `0x05` answering an emitted cancellation after the ACK ends
+/// the command unconfirmed with its exact camera error.
 #[test]
-fn a_cancellation_rejected_after_ack_is_unconfirmed_on_both_envelopes() {
+fn a_raw_cancellation_rejected_after_ack_is_unconfirmed() {
     let now = Instant::now();
-    let assert_after_ack = |effects: &[Effect], id: RequestId| {
-        assert!(effects.iter().any(|effect| matches!(
-            effect,
-            Effect::CancellationObservation {
-                id: observed,
-                observation: CancellationObservation::Concluded(CancellationConclusion::Failed(kind)),
-            } if *observed == id && *kind == Error::NoSocket.kind()
-        )));
-        let error = terminal_failure(effects, id).expect("terminal");
-        assert!(matches!(
-            &error,
-            Error::CommandFailedAfterAck { source, .. } if matches!(**source, Error::NoSocket)
-        ));
-        assert!(!matches!(
-            error.recovery(),
-            crate::Recovery::Resubmit { .. }
-        ));
-    };
-
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Datagram);
     let id = executing_with_cancel(&mut engine, 1, ViscaSocket::S1, now);
     let rejected = engine.handle(named_error(1, ViscaSocket::S1, 0x05), now);
-    assert_after_ack(&rejected, id);
-    engine.assert_invariants().unwrap();
-
-    let mut engine = fresh(EnvelopeKind::Sony, TransportKind::Datagram);
-    let (effects, id) = admit(&mut engine, 1, command(1), now);
-    let sequence = sony_sequence(id);
-    send_ok(&mut engine, &effects, Some(sequence), now);
-    engine.handle(
-        frame(
-            1,
-            Some(sequence),
-            DecodedResponse::Ack {
-                socket: Some(ViscaSocket::S1),
-            },
-        ),
-        now,
-    );
-    let cancel = engine.handle(engine.cancel_input(id), now);
-    let (transmission, _, _) = cancel_transmit(&cancel);
-    let cancel_sequence = sequence + 0x100;
-    engine.handle(
-        Input::TransmissionFinished {
-            request: id,
-            transmission,
-            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(cancel_sequence))),
-        },
-        now,
-    );
-    let rejected = engine.handle(
-        frame(
-            1,
-            Some(cancel_sequence),
-            DecodedResponse::Error {
-                socket: Some(ViscaSocket::S1),
-                code: 0x05.into(),
-            },
-        ),
-        now,
-    );
-    assert_after_ack(&rejected, id);
+    assert!(rejected.iter().any(|effect| matches!(
+        effect,
+        Effect::CancellationObservation {
+            id: observed,
+            observation: CancellationObservation::Concluded(CancellationConclusion::Failed(kind)),
+        } if *observed == id && *kind == Error::NoSocket.kind()
+    )));
+    let error = terminal_failure(&rejected, id).expect("terminal");
+    assert!(matches!(
+        &error,
+        Error::CommandFailedAfterAck { source, .. } if matches!(**source, Error::NoSocket)
+    ));
+    assert!(!matches!(
+        error.recovery(),
+        crate::Recovery::Resubmit { .. }
+    ));
     engine.assert_invariants().unwrap();
 }
 
@@ -3053,7 +2909,7 @@ fn late_ack_preserves_its_socket_against_successor_errors_and_socketless_complet
 }
 
 #[test]
-fn a_socketless_disputed_ack_holds_a_free_socket_and_preserves_uncertainty() {
+fn a_socketless_disputed_ack_holds_unassigned_execution_and_preserves_uncertainty() {
     let now = Instant::now();
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
     let (completion_only, first_stop, _) = disputed(&mut engine, now);
@@ -3073,7 +2929,7 @@ fn a_socketless_disputed_ack_holds_a_free_socket_and_preserves_uncertainty() {
     assert_eq!(socket_of(&engine, first_stop), None);
     assert_eq!(socket_of(&engine, second_stop), None);
     assert!(engine
-        .raw_hold(camera(1), RawHoldScope::Socket(ViscaSocket::S1))
+        .raw_hold(camera(1), RawHoldScope::UnassignedExecution)
         .is_some());
     let completed = engine.handle_turn(socketless_completion(1), at, EngineTurn::InputOnly);
     assert!(terminal_outcome(&completed, completion_only).is_none());

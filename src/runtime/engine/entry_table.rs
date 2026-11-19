@@ -43,6 +43,29 @@ impl<T> IndexMut<ViscaSocket> for SocketSlots<T> {
     }
 }
 
+/// Which camera requests may account for a named socket. Sequences identify
+/// individual acknowledgements, so multiple live entries can name one socket.
+#[derive(Debug, Default)]
+struct SocketIndex {
+    sole_owner: Option<RequestId>,
+    claimants: usize,
+    retired_through: Option<TransmissionId>,
+}
+
+/// Sony datagram write order and the boundary at which the owner observed a
+/// named ACK. Allocator order distinguishes writes even at equal clock times.
+#[derive(Debug, Default)]
+pub(super) struct SonySocketEvidence {
+    first_write: Option<TransmissionId>,
+    pub(super) named_ack_after: Option<TransmissionId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SonyCancellationAuthority {
+    Proven(RequestId),
+    Uncertain,
+}
+
 /// Live Sony sequence identities. Cancellation has its own slot.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct SequenceSlots {
@@ -176,10 +199,16 @@ pub(crate) enum UnsocketedLifecycle {
         deadline: Instant,
         attempt: AttemptFacts,
     },
+    ExecutingUnassigned {
+        started_at: Instant,
+        deadline: Instant,
+        attempt: AttemptFacts,
+    },
     ExecutingDisplaced {
         started_at: Instant,
         deadline: Instant,
         attempt: AttemptFacts,
+        observe_completion_after_cancel: bool,
     },
     AwaitingReply {
         sent_at: Instant,
@@ -222,14 +251,25 @@ impl UnsocketedLifecycle {
                 deadline,
                 attempt,
             },
+            Self::ExecutingUnassigned {
+                started_at,
+                deadline,
+                attempt,
+            } => Lifecycle::ExecutingUnassigned {
+                started_at,
+                deadline,
+                attempt,
+            },
             Self::ExecutingDisplaced {
                 started_at,
                 deadline,
                 attempt,
+                observe_completion_after_cancel,
             } => Lifecycle::ExecutingDisplaced {
                 started_at,
                 deadline,
                 attempt,
+                observe_completion_after_cancel,
             },
             Self::AwaitingReply {
                 sent_at,
@@ -384,7 +424,10 @@ pub(super) struct EntryTable {
     ready: [VecDeque<RequestId>; 4],
     sequences: BTreeMap<u32, SmallVec<[CorrelationOwner; 2]>>,
     lower_sequences: BTreeMap<u16, SmallVec<[CorrelationOwner; 2]>>,
-    sockets: PerTarget<SocketSlots<Option<RequestId>>>,
+    sockets: PerTarget<SocketSlots<SocketIndex>>,
+    // All writes share one allocator. An observed ACK follows the newest
+    // possibly received command write and precedes every later staged write.
+    sony_latest_write: Option<TransmissionId>,
 }
 impl EntryTable {
     pub(super) fn new() -> Self {
@@ -471,8 +514,93 @@ impl EntryTable {
         target: TargetSlot,
         socket: ViscaSocket,
     ) -> Option<RequestId> {
-        self.sockets[target][socket]
+        self.sockets[target][socket].sole_owner
     }
+
+    pub(super) fn sony_command_written(
+        &mut self,
+        request: RequestId,
+        transmission: TransmissionId,
+    ) {
+        if let Some(entry) = self.entries.get_mut(&request) {
+            self.sony_latest_write = self.sony_latest_write.max(Some(transmission));
+            entry.sony_socket.first_write.get_or_insert(transmission);
+        }
+    }
+
+    pub(super) fn sony_command_resolved(&mut self, request: RequestId) {
+        if let Some(entry) = self.entries.get_mut(&request) {
+            entry.sony_socket.first_write = None;
+        }
+    }
+
+    /// A successor first sent after a predecessor's observed ACK proves that
+    /// predecessor has vacated the socket. Overlapping acceptance does not
+    /// prove order, regardless of which ACK reached the owner first.
+    pub(super) fn sony_predecessor(
+        &self,
+        request: RequestId,
+        target: TargetSlot,
+        socket: ViscaSocket,
+    ) -> Option<RequestId> {
+        let index = &self.sockets[target][socket];
+        if index.claimants == 0 {
+            return None;
+        }
+        let first_write = self.entries.get(&request)?.sony_socket.first_write?;
+        let written_after_ack = |entry: &Entry| {
+            entry
+                .sony_socket
+                .named_ack_after
+                .is_some_and(|ack| ack < first_write)
+        };
+        if let Some(owner) = index.sole_owner {
+            return self
+                .entries
+                .get(&owner)
+                .filter(|entry| written_after_ack(entry))
+                .map(|_| owner);
+        }
+        self.entries.iter().find_map(|(id, entry)| {
+            (entry.request.context().target == target
+                && entry.sony_named_socket() == Some(socket)
+                && written_after_ack(entry))
+            .then_some(*id)
+        })
+    }
+
+    pub(super) fn sony_cancellation_authority(
+        &self,
+        target: TargetSlot,
+        socket: ViscaSocket,
+    ) -> SonyCancellationAuthority {
+        let slot = &self.sockets[target][socket];
+        let Some((id, first_write)) = slot.sole_owner.and_then(|id| {
+            let entry = self.entries.get(&id)?;
+            entry.sony_socket.named_ack_after?;
+            Some((id, entry.sony_socket.first_write?))
+        }) else {
+            return SonyCancellationAuthority::Uncertain;
+        };
+        let blocked = slot
+            .retired_through
+            .is_some_and(|retired| retired >= first_write)
+            || self.entries.iter().any(|(other, entry)| {
+                *other != id
+                    && entry.request.context().target == target
+                    && entry.sony_socket.first_write.is_some()
+                    && !matches!(entry.lifecycle(), Lifecycle::ExecutingDisplaced { .. })
+                    && entry
+                        .sony_named_socket()
+                        .is_none_or(|named| named == socket)
+            });
+        if blocked {
+            SonyCancellationAuthority::Uncertain
+        } else {
+            SonyCancellationAuthority::Proven(id)
+        }
+    }
+
     pub(super) fn exact_owners(&self, sequence: u32) -> &[CorrelationOwner] {
         self.sequences
             .get(&sequence)
@@ -494,6 +622,7 @@ impl EntryTable {
             submitted_at,
             prior: None,
             pan_tilt_drive_written_at: None,
+            sony_socket: SonySocketEvidence::default(),
             sequences: SequenceSlots::default(),
         };
         let indexed = IndexFacts::of(&entry);
@@ -508,14 +637,66 @@ impl EntryTable {
     ) -> Option<SocketClaim<'_>> {
         let target = self.entries.get(&request)?.request.context().target;
         let socket = candidates.into_iter().find(|socket| {
-            self.socket_owner(target, *socket)
-                .is_none_or(|owner| owner == request)
+            let index = &self.sockets[target][*socket];
+            index.claimants == 0 || index.sole_owner == Some(request)
         })?;
         Some(SocketClaim {
             table: self,
             request,
             socket,
         })
+    }
+
+    pub(super) fn accept_sony_named_ack(
+        &mut self,
+        request: RequestId,
+        socket: ViscaSocket,
+        phase: SocketedLifecycle,
+    ) -> Option<Transitioned> {
+        let entry = self.entries.get_mut(&request)?;
+        entry.sony_socket.first_write?;
+        entry.sony_socket.named_ack_after = self.sony_latest_write;
+        self.change_lifecycle(request, phase.lifecycle(socket))
+    }
+
+    fn add_socket_claim(&mut self, target: TargetSlot, socket: ViscaSocket, id: RequestId) {
+        let index = &mut self.sockets[target][socket];
+        index.claimants += 1;
+        index.sole_owner = (index.claimants == 1).then_some(id);
+    }
+
+    fn remove_socket_claim(&mut self, target: TargetSlot, socket: ViscaSocket) {
+        let index = &mut self.sockets[target][socket];
+        index.claimants -= 1;
+        index.sole_owner = if index.claimants == 1 {
+            self.entries.iter().find_map(|(id, entry)| {
+                (entry.request.context().target == target
+                    && entry.lifecycle.active_socket() == Some(socket))
+                .then_some(*id)
+            })
+        } else {
+            None
+        };
+    }
+
+    fn retain_unresolved_sony_write(&mut self, entry: &Entry) {
+        if entry.sony_socket.first_write.is_none()
+            || matches!(entry.lifecycle(), Lifecycle::ExecutingDisplaced { .. })
+        {
+            return;
+        }
+        let target = entry.request.context().target;
+        if let Some(socket) = entry.sony_named_socket() {
+            let retired = &mut self.sockets[target][socket].retired_through;
+            *retired = (*retired).max(entry.sony_socket.named_ack_after);
+        } else {
+            // Losing an ACK or a terminal can make the write cease to be
+            // observable, but cannot prove the write vacated either socket.
+            for socket in [ViscaSocket::S1, ViscaSocket::S2] {
+                let retired = &mut self.sockets[target][socket].retired_through;
+                *retired = (*retired).max(self.sony_latest_write);
+            }
+        }
     }
 
     fn change_lifecycle(&mut self, id: RequestId, to: Lifecycle) -> Option<Transitioned> {
@@ -601,6 +782,7 @@ impl EntryTable {
 
     pub(super) fn remove(&mut self, id: &RequestId) -> Option<Entry> {
         let entry = self.entries.remove(id)?;
+        self.retain_unresolved_sony_write(&entry);
         self.halt_zoom_alternatives.remove(id);
         self.remove_indexes(*id, &IndexFacts::of(&entry));
         Some(entry)
@@ -610,7 +792,7 @@ impl EntryTable {
             self.ready[priority].push_back(id);
         }
         if let Some((target, socket)) = facts.socket {
-            self.sockets[target][socket] = Some(id);
+            self.add_socket_claim(target, socket, id);
         }
         for record in facts.sequences.records() {
             self.add_sequence(id, record);
@@ -624,7 +806,7 @@ impl EntryTable {
             }
         }
         if let Some((target, socket)) = facts.socket {
-            self.sockets[target][socket] = None;
+            self.remove_socket_claim(target, socket);
         }
         for record in facts.sequences.records() {
             self.remove_sequence(id, record);
@@ -644,10 +826,10 @@ impl EntryTable {
         }
         if before.socket != after.socket {
             if let Some((target, socket)) = before.socket {
-                self.sockets[target][socket] = None;
+                self.remove_socket_claim(target, socket);
             }
             if let Some((target, socket)) = after.socket {
-                self.sockets[target][socket] = Some(id);
+                self.add_socket_claim(target, socket, id);
             }
         }
         for record in before.sequences.records() {

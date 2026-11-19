@@ -27,6 +27,7 @@ use stream_ledger::{
     Standing, StreamLedger,
 };
 pub(crate) use types::*;
+pub(crate) use zoom_drive::ZoomDriveFamily;
 use zoom_drive::{ZoomDriveHistory, ZoomDriveWrite};
 
 use std::{
@@ -54,7 +55,7 @@ mod entry_table;
 use decision::Decision;
 use entry_table::{
     EntryChange, EntryPlacement, EntryTable, SequenceSlots, SocketClaim, SocketedLifecycle,
-    UnsocketedLifecycle,
+    SonyCancellationAuthority, SonySocketEvidence, UnsocketedLifecycle,
 };
 mod framing;
 pub(crate) use framing::{ProtocolEncoder, WireProtocol, WriteFraming};
@@ -101,13 +102,15 @@ struct TransmissionOwner {
 /// exact command-completion identity, `PreAck` is the target-local positional
 /// command slot, `Inquiry(shape)` retains the exact inquiry declaration, and
 /// `AllResponses` is the broad hold left by a command that never earned a wire
-/// identity.
+/// identity. `UnassignedExecution` retains a terminal that may name either
+/// socket or omit it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RawHoldScope {
     Socket(ViscaSocket),
     PreAck,
     Inquiry(PayloadShape),
     AllResponses,
+    UnassignedExecution,
 }
 
 impl RawHoldScope {
@@ -120,6 +123,7 @@ impl RawHoldScope {
             Self::Inquiry(PayloadShape::Bytes(length)) => (4, length.get()),
             Self::Inquiry(PayloadShape::Nibbles(length)) => (5, length.get()),
             Self::AllResponses => (6, 0),
+            Self::UnassignedExecution => (7, 0),
         }
     }
 }
@@ -285,6 +289,7 @@ pub(crate) struct Entry {
     submitted_at: Instant,
     prior: Option<PriorAttempts>,
     pan_tilt_drive_written_at: Option<Instant>,
+    sony_socket: SonySocketEvidence,
     sequences: SequenceSlots,
 }
 
@@ -295,6 +300,11 @@ impl Entry {
 
     fn active_write(&self, transmission: TransmissionId) -> Option<ActiveWrite> {
         self.lifecycle.active()?.active_write(transmission)
+    }
+
+    fn sony_named_socket(&self) -> Option<ViscaSocket> {
+        self.sony_socket.named_ack_after?;
+        self.lifecycle().socket()
     }
 
     fn reply_family(&self) -> SendingReply {
@@ -1042,7 +1052,13 @@ trait EngineMethods: EngineAccess {
                 && occupancy.targets[target].commands < self.command_sockets(target).get()
                 && self.used_capacity_in(target, occupancy) >= self.command_sockets(target).get())
     }
-    fn command_gate_in(&self, entry: &Entry, target: TargetSlot, occupancy: &Occupancy) -> bool {
+    fn command_gate_in(
+        &self,
+        entry: &Entry,
+        target: TargetSlot,
+        now: Instant,
+        occupancy: &Occupancy,
+    ) -> bool {
         let raw = self.mode().is_raw();
         let state = &occupancy.targets[target];
         let urgent_bypass = raw
@@ -1050,10 +1066,16 @@ trait EngineMethods: EngineAccess {
             && !(self.mode().is_stream() && self.mode().ledger().forbids_crossing(target))
             && state.urgent_bypass(entry, self.mode().is_stream());
         (raw && state.unacknowledged > 0 && !urgent_bypass)
+            || (raw
+                && !entry.request.is_stop()
+                && (state.unassigned_command
+                    || self
+                        .raw_hold(target, RawHoldScope::UnassignedExecution)
+                        .is_some()))
             || ((self.raw_hold(target, RawHoldScope::PreAck).is_some()
                 || self.mode().ledger().lane_state(target, Lane::Command) != LaneState::Clear)
                 && !self.pre_ack_bypass_in(entry, target, occupancy))
-            || self.latched_raw_lane_error(&entry.request).is_some()
+            || self.latched_raw_lane_error(&entry.request, now).is_some()
     }
     fn uncorrelated_shape_blocked_in(
         &self,
@@ -1113,7 +1135,7 @@ trait EngineMethods: EngineAccess {
                     .is_some_and(|bound| now >= bound)
                     && (state.state_write_blocks(id, &entry.request)
                         || self.hold_blocks_in(entry, target, occupancy)
-                        || self.command_gate_in(entry, target, occupancy)
+                        || self.command_gate_in(entry, target, now, occupancy)
                         || (if entry.request.is_stop() {
                             state.commands
                         } else {
@@ -1582,7 +1604,7 @@ trait EngineMethods: EngineAccess {
                 ));
             }
         }
-        if let Some(error) = self.latched_raw_lane_error(&request) {
+        if let Some(error) = self.latched_raw_lane_error(&request, now) {
             return Err(error);
         }
         let Some(id) = self.allocate_request_id() else {
@@ -1793,7 +1815,7 @@ trait EngineMethods: EngineAccess {
                 !self.stop_wait_ended(entry, now)
                     && (state_conflict
                         || self.raw_hold_blocks_dispatch(entry, target)
-                        || self.raw_command_gate_blocks(entry, target)
+                        || self.raw_command_gate_blocks(entry, target, now)
                         || self.command_capacity_used_by(entry, target)
                             >= policy.command_sockets.get()
                         || self.uncorrelated_raw_shape_blocked(entry, target, now))
@@ -1882,14 +1904,27 @@ trait EngineMethods: EngineAccess {
 
     #[cfg(test)]
     fn commands_inflight(&self, target: TargetSlot) -> usize {
-        self.entries
+        let belongs = |entry: &&Entry| {
+            entry.reply_family() != SendingReply::Inquiry
+                && entry.request.context().target == target
+                && entry.lifecycle().is_command_on_wire()
+        };
+        let ungrouped = self
+            .entries
             .values()
-            .filter(|entry| {
-                entry.reply_family() != SendingReply::Inquiry
-                    && entry.request.context().target == target
-                    && entry.lifecycle().is_command_on_wire()
+            .filter(belongs)
+            .filter(|entry| entry.sony_named_socket().is_none())
+            .count();
+        let grouped = [ViscaSocket::S1, ViscaSocket::S2]
+            .into_iter()
+            .filter(|socket| {
+                self.entries
+                    .values()
+                    .filter(belongs)
+                    .any(|entry| entry.sony_named_socket() == Some(*socket))
             })
-            .count()
+            .count();
+        ungrouped + grouped
     }
 
     /// Command sockets in use on `target`: live work, and on a datagram
@@ -2182,13 +2217,14 @@ trait EngineMethods: EngineAccess {
     /// is no exception on a byte stream: its possible rejection is owed too,
     /// and could not be told from the owed answer.
     #[cfg(test)]
-    fn raw_command_gate_blocks(&self, entry: &Entry, target: TargetSlot) -> bool {
+    fn raw_command_gate_blocks(&self, entry: &Entry, target: TargetSlot, now: Instant) -> bool {
         let owed = self.mode().ledger().lane_state(target, Lane::Command) != LaneState::Clear;
-        (self.raw_command_unacknowledged(target)
-            && !self.raw_urgent_gate_bypass_available(entry, target))
+        (self.mode().is_raw() && !entry.request.is_stop() && self.raw_execution_unassigned(target))
+            || (self.raw_command_unacknowledged(target)
+                && !self.raw_urgent_gate_bypass_available(entry, target))
             || ((self.raw_hold(target, RawHoldScope::PreAck).is_some() || owed)
                 && !self.raw_preack_hold_bypass_available(entry, target))
-            || self.latched_raw_lane_error(&entry.request).is_some()
+            || self.latched_raw_lane_error(&entry.request, now).is_some()
     }
 
     /// Whether an uncorrelatable raw command is still occupying `target`.
@@ -2320,9 +2356,16 @@ trait EngineMethods: EngineAccess {
                 ActiveWrite::Request { .. } | ActiveWrite::Cancellation(_) => Lane::Command,
             };
             self.pacing.record(lane, now);
+            if lane == Lane::Command
+                && self.is_sony_datagram()
+                && matches!(owner.write, ActiveWrite::Request { .. })
+            {
+                self.entries.sony_command_written(request, transmission);
+            }
             if matches!(owner.write, ActiveWrite::Request { .. }) {
                 let zoom_drive = self.entries.get(&request).and_then(|entry| {
-                    let write = ZoomDriveWrite::from_request(&entry.request, transmission)?;
+                    let family = entry.request.wire().zoom_drive_family()?;
+                    let write = ZoomDriveWrite::new(transmission, family);
                     Some((entry.request.context().target, write))
                 });
                 if let Some((target, write)) = zoom_drive {
@@ -2500,12 +2543,6 @@ trait EngineMethods: EngineAccess {
                 }
             }
             ActiveWrite::Cancellation(write) => {
-                if let Some(interval) = drive_cancellation {
-                    let restart = &mut self.targets[context.target].pan_tilt_drive_restart;
-                    if !matches!(restart, PanTiltDriveRestart::Unconfirmed) {
-                        *restart = PanTiltDriveRestart::After(add_duration(now, interval));
-                    }
-                }
                 let observation_deadline = add_duration(now, context.timeout.cancellation.get());
                 self.transition(
                     owner.request,
@@ -2794,42 +2831,71 @@ trait EngineMethods: EngineAccess {
             effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             return;
         };
+        if correlation_kind == CorrelationKind::Cancellation {
+            self.sony_cancel_response(id, entry.lifecycle(), frame.response, now, effects);
+            return;
+        }
         match frame.response {
             DecodedResponse::Ack { socket } => self.ack(id, socket, now, effects),
-            DecodedResponse::Completion { socket } => {
-                if correlation_kind == CorrelationKind::Cancellation {
-                    let context = entry.request.context();
-                    if let Some(cancellation) =
-                        entry.lifecycle().cancellation_ambiguity().filter(|_| {
-                            self.targets[context.target]
-                                .pan_tilt_drive_cancel_interval(context)
-                                .is_none()
-                        })
-                    {
-                        self.confirm_cancelled(id, cancellation, now, effects);
-                    } else {
-                        effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
-                    }
-                } else {
-                    self.completion(id, socket, now, effects);
-                }
-            }
+            DecodedResponse::Completion { socket } => self.completion(id, socket, now, effects),
             DecodedResponse::InquiryReply { payload } => {
-                if correlation_kind == CorrelationKind::Cancellation {
-                    effects.push(Effect::Ignored(IgnoreReason::MalformedFrame));
-                } else {
-                    let reply = InquiryOutcome::Reply { payload };
-                    self.inquiry_reply(id, reply, now, effects);
-                }
+                let reply = InquiryOutcome::Reply { payload };
+                self.inquiry_reply(id, reply, now, effects);
             }
             DecodedResponse::Error { socket, code } => {
-                self.camera_error(id, correlation_kind, socket, code, now, effects);
+                self.camera_error(id, socket, code, now, effects);
             }
             DecodedResponse::SonyControl { .. }
             | DecodedResponse::NetworkChange
             | DecodedResponse::Unknown => {
                 effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             }
+        }
+    }
+
+    /// The cancel sequence answers only the socket-addressed cancel write.
+    /// A named NoSocket releases that claim without settling the command.
+    fn sony_cancel_response(
+        &mut self,
+        id: RequestId,
+        lifecycle: Lifecycle,
+        response: DecodedResponse,
+        now: Instant,
+        effects: &mut Decision,
+    ) {
+        let Lifecycle::AwaitingCancellationResolution {
+            socket: emitted,
+            deadline,
+            attempt,
+            cancellation: ResolvingCancellation::AwaitingTerminal { observer_open, .. },
+        } = lifecycle
+        else {
+            effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
+            return;
+        };
+        match response {
+            DecodedResponse::Error {
+                socket: Some(socket),
+                code: CameraErrorCode::Cancelled,
+            } if socket == emitted => self.confirm_cancelled(id, now, effects),
+            DecodedResponse::Error {
+                socket: Some(socket),
+                code: CameraErrorCode::NoSocket,
+            } if socket == emitted => {
+                self.mark_unconfirmed_pan_tilt_cancellation(id);
+                self.transition(
+                    id,
+                    UnsocketedLifecycle::ExecutingDisplaced {
+                        started_at: now,
+                        deadline,
+                        attempt,
+                        observe_completion_after_cancel: observer_open,
+                    },
+                    now,
+                    effects,
+                );
+            }
+            _ => effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame)),
         }
     }
 
@@ -2845,6 +2911,21 @@ trait EngineMethods: EngineAccess {
     /// another command is executing on S1 or S2.
     fn raw_held_response(&self, frame: &DecodedFrame) -> bool {
         let target = frame.target;
+        let unassigned_terminal = match frame.response {
+            DecodedResponse::Completion { .. } => true,
+            DecodedResponse::Error {
+                socket: Some(_),
+                code,
+            } => !code.answers_named_cancellation(),
+            _ => false,
+        };
+        if unassigned_terminal
+            && self
+                .raw_hold(target, RawHoldScope::UnassignedExecution)
+                .is_some()
+        {
+            return true;
+        }
         // The commands behind this hold (`NoReply`, `CompletionOnly`) never
         // ACK and earn no socket, so a STOP written inside it (#795) still
         // receives its own ACK, and the completion or execution error naming
@@ -2913,6 +2994,13 @@ trait EngineMethods: EngineAccess {
     fn resolve_raw(&self, frame: &DecodedFrame) -> Option<RequestId> {
         let target = frame.target;
         match &frame.response {
+            DecodedResponse::Completion { socket } if self.raw_execution_unassigned(target) => {
+                if !self.raw_command_unacknowledged(target) {
+                    self.sole_raw_execution_candidate(target, *socket)
+                } else {
+                    None
+                }
+            }
             DecodedResponse::Ack { .. } => self.unique_raw_command_candidate(target),
             DecodedResponse::Completion { socket } => match socket {
                 // A completion-only command owns no socket, so socket ownership
@@ -2993,6 +3081,13 @@ trait EngineMethods: EngineAccess {
                     .get(owner)
                     .is_some_and(|entry| entry.cancel_attempted_socket() == Some(socket))
             });
+        }
+        if self.raw_execution_unassigned(target) {
+            return if !self.raw_command_unacknowledged(target) {
+                self.sole_raw_execution_candidate(target, Some(socket))
+            } else {
+                None
+            };
         }
         if let Some(owner) = self.socket_owner(target, socket) {
             return (!self.raw_command_unacknowledged(target)).then_some(owner);
@@ -3124,6 +3219,42 @@ trait EngineMethods: EngineAccess {
         }
     }
 
+    /// An accepted raw command without a socket remains a possible occupant
+    /// of either socket. A retired command can retain the same ambiguity.
+    fn raw_execution_unassigned(&self, target: TargetSlot) -> bool {
+        self.raw_hold(target, RawHoldScope::UnassignedExecution)
+            .is_some()
+            || self.raw_live_unassigned(target)
+    }
+
+    fn raw_live_unassigned(&self, target: TargetSlot) -> bool {
+        self.entries.values().any(|entry| {
+            entry.request.context().target == target
+                && matches!(entry.lifecycle(), Lifecycle::ExecutingUnassigned { .. })
+        })
+    }
+
+    fn sole_raw_execution_candidate(
+        &self,
+        target: TargetSlot,
+        socket: Option<ViscaSocket>,
+    ) -> Option<RequestId> {
+        if self
+            .raw_hold(target, RawHoldScope::UnassignedExecution)
+            .is_some()
+        {
+            return None;
+        }
+        self.sole_raw_candidate(target, |entry| match entry.lifecycle() {
+            Lifecycle::ExecutingUnassigned { .. } => true,
+            Lifecycle::Executing { socket: owned, .. }
+            | Lifecycle::AwaitingCancellationResolution { socket: owned, .. } => {
+                socket.is_none_or(|socket| socket == owned)
+            }
+            _ => false,
+        })
+    }
+
     fn unique_raw_command_candidate(&self, target: TargetSlot) -> Option<RequestId> {
         self.sole_raw_candidate(target, |entry| entry.lifecycle().is_awaiting_ack())
     }
@@ -3165,85 +3296,38 @@ trait EngineMethods: EngineAccess {
             .map_or(CommandSocketCount::ONE, |policy| policy.command_sockets)
     }
 
-    /// Socket assignment may need the capacity that was in force when this
-    /// exact command attempt was dispatched. A live retune lowers admission
-    /// capacity immediately, but it does not revoke the second physical socket
-    /// from a pre-retune attempt already draining under the old capacity.
-    fn assignment_socket_count(&self, target: TargetSlot, id: RequestId) -> CommandSocketCount {
-        let current = self.command_sockets(target);
-        self.entries
-            .get(&id)
-            .and_then(|entry| {
-                entry.dispatched_socket_capacity().or_else(|| {
-                    entry
-                        .lifecycle()
-                        .previous_attempt()
-                        .and_then(|attempt| attempt.socket_capacity)
-                })
-            })
-            .map_or(current, |dispatched| current.max(dispatched))
-    }
-
-    /// Chooses the camera's named socket, or the first free physical socket
-    /// for an ACK that does not name one. Named ownership is reconciled by
-    /// `assign_ack_socket` before this helper; inventing a different socket
-    /// would send cancellation to the wrong command.
+    /// Claims the named socket if it has no conflicting ownership or hold.
     fn assign_socket(
         &mut self,
         target: TargetSlot,
-        requested: Option<ViscaSocket>,
+        socket: ViscaSocket,
         id: RequestId,
     ) -> Option<SocketClaim<'_>> {
-        let candidates: SmallVec<[ViscaSocket; 2]> = match requested {
-            Some(socket) => std::iter::once(socket).collect(),
-            None => self.assignment_socket_count(target, id).sockets().collect(),
-        };
-        let unheld: SmallVec<[ViscaSocket; 2]> = candidates
-            .into_iter()
-            .filter(|socket| {
-                self.raw_hold(target, RawHoldScope::Socket(*socket))
-                    .is_none()
-            })
-            .collect();
-        self.entries.claim_socket(id, unheld)
+        if self
+            .raw_hold(target, RawHoldScope::Socket(socket))
+            .is_some()
+        {
+            return None;
+        }
+        self.entries.claim_socket(id, std::iter::once(socket))
     }
 
-    /// A compatibility ACK cannot reconstruct physical socket occupancy after
-    /// a completion was retained ambiguously or dropped while a current owner
-    /// could have sent it, or while an inert socket hold exists. The camera
-    /// can reuse a socket that the host still indexes to a predecessor.
-    fn uncertain_socketless_stream_ack(&self, target: TargetSlot) -> bool {
-        let Some(stream) = self.mode().stream() else {
-            return false;
-        };
-        let learning = &stream.learning[target];
-        self.raw_socket_hold_count(target) != 0
-            || learning.pending_socketless_completions.is_some()
-            || [ViscaSocket::S1, ViscaSocket::S2]
-                .into_iter()
-                .any(|socket| {
-                    learning.dropped_completion_owners[socket.as_index()]
-                        .is_some_and(|owner| self.socket_owner(target, socket) == Some(owner))
-                })
-            || self
-                .command_sockets(target)
-                .sockets()
-                .all(|socket| self.socket_owner(target, socket).is_some())
+    fn is_sony_datagram(&self) -> bool {
+        !self.mode().is_raw() && self.policy.transport == TransportKind::Datagram
     }
 
-    /// Applies the camera's authoritative named socket assignment.
-    ///
-    /// Raw predecessors become ambiguity holds. Sony predecessors lose their
-    /// socket claim but retain their exact-sequence terminal and deadline.
+    /// Applies the camera's authoritative named socket assignment on raw
+    /// transports and on sequenced streams. Sony datagrams require additional
+    /// write-order evidence before a named ACK can establish succession.
     fn assign_ack_socket(
         &mut self,
         target: TargetSlot,
-        requested: Option<ViscaSocket>,
+        socket: ViscaSocket,
         id: RequestId,
         now: Instant,
         effects: &mut Decision,
     ) -> Option<SocketClaim<'_>> {
-        if let Some(socket) = requested {
+        {
             if let Some(stale) = self
                 .socket_owner(target, socket)
                 .filter(|owner| *owner != id)
@@ -3273,7 +3357,7 @@ trait EngineMethods: EngineAccess {
                 CorrelationState::Sequenced => {}
             }
         }
-        self.assign_socket(target, requested, id)
+        self.assign_socket(target, socket, id)
     }
 
     fn displace_sony_socket(&mut self, id: RequestId, now: Instant, effects: &mut Decision) {
@@ -3290,6 +3374,7 @@ trait EngineMethods: EngineAccess {
                 started_at,
                 deadline,
                 attempt,
+                observe_completion_after_cancel: false,
             },
             Lifecycle::AwaitingCancellationResolution {
                 deadline, attempt, ..
@@ -3297,6 +3382,7 @@ trait EngineMethods: EngineAccess {
                 started_at: now,
                 deadline,
                 attempt,
+                observe_completion_after_cancel: false,
             },
             _ => return,
         };
@@ -3369,16 +3455,36 @@ trait EngineMethods: EngineAccess {
             effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             return;
         }
-        let completion = context.timeout.completion.get();
-        let deadline = add_duration(now, completion);
-        if socket.is_none() && self.uncertain_socketless_stream_ack(target) {
-            let ending = entry.attempt_end(self.mode(), AttemptEvidence::Lifecycle, None);
-            let (core, mode) = self.split();
-            if let CorrelationState::RawStream(stream) = mode {
-                StreamContext { core, stream }
-                    .hold_uncertain_socketless_execution(target, completion, now, effects);
+        let deadline = add_duration(now, context.timeout.completion.get());
+        let Some(socket) = socket else {
+            self.accept_unassigned_ack(id, now, deadline, attempt, effects);
+            return;
+        };
+        let next = SocketedLifecycle::Executing {
+            started_at: now,
+            deadline,
+            attempt,
+            cancellation: cancellation.map_or(
+                ExecutingCancellation::None,
+                ExecutingCancellation::Requested,
+            ),
+        };
+        if self.is_sony_datagram() {
+            while let Some(predecessor) = self.entries.sony_predecessor(id, target, socket) {
+                self.displace_sony_socket(predecessor, now, effects);
             }
-            self.end_attempt(id, ending, None, AttemptEvidence::Lifecycle, now, effects);
+            if let Some(changed) = self.entries.accept_sony_named_ack(id, socket, next) {
+                self.targets[target].zoom_drive.retire(id, true);
+                effects.push(Effect::Transition {
+                    id,
+                    from: changed.from,
+                    to: changed.to,
+                });
+            } else {
+                // A conclusive pre-ACK rejection ended the previous attempt.
+                // A contradictory ACK has no currently admissible write.
+                effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
+            }
             return;
         }
         let Some(claim) = self.assign_ack_socket(target, socket, id, now, effects) else {
@@ -3401,15 +3507,6 @@ trait EngineMethods: EngineAccess {
             }
             return;
         };
-        let next = SocketedLifecycle::Executing {
-            started_at: now,
-            deadline,
-            attempt,
-            cancellation: cancellation.map_or(
-                ExecutingCancellation::None,
-                ExecutingCancellation::Requested,
-            ),
-        };
         if let Some(changed) = claim.install(next) {
             // Once this attempt is accepted, a later cancellation or error
             // cannot establish that its continuous drive had no effect.
@@ -3420,6 +3517,38 @@ trait EngineMethods: EngineAccess {
                 to: changed.to,
             });
         }
+    }
+
+    /// Records acceptance without guessing which physical socket is occupied.
+    fn accept_unassigned_ack(
+        &mut self,
+        id: RequestId,
+        now: Instant,
+        deadline: Instant,
+        attempt: AttemptFacts,
+        effects: &mut Decision,
+    ) {
+        let Some(entry) = self.entries.get(&id) else {
+            return;
+        };
+        let target = entry.request.context().target;
+        if entry.cancellation_observation_open() {
+            effects.push(Effect::CancellationObservation {
+                id,
+                observation: CancellationObservation::AttemptFailed(Error::CancellationUnconfirmed),
+            });
+        }
+        self.transition(
+            id,
+            UnsocketedLifecycle::ExecutingUnassigned {
+                started_at: now,
+                deadline,
+                attempt,
+            },
+            now,
+            effects,
+        );
+        self.targets[target].zoom_drive.retire(id, true);
     }
 
     fn completion(
@@ -3446,7 +3575,9 @@ trait EngineMethods: EngineAccess {
             {
                 true
             }
-            Lifecycle::AwaitingCompletion { .. } | Lifecycle::ExecutingDisplaced { .. } => true,
+            Lifecycle::AwaitingCompletion { .. }
+            | Lifecycle::ExecutingUnassigned { .. }
+            | Lifecycle::ExecutingDisplaced { .. } => true,
             Lifecycle::Sending { .. }
             | Lifecycle::Ready { .. }
             | Lifecycle::Backoff { .. }
@@ -3643,25 +3774,15 @@ trait EngineMethods: EngineAccess {
             }
             match retro.evidence {
                 Evidence::Ack(socket) => self.ack(retro.request, socket, now, effects),
-                Evidence::Error(code) => self.camera_error(
-                    retro.request,
-                    CorrelationKind::Request,
-                    None,
-                    code,
-                    now,
-                    effects,
-                ),
+                Evidence::Error(code) => {
+                    self.camera_error(retro.request, None, code, now, effects);
+                }
                 Evidence::Named(NamedFrame::Completion(socket)) => {
                     self.completion(retro.request, Some(socket), now, effects);
                 }
-                Evidence::Named(NamedFrame::Error(socket, code)) => self.camera_error(
-                    retro.request,
-                    CorrelationKind::Request,
-                    Some(socket),
-                    code,
-                    now,
-                    effects,
-                ),
+                Evidence::Named(NamedFrame::Error(socket, code)) => {
+                    self.camera_error(retro.request, Some(socket), code, now, effects);
+                }
                 Evidence::Other => {}
             }
             if !matches!(self.session, EngineSession::Running) {
@@ -3679,7 +3800,7 @@ trait EngineMethods: EngineAccess {
     /// ordinary ACK-bearing and `CompletionOnly` commands
     /// and `NoReply` commands ([`Error::CommandCorrelationLost`]). Urgent
     /// STOPs and other targets are never blocked.
-    fn latched_raw_lane_error(&self, request: &RuntimeRequest) -> Option<Error> {
+    fn latched_raw_lane_error(&self, request: &RuntimeRequest, now: Instant) -> Option<Error> {
         let context = request.context();
         let target = context.target;
         let family = SendingReply::new(request);
@@ -3698,8 +3819,16 @@ trait EngineMethods: EngineAccess {
         // A `CompletionOnly` command's socketless rejection could not be told
         // from a `NoReply` command's still owed past its window.
         let rejection_latched = completion_only && self.mode().ledger().rejection_latched(target);
+        // A stream can still owe an accepted command's terminal after the
+        // ambiguity window. Fail ordinary commands while that debt is
+        // unresolved so their submissions do not wait indefinitely.
+        let unassigned_latched = self.mode().is_stream()
+            && self
+                .raw_hold(target, RawHoldScope::UnassignedExecution)
+                .is_some_and(|hold| hold.until <= now);
         ((command_lane
-            && self.mode().ledger().lane_state(target, Lane::Command) == LaneState::Latched)
+            && (unassigned_latched
+                || self.mode().ledger().lane_state(target, Lane::Command) == LaneState::Latched))
             || rejection_latched)
             .then(|| Error::command_correlation_lost(target.individual_camera()))
     }
@@ -3713,7 +3842,7 @@ trait EngineMethods: EngineAccess {
             .iter()
             .filter(|(_, entry)| entry.lifecycle().is_off_wire())
             .filter_map(|(id, entry)| {
-                self.latched_raw_lane_error(&entry.request)
+                self.latched_raw_lane_error(&entry.request, now)
                     .map(|error| (*id, error))
             })
             .collect();
@@ -3742,7 +3871,6 @@ trait EngineMethods: EngineAccess {
     fn camera_error(
         &mut self,
         id: RequestId,
-        correlation_kind: CorrelationKind,
         socket: Option<ViscaSocket>,
         code: CameraErrorCode,
         now: Instant,
@@ -3766,29 +3894,30 @@ trait EngineMethods: EngineAccess {
         // Backoff, Ready, and Sending so late completions can still be routed
         // without guessing.  A camera error is different: applying one is a
         // state mutation (and a retryable error can spend the retry budget),
-        // so it must belong to a response-bearing phase for this correlation
-        // kind.  In particular, a delayed duplicate from the attempt that
+        // so it must belong to a response-bearing phase. A delayed duplicate from the attempt that
         // caused Backoff must not schedule another retry while the request is
         // waiting or being written again.
-        if !camera_error_phase_compatible(entry, correlation_kind) {
+        if !camera_error_phase_compatible(entry) {
             effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             return;
         }
         let cancellation = entry.lifecycle().cancellation_ambiguity();
-        if let Some(proof) = cancellation.filter(|_| code.confirms_cancellation()) {
+        if cancellation.is_some() && code.confirms_cancellation() {
             let context = entry.request.context();
-            if self.targets[context.target]
+            let drive_cancellation = self.targets[context.target]
                 .pan_tilt_drive_cancel_interval(context)
-                .is_some()
-                && (!entry.lifecycle().awaiting_cancellation_answer()
-                    || socket.is_none()
-                    || (!self.mode().is_raw() && correlation_kind != CorrelationKind::Cancellation))
+                .is_some();
+            let raw = self.mode().is_raw();
+            if drive_cancellation
+                && (!raw || !entry.lifecycle().awaiting_cancellation_answer() || socket.is_none())
             {
                 effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
                 return;
             }
-            self.confirm_cancelled(id, proof, now, effects);
-            return;
+            if raw {
+                self.confirm_cancelled(id, now, effects);
+                return;
+            }
         }
         // A rejection proves that a command did not start only before its ACK.
         // Once the camera has acknowledged it, the command may already be
@@ -3801,19 +3930,24 @@ trait EngineMethods: EngineAccess {
         // socketless cancel intent instead leaves `0x05` as the original
         // request's retryable rejection below.
         let acknowledged = entry.lifecycle().is_accepted();
+        let resolves_sony_write =
+            self.is_sony_datagram() && (acknowledged || !entry.sequences.request_replayed());
         if acknowledged {
             let cancellation_answered = self.mode().is_raw()
                 && code == CameraErrorCode::NoSocket
                 && raw_cancellation_no_socket_response(entry);
+            if resolves_sony_write {
+                self.entries.sony_command_resolved(id);
+            }
             let keep_cancel_hold =
                 !(cancellation_answered || (self.mode().is_stream() && socket.is_some()));
             self.finish_after_ack(id, code.into_error(), keep_cancel_hold, now, effects);
             return;
         }
-        let retry = (correlation_kind == CorrelationKind::Request
-            && code.retry_permission(&entry.request))
-        .then(|| entry.lifecycle().retry_eligibility(true))
-        .flatten();
+        let retry = code
+            .retry_permission(&entry.request)
+            .then(|| entry.lifecycle().retry_eligibility(true))
+            .flatten();
         let error = code.into_error();
         let evidence = if code.refuses_before_start() {
             AttemptEvidence::Rejected
@@ -3821,6 +3955,9 @@ trait EngineMethods: EngineAccess {
             AttemptEvidence::Lifecycle
         };
         let possibly_applied = entry.certainty(evidence) == Certainty::Unconfirmed;
+        if resolves_sony_write && matches!(evidence, AttemptEvidence::Rejected) {
+            self.entries.sony_command_resolved(id);
+        }
         // A raw inquiry error can race a late data reply. Retain the bounded
         // inquiry-only skew before a retry or terminal failure exposes another
         // inquiry to that stale frame class (#712).
@@ -3883,13 +4020,21 @@ trait EngineMethods: EngineAccess {
         );
     }
 
-    fn confirm_cancelled(
-        &mut self,
-        id: RequestId,
-        _cancellation: CancellationAmbiguity,
-        now: Instant,
-        effects: &mut Decision,
-    ) {
+    fn confirm_cancelled(&mut self, id: RequestId, now: Instant, effects: &mut Decision) {
+        if let Some(context) = self.entries.get(&id).map(|entry| *entry.request.context()) {
+            let target = &mut self.targets[context.target];
+            if let Some(interval) = target.pan_tilt_drive_cancel_interval(&context) {
+                let restart_at = add_duration(now, interval);
+                let restart = &mut target.pan_tilt_drive_restart;
+                match *restart {
+                    PanTiltDriveRestart::Open => *restart = PanTiltDriveRestart::After(restart_at),
+                    PanTiltDriveRestart::After(previous) => {
+                        *restart = PanTiltDriveRestart::After(previous.max(restart_at));
+                    }
+                    PanTiltDriveRestart::Unconfirmed => {}
+                }
+            }
+        }
         self.finish_with_cancel_hold(id, CommandOutcome::Cancelled, false, now, effects);
     }
 
@@ -3961,6 +4106,22 @@ trait EngineMethods: EngineAccess {
         Ok(())
     }
 
+    fn refuse_pending_cancellation(
+        &mut self,
+        id: RequestId,
+        pending: PendingCancellation,
+        now: Instant,
+        effects: &mut Decision,
+    ) {
+        self.transition(id, pending.refused(now), now, effects);
+        if pending.observer_open() {
+            effects.push(Effect::CancellationObservation {
+                id,
+                observation: CancellationObservation::AttemptFailed(Error::CancellationUnconfirmed),
+            });
+        }
+    }
+
     fn emit_cancel(
         &mut self,
         id: RequestId,
@@ -3978,6 +4139,14 @@ trait EngineMethods: EngineAccess {
         ));
         let target = entry.request.context().target;
         let socket = pending.socket();
+        let ambiguous_raw = self.mode().is_raw() && self.raw_execution_unassigned(target);
+        let ambiguous_sony = self.is_sony_datagram()
+            && self.entries.sony_cancellation_authority(target, socket)
+                != SonyCancellationAuthority::Proven(id);
+        if ambiguous_raw || ambiguous_sony {
+            self.refuse_pending_cancellation(id, pending, now, effects);
+            return;
+        }
         let framing = match self.policy.wire.encoder() {
             ProtocolEncoder::Raw(encoder) => encoder.plan(),
             ProtocolEncoder::Sony(encoder) => encoder.plan(
@@ -4609,7 +4778,9 @@ trait EngineMethods: EngineAccess {
                 RawHoldScope::Socket(socket) => release.release_exact_socket(socket),
                 RawHoldScope::PreAck => release.release_pre_ack_unkeyed(),
                 RawHoldScope::Inquiry(_) => release.release_inquiry_unkeyed(),
-                RawHoldScope::AllResponses => release.release_terminal_all(),
+                RawHoldScope::AllResponses | RawHoldScope::UnassignedExecution => {
+                    release.release_terminal_all();
+                }
             }
         }
         for entry in self.entries.values().filter(|_| self.mode().is_raw()) {
@@ -4775,13 +4946,17 @@ trait EngineMethods: EngineAccess {
         // reply's window wakes the owner through the ledger, and once latched
         // only input settles it.
         // A stream's socket hold still wakes the owner at its deadline, when
-        // a waiting `CompletionOnly` command may start.
+        // a waiting `CompletionOnly` command may start. An unassigned
+        // execution wakes at its deadline to fail the command lane.
         self.mode()
             .holds()
             .iter()
             .filter(|(key, hold)| {
                 !self.raw_hold_released_by_evidence(**key)
-                    || (matches!(key.scope, RawHoldScope::Socket(_)) && hold.until > now)
+                    || (matches!(
+                        key.scope,
+                        RawHoldScope::Socket(_) | RawHoldScope::UnassignedExecution
+                    ) && hold.until > now)
             })
             .map(|(_, hold)| hold.until)
             .min()
@@ -4866,6 +5041,15 @@ trait EngineMethods: EngineAccess {
         now: Instant,
         effects: &mut Decision,
     ) {
+        let outcome = outcome.into();
+        if self.is_sony_datagram()
+            && matches!(
+                outcome,
+                FinishOutcome::Command(CommandOutcome::Applied | CommandOutcome::Cancelled)
+            )
+        {
+            self.entries.sony_command_resolved(id);
+        }
         self.retire_answers(id, now, effects);
         if keep_cancel_hold {
             self.hold_socket_of_unanswered_cancel(id);
@@ -4874,7 +5058,7 @@ trait EngineMethods: EngineAccess {
             effects.push(Effect::Ignored(IgnoreReason::UnknownRequest));
             return;
         };
-        let outcome = outcome.into().for_request(&entry.request);
+        let outcome = outcome.for_request(&entry.request);
         let context = entry.request.context();
         let target = context.target;
         self.targets[target]
@@ -5414,21 +5598,18 @@ fn correlation_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
 /// cannot use that broad routing window: retryable errors mutate retry state,
 /// and all errors otherwise produce a terminal result. Keep those mutations
 /// limited to phases that are actually waiting for the correlated protocol
-/// response. Cancellation responses have their own owner and remain valid only
-/// while its transmission/terminal window is open.
-fn camera_error_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
-    match kind {
-        CorrelationKind::Request => matches!(
-            entry.lifecycle(),
-            Lifecycle::AwaitingReply { .. }
-                | Lifecycle::AwaitingAck { .. }
-                | Lifecycle::AwaitingCompletion { .. }
-                | Lifecycle::Executing { .. }
-                | Lifecycle::ExecutingDisplaced { .. }
-                | Lifecycle::AwaitingCancellationResolution { .. }
-        ),
-        CorrelationKind::Cancellation => entry.lifecycle().awaiting_cancellation_answer(),
-    }
+/// response.
+fn camera_error_phase_compatible(entry: &Entry) -> bool {
+    matches!(
+        entry.lifecycle(),
+        Lifecycle::AwaitingReply { .. }
+            | Lifecycle::AwaitingAck { .. }
+            | Lifecycle::AwaitingCompletion { .. }
+            | Lifecycle::Executing { .. }
+            | Lifecycle::ExecutingUnassigned { .. }
+            | Lifecycle::ExecutingDisplaced { .. }
+            | Lifecycle::AwaitingCancellationResolution { .. }
+    )
 }
 
 /// Whether a raw request-correlated `0x05` is the failed terminal response to

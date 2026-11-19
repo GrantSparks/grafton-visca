@@ -354,10 +354,15 @@ it can never be socket-correlated; it therefore holds the target's command
 channel exclusively for its whole lifetime — `AwaitingCompletion` counts as an
 uncorrelated command that blocks any other dispatch, and it may not itself start
 until the target is idle — which keeps its completion attributable to it alone.
-A stray ACK to such a command is ignored; it never assigns a socket. Raw ACK and error
-routing never uses command FIFO or temporal recency. Sony-encapsulated requests
+A stray ACK to such a command is ignored. Raw datagrams require a unique
+candidate. Raw byte streams use the ordered ledger to account for first
+answers. Sony-encapsulated requests
 may pipeline before ACK because their envelope sequence provides an exact
 correlation key. An unsequenced ACK is never attributed by a guess.
+On a raw target, a socketless ACK consumes command capacity without granting
+a socket. An ordinary command waits if its terminal would overlap that
+anonymous execution. An urgent STOP can still cross the dispatch gate.
+Terminals resolve only when sufficient evidence identifies a single request.
 
 A raw `NoReply` command likewise has no response identity while its local
 write is in flight. It starts only when its target has no live command or
@@ -402,20 +407,30 @@ as unconfirmed; an inert `Socket(S1|S2)` hold is downgraded. In both cases the
 original ambiguity deadline remains as an unkeyed `PreAck` hold, while the
 uniquely identified successor owns the named socket for its completion and any
 cancellation packet.
-A socketless ACK still selects the first free registered socket. A named Sony
-ACK follows the same authoritative assignment rule: its predecessor enters
-`ExecutingDisplaced`, which retains its exact sequence and original completion
-deadline but no socket claim or physical capacity. Its late terminal still
-resolves by sequence; a cancellation fails with `CancellationUnconfirmed`
-because its former socket now belongs to another command. An open cancellation
-observation receives that same failure when displacement occurs (#963).
+The Sony sequence attributes acceptance and the terminal independently of
+the physical socket. An ACK that omits its socket enters
+`ExecutingUnassigned`. It consumes one unit of command capacity and keeps
+the sequence and completion deadline. A socket cancel requires proof of the
+physical socket, so its cancellation observation returns
+`CancellationUnconfirmed` (#1146).
 
-For a raw socketless error, the evidence rule is equally strict: route the
+On Sony UDP, two ACKs can name the same socket in either delivery order. An
+ACK naming that socket from a command first sent after the earlier ACK
+proves succession. The predecessor enters `ExecutingDisplaced` and no
+longer consumes physical capacity, while its original sequence and deadline
+still identify a late terminal. When either command could occupy the socket,
+the engine retains both sequences and counts the reported socket once. It
+checks cancellation ownership at send time, including after any pacing
+delay. A competing write that may still affect ownership can make the socket
+unavailable for cancellation even before its ACK. A timeout alone does not
+restore that proof (#963, #1145).
+
+For a raw datagram socketless error, route the
 unique unacknowledged command only when no inquiry owner is live; otherwise
 route the sole live inquiry only when no unacknowledged command exists.
 Multiple disjoint live inquiries have no error-shape evidence, so that collision,
 like a command-plus-inquiry collision, is ignored. A socketless
-error never falls back to an `Executing` command.
+error never falls back to a named `Executing` command.
 
 An error that names a socket follows the same evidence standard as an ACK
 naming a socket. A camera that cannot start a command answers `z0 6y ... FF`
@@ -663,9 +678,9 @@ its retry budget, a cancellation ambiguity deadline, or any other terminal —
 keeps its entry as a *debt* if its write left (a staged write the due pass
 drops reached nothing and leaves no entry). When the debt's answer arrives it
 is discarded instead of reaching a later request. An owed ACK's command is
-then executing on the camera, so the socket the ACK names (or the first free
-one, for a socketless ACK) is held; a socketless completion while that hold
-exists binds to no live command. An ACK disputed between two candidates
+then executing on the camera. A named ACK holds the reported socket. An
+unnamed ACK retains an anonymous execution hold, so a terminal that could
+belong to it cannot settle a live request. An ACK disputed between two candidates
 holds the socket it names the same way, since one of them executes there,
 for the longer of the two candidates' completion deadlines. Both candidates
 have finished their immediate write: neither owner processes a frame while a
@@ -673,20 +688,13 @@ write result is outstanding (#860).
 Either kind of ACK naming a socket the engine still indexes to an executing
 command proves that command's completion was lost: it ends unconfirmed and
 the socket is released (#721).
-A socketless ACK can use the first-free rule only while physical occupancy
-remains certain. A completion retained ambiguously or dropped while an
-indexed socket holder could have sent it, or an inert socket hold, can mean
-that the camera has already freed a socket still indexed locally. Such an ACK
-retains the union of possible sockets as anonymous holds instead of guessing.
-The possible sockets include earlier dispatched capacity and camera-proven socket keys,
-so lowering capacity cannot forget an older execution, while a one-socket
-session gains no phantom second hold. Existing socket owners and the newly
-accepted live request end unconfirmed through the usual
-strict-policy path; a paid debt or disputed ACK keeps the same execution
-holds. Named socket evidence restores exact correlation. The per-target
-upper bound on owed terminals also releases every stale socket hold when it
-proves that no terminal remains and no live socket owner can claim old
-correlation evidence. STOP delivery continues.
+A live socketless ACK records anonymous execution. Other live and retired
+executions can still account for a terminal. The resolver considers their
+socket keys and retained evidence before attributing it. A datagram retains
+an expired anonymous execution through its ambiguity deadline. A stream
+keeps its terminal as debt. If that window passes without evidence, ordinary
+commands on that target fail with `CommandCorrelationLost` until terminal
+evidence proves there is no debt. STOP delivery continues.
 
 A tracked dispute is also decided where the engine learns who sent nothing
 or who completed, and its frames are then assigned at once:
@@ -1121,6 +1129,7 @@ resource bound above applies independently to each raw target.
 | `AwaitingAck` | Send time, ACK deadline and attempt facts. | None or requested. |
 | `AwaitingCompletion` | Send time, completion deadline and attempt facts. No socket. | None; cancellation is refused with `CancellationNotSupported` (#835). |
 | `Executing` | Socket, start time, original completion deadline and attempt facts. | `ExecutingCancellation`: none, requested, sending, or observation-failed. |
+| `ExecutingUnassigned` | Acceptance without a named socket, start time, original completion deadline and attempt facts. Consumes one unit of command capacity. | None; cancellation is refused with `CancellationUnconfirmed` (#1146, #1154). |
 | `ExecutingDisplaced` | Sony start time, original completion deadline and attempt facts; exact sequence retained, no socket or physical occupancy. | None; cancellation is refused with `CancellationUnconfirmed` (#963). |
 | `AwaitingReply` | Send order, send time, inquiry deadline and attempt facts. | None; inquiries are not cancellable. |
 | `Backoff` | Ready-at time and the previous written attempt retained for exact Sony acceptance. | None. |
@@ -1241,11 +1250,12 @@ are full (D26, #778).
 | Unsequenced frame on a raw byte stream | Resolve it through the correlation ledger: the oldest entry that can legally produce it (see "The raw byte-stream correlation ledger"); a live entry's request receives it, a debt discards it. A completion or error naming a live owner's socket is that owner's; one naming a held socket releases the hold (#795). |
 | Raw stream socketless completion for a sole socket holder | Retire a strictly overdue holder first, then release its resulting socket hold. With two possible socket identities, retain the frame until a complete terminal count proves both ended; socket reuse never assigns it to the successor (#858). |
 | Written raw byte-stream request ends without its first answer | Its ledger entry becomes a debt for its ambiguity window (an inquiry's is at least the reply skew); a staged write that never left leaves no entry. An owed inquiry reply retains the exact inquiry-shape hold; a pre-ACK command installs no `PreAck` hold (#795). |
-| Ledger debt paid | Before side-effecting raw-stream ledger resolution, retire candidates whose response deadline is strictly earlier than the sampled frame; input at equality still wins. Resolve the frame against the resulting debt and discard it. An owed ACK displaces a stale owner of its named socket and holds that socket (or the first free eligible one) through its command's completion window; an owed reply leaves the ordinary reply skew from now (#795/#837; `raw_evidence::late_first_answers_are_order_independent`; `raw_evidence::late_ack_preserves_its_socket_against_successor_errors_and_socketless_completion`). |
+| Ledger debt paid | Before side-effecting raw-stream ledger resolution, retire candidates whose response deadline is strictly earlier than the sampled frame; input at equality still wins. Resolve the frame against the resulting debt and discard it. An owed ACK displaces a stale owner when it names a socket and retains that socket through the completion window. An owed socketless ACK retains anonymous execution evidence. An owed inquiry reply leaves the ordinary reply skew from now (#795, #837, #1154). |
 | Ordinary command or inquiry dispatch while its lane owes an answer inside its window | Queue; a `Stop` command may still write when no command is unacknowledged (#795). |
 | Ledger debt unpaid when the due pass reaches its window end | Latch only overlapping inquiry declarations, or the command lane: fail affected queued `Ready`/`Backoff` work and reject matching new work, unwritten, with `InquiryCorrelationLost` (overlapping inquiries, `CompletionOnly`) or `CommandCorrelationLost` (ordinary ACK-bearing, `CompletionOnly`, `NoReply`), `Terminal`/`NotAccepted`. The latch neither expires nor wakes the owner; STOPs, other targets, and the session are unaffected; the debt's answer, or a later first answer that settles it, reopens the lane (#795). |
 | Disputed raw stream frame (a socketless error behind a `CompletionOnly` entry that may still be rejected or a `NoReply` command's owed entry, or any frame behind a disputed waiting request, with another candidate behind it) | Bind to neither; keep the union of the debts either explanation leaves: the `CompletionOnly` command owes only its completion, the other candidate keeps owing and is disputed (never crossed; settled by its own answer or by write order) (#795). |
-| Sequenced Sony ACK naming a busy socket | Bind the new request to the named socket. Retain the predecessor as socket-free `ExecutingDisplaced`, routable by its request sequence until its original completion deadline; refuse its cancellation with `CancellationUnconfirmed`. A socketless ACK with both physical sockets occupied reports `Ignored(SocketConflict)` and finishes `CommandFailedAfterAck` (#963). |
+| Sequenced Sony ACK naming a busy socket | On Sony UDP, displace predecessors only when the ACK proves succession. Overlapping contenders keep their sequences and share the socket's capacity count while ownership is uncertain. Sony stream evidence follows stream order. A displaced request remains routable by its sequence through its original deadline (#963, #1145). |
+| Socketless ACK with an attributable request | Record `ExecutingUnassigned` and retain the original completion deadline once set by that ACK. Sony terminals resolve by sequence. Raw terminals require unique attribution among live owners and retained evidence (#1146, #1154). |
 | Unrelated input or due work while any request or cancellation write awaits its result | Forbidden by the immediate-write contract. Both owners apply the identified result first; the input-boundary auditor rejects a violation in debug and test builds. The engine defers its due/cancel/dispatch tail until every staged write finishes (#860, #1021; `zero_spacing_cancel_with_a_matured_retry_preserves_the_write_boundary`, `zero_spacing_cancellation_drains_before_a_matured_retry`). |
 | Completion in `Executing`, including after cancellation ambiguity elapsed | `finish` with `CommandOutcome::Applied`; exact socket ownership keeps it attributable through the completion deadline, and a retained cancellation observer maps this to `Completed` (#724). |
 | Exact completion in `AwaitingCancellationResolution` before its phase deadline | `finish` with `CommandOutcome::Applied`; the request is still open while its owned socket is retained. |
@@ -1279,6 +1289,7 @@ are full (D26, #778).
 | Repeated cancel from the same handle | The owner observes the handle's one existing intent and gives the engine no second input (#777). |
 | Duplicate cancel reaching the engine | `Ignored(DuplicateCancellation)`. |
 | Successful cancel send | Transition to `AwaitingCancellationResolution` with `AwaitingTerminal` at the sampled write-return instant. Start the cancellation response timeout at that instant. The original completion (`Completed`) or the protocol-cancel terminal (`Cancelled`) can still settle the operation through the later of its retained completion and ambiguity deadlines. |
+| Sony cancellation-sequence response | A named `0x04` matching the cancel socket confirms cancellation. A matching `0x05` releases the socket and ends the attempt. The original sequence still resolves through its own completion deadline. Ignore other response kinds or sockets on the cancel sequence. A confirmed FR7 drive cancel starts the target's 200 ms restart interval at the observed reply time (#1149, #1150). |
 | Failed datagram cancel send | Resolve the cancellation observation with its error, retain the original request and exact routing, and never retry that cancellation for the same socket assignment. An `Executing` request remains live through `max(completion deadline, cancellation ambiguity deadline)` (#724; `failed_cancel_write_does_not_shorten_an_executing_commands_completion_window`). A later unconfirmed terminal retains its future phase-scoped hold (#835). |
 | Failed stream cancel send | Poison the session and resolve every entry and observer. |
 | Observer detach or timeout | No engine input and no protocol transition. The expired wait reports `ObservationTimeout` (#783). |

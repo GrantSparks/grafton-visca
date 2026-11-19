@@ -145,7 +145,7 @@ struct Kind {
     link: Link,
     /// Percent of a socketed command's completions that name its socket.
     named_completions: u64,
-    /// A compatibility camera assigns its first free socket but omits its
+    /// A compatibility camera may rotate its physical sockets but omits its
     /// nibble from the ACK. Both physical sockets remain available.
     socketless_acks: bool,
     /// Percent of `CompletionOnly` commands whose completion is never sent.
@@ -167,7 +167,10 @@ impl Kind {
     /// A camera that keeps every assumption and names its sockets in
     /// completions, like the PTZOptics G2 (`90 51 FF`, `90 52 FF`).
     const fn names_sockets(&self) -> bool {
-        self.named_completions == 100 && self.lost_completion_only == 0 && self.dropped == 0
+        self.named_completions == 100
+            && !self.socketless_acks
+            && self.lost_completion_only == 0
+            && self.dropped == 0
     }
 }
 
@@ -184,7 +187,7 @@ const fn kind(name: &'static str, seeds: u64, link: Link) -> Kind {
     }
 }
 
-const KINDS: [Kind; 10] = [
+const KINDS: [Kind; 11] = [
     kind(
         "only camera-to-host delivery stalls",
         48,
@@ -203,6 +206,14 @@ const KINDS: [Kind; 10] = [
                 responses_only: true,
                 ..HOSTILE
             },
+        )
+    },
+    Kind {
+        socketless_acks: true,
+        ..kind(
+            "socketless ACKs with rotating named completions",
+            48,
+            HOSTILE,
         )
     },
     kind("names sockets, hostile link", 96, HOSTILE),
@@ -248,11 +259,7 @@ fn randomized_stream_sessions_bind_every_answer_to_its_originator() {
             kind.seeds,
             totals.summary()
         );
-        assert!(
-            totals.covers_every_path(kind.link.hostile),
-            "{}: {totals:?}",
-            kind.name
-        );
+        assert!(totals.covers_every_path(kind), "{}: {totals:?}", kind.name);
         if kind.within_assumptions() {
             assert_eq!(totals.misbindings, 0, "{}", kind.name);
         }
@@ -467,12 +474,10 @@ impl Coverage {
 
     /// Whether the run exercised every path the link allows (a G2-like link
     /// rarely outlasts a deadline).
-    fn covers_every_path(&self, hostile: bool) -> bool {
+    fn covers_every_path(&self, kind: Kind) -> bool {
         let always = [
             self.acked,
             self.stops,
-            self.cancels,
-            self.cancel_replies,
             self.named_rejections,
             self.socketless_rejections,
             self.inquiry_rejections,
@@ -485,8 +490,14 @@ impl Coverage {
             self.halts_unproven,
         ];
         let hostile_only = [self.executing_timeouts];
+        let cancellations = if kind.socketless_acks {
+            self.cancels == 0 && self.cancel_replies == 0
+        } else {
+            self.cancels > 0 && self.cancel_replies > 0
+        };
         always.iter().all(|count| *count > 0)
-            && (!hostile || hostile_only.iter().all(|count| *count > 0))
+            && cancellations
+            && (!kind.link.hostile || hostile_only.iter().all(|count| *count > 0))
     }
 }
 
@@ -992,7 +1003,7 @@ impl Session {
                     }
                     Effect::Transition {
                         id,
-                        to: Lifecycle::Executing { .. },
+                        to: Lifecycle::Executing { .. } | Lifecycle::ExecutingUnassigned { .. },
                         ..
                     } => {
                         self.acknowledged.insert(id);
@@ -1123,13 +1134,7 @@ impl Session {
                 let code = [0x02, 0x03, 0x41][usize::try_from(self.roll(3)).unwrap()];
                 let camera = &mut self.cameras[usize::from(target - 1)];
                 let free = (0..2)
-                    .map(|offset| {
-                        if self.kind.socketless_acks {
-                            offset
-                        } else {
-                            (camera.rotation + offset) % 2
-                        }
-                    })
+                    .map(|offset| (camera.rotation + offset) % 2)
                     .find(|index| camera.sockets[*index].is_none());
                 let response = match free {
                     None => {
@@ -1739,7 +1744,10 @@ fn learned_completion_chunking(
     if named {
         assert!(engine.entry(completion_only).is_none());
         assert!(engine.entry(first).is_none());
-        assert_eq!(socket_of(&engine, second), Some(ViscaSocket::S1));
+        assert!(matches!(
+            phase_of(&engine, second),
+            Some(Phase::ExecutingUnassigned { .. })
+        ));
     }
     let state = format!(
         "{:?}/{:?}/{:?}",
@@ -1787,7 +1795,6 @@ fn terminal_stream_reset_clears_and_audits_every_learning_field() {
             candidates: [Some(id), None],
             count: 1,
         }),
-        dropped_completion_owners: [Some(id), None],
         ..correlation::CompletionLearning::default()
     };
     stream.learning[camera(1)]
@@ -1805,7 +1812,7 @@ fn terminal_stream_reset_clears_and_audits_every_learning_field() {
 
     // The audit catches a forgotten reset even after all lifecycle/ledger work
     // is gone. Exercise every learning field and the independent release gate.
-    for field in 0..6 {
+    for field in 0..5 {
         let stream = engine.correlation.stream_mut().unwrap();
         *stream = correlation::StreamCorrelation::new();
         match field {
@@ -1821,8 +1828,7 @@ fn terminal_stream_reset_clears_and_audits_every_learning_field() {
                         count: 1,
                     })
             }
-            3 => stream.learning[camera(1)].dropped_completion_owners = [Some(id), None],
-            4 => stream.learning[camera(1)]
+            3 => stream.learning[camera(1)]
                 .terminals
                 .observe_ack(CommandSocketCount::TWO),
             _ => {

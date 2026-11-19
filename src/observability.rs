@@ -216,11 +216,10 @@ pub enum DiagnosticPhase {
     AwaitingCompletion,
     /// Waiting for command completion.
     Executing,
-    /// The Sony camera reassigned this command's socket to a later command.
+    /// The Sony camera reassigned this command's socket or reported it empty.
     ///
     /// The command still receives replies by its Sony sequence until its
-    /// original completion deadline. Cancellation returns
-    /// [`crate::Error::CancellationUnconfirmed`].
+    /// original completion deadline. A new cancellation cannot use this socket.
     Displaced,
     /// Waiting for an inquiry reply.
     AwaitingReply,

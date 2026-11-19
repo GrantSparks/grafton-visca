@@ -2421,6 +2421,7 @@ mod lifecycle_trace {
             Phase::Executing { socket, .. } => {
                 format!("executing(socket={})", socket.to_wire())
             }
+            Phase::ExecutingUnassigned { .. } => "executing-unassigned".to_owned(),
             Phase::ExecutingDisplaced { .. } => "executing-displaced".to_owned(),
             Phase::AwaitingReply { .. } => "awaiting-reply".to_owned(),
             Phase::Backoff { .. } => "backoff".to_owned(),

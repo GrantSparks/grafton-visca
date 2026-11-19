@@ -1061,6 +1061,24 @@ pub(crate) fn encode_for_target<R: Request + ?Sized, T>(
             ).into(),
         });
     }
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    let lowered = LoweredRequest {
+        applied_state: lowered.applied_state.or_else(|| {
+            use crate::capabilities::TypedSupportSurface;
+            use crate::command::PanTiltSpeedMode;
+            use crate::runtime::engine::AppliedStateProjection;
+
+            let mode = PanTiltSpeedMode::from_setter_frame(bytes)?;
+            target
+                .profile()
+                .capabilities()
+                .supports(TypedSupportSurface::PanTiltSpeedMode)
+                .then_some(AppliedStateProjection::set(
+                    crate::KnownState::PanTiltSpeedMode(mode),
+                ))
+        }),
+        ..lowered
+    };
     Ok((lowered, result))
 }
 

@@ -136,11 +136,22 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
             Some(deadline),
         ),
         (
+            "executing unassigned",
+            Lifecycle::ExecutingUnassigned {
+                started_at: now,
+                deadline,
+                attempt,
+            },
+            COMMAND,
+            Some(deadline),
+        ),
+        (
             "executing displaced",
             Lifecycle::ExecutingDisplaced {
                 started_at: now,
                 deadline,
                 attempt,
+                observe_completion_after_cancel: false,
             },
             0,
             Some(deadline),
@@ -218,7 +229,7 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
             Some(ambiguity),
         ),
     ];
-    assert_eq!(rows.len(), 17);
+    assert_eq!(rows.len(), 18);
     for (name, lifecycle, expected, window) in rows {
         assert_eq!(mask(lifecycle), expected, "{name}: {lifecycle:?}");
         assert_eq!(lifecycle.response_window_end(), window, "{name}");
@@ -227,6 +238,7 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
             Phase::AwaitingAck { deadline, .. }
             | Phase::AwaitingCompletion { deadline, .. }
             | Phase::Executing { deadline, .. }
+            | Phase::ExecutingUnassigned { deadline, .. }
             | Phase::ExecutingDisplaced { deadline, .. }
             | Phase::AwaitingReply { deadline, .. }
             | Phase::AwaitingCancellationResolution { deadline, .. } => Some(deadline),
@@ -467,7 +479,7 @@ fn reachable_request_classes_keep_stop_gates_and_physical_pacing() {
                 "{name} {envelope:?}/{transport:?}"
             );
             assert!(
-                !engine.command_gate_in(entry, camera(1), &occupancy),
+                !engine.command_gate_in(entry, camera(1), start, &occupancy),
                 "{name}"
             );
             assert!(

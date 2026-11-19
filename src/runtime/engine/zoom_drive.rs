@@ -1,6 +1,6 @@
 //! Wire evidence used to select the matching STOP for a continuous zoom drive.
 
-use super::{RequestId, RuntimeRequest, SendingReply, TransmissionId};
+use super::{RequestId, TransmissionId};
 use crate::command::semantics::BuiltinCommand;
 
 #[derive(Debug, Default)]
@@ -46,31 +46,40 @@ impl ZoomDriveHistory {
             .map(|&(_, write)| write)
             .chain(self.retired)
             .max_by_key(|write| write.transmission)
-            .is_some_and(|write| write.high_resolution)
+            .is_some_and(|write| write.family == ZoomDriveFamily::HighResolution)
     }
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct ZoomDriveWrite {
     transmission: TransmissionId,
-    high_resolution: bool,
+    family: ZoomDriveFamily,
 }
 
 impl ZoomDriveWrite {
-    /// Classifies only a complete addressed drive packet. The request ledger
-    /// supplies the opcode and direction patterns for both families.
-    pub(super) fn from_request(
-        request: &RuntimeRequest,
-        transmission: TransmissionId,
-    ) -> Option<Self> {
-        if SendingReply::new(request) != SendingReply::AckThenCompletion {
+    pub(super) const fn new(transmission: TransmissionId, family: ZoomDriveFamily) -> Self {
+        Self {
+            transmission,
+            family,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ZoomDriveFamily {
+    Standard,
+    HighResolution,
+}
+
+impl ZoomDriveFamily {
+    /// Recognizes complete addressed drives using the reviewed packet patterns
+    /// and operand bounds for each family.
+    pub(crate) fn classify(bytes: &[u8], target_address: u8) -> Option<Self> {
+        let (&address, body) = bytes.split_first()?;
+        if address != target_address {
             return None;
         }
-        let (&address, body) = request.wire().as_bytes().split_first()?;
-        if address != request.context().target.camera().to_address_byte() {
-            return None;
-        }
-        let (commands, high_resolution): (&[BuiltinCommand], _) = match body {
+        let (commands, family): (&[BuiltinCommand], _) = match body {
             [_, _, _, speed, 0xff] if speed & 0xf <= 7 => (
                 &[
                     BuiltinCommand::ZoomTele,
@@ -78,7 +87,7 @@ impl ZoomDriveWrite {
                     BuiltinCommand::ZoomTeleVariable,
                     BuiltinCommand::ZoomWideVariable,
                 ],
-                false,
+                Self::Standard,
             ),
             [_, _, _, _, _, high @ 0..=7, mid_high @ 0..=15, mid_low @ 0..=15, low @ 0..=15, 0xff]
                 if [*high, *mid_high, *mid_low, *low] != [7, 15, 15, 15] =>
@@ -88,7 +97,7 @@ impl ZoomDriveWrite {
                         BuiltinCommand::Fr7ZoomHighResolutionTele,
                         BuiltinCommand::Fr7ZoomHighResolutionWide,
                     ],
-                    true,
+                    Self::HighResolution,
                 )
             }
             _ => return None,
@@ -99,9 +108,6 @@ impl ZoomDriveWrite {
                 row.packet()
                     .is_some_and(|packet| packet.matches_bytes(body))
             })
-            .then_some(Self {
-                transmission,
-                high_resolution,
-            })
+            .then_some(family)
     }
 }

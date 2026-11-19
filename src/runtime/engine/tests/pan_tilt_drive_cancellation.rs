@@ -1,4 +1,4 @@
-//! Sony R7 p. 5 sets independent wire intervals before cancel and restart.
+//! Sony FR7 p. 5 sets independent wire intervals before cancel and restart.
 use super::*;
 
 use crate::error::{ErrorKind, Recovery};
@@ -128,11 +128,13 @@ fn cancel_error(engine: &mut ProtocolEngine, code: u8, now: Instant) -> Vec<Effe
 
 #[test]
 fn fr7_drive_cancel_and_restart_each_need_timing_and_wire_evidence() {
-    // The first case needs the 200 ms floors, the second needs the late ACK
-    // and late cancellation response. Swap directional and STOP encodings.
-    for (stop, ack_at, cancel_at, canceled_after, restart_after) in
-        [(false, 120, 207, 60, 200), (true, 240, 240, 240, 240)]
-    {
+    // The later ACK also tests that the cancel must wait for a named socket.
+    for (stop, ack_at, cancel_at, canceled_after) in [
+        (false, 120, 207, 0),
+        (false, 120, 207, 60),
+        (true, 240, 240, 200),
+        (true, 240, 240, 240),
+    ] {
         let mut engine = engine_with_drive_rule();
         let start = Instant::now();
         let at = |ms| start + Duration::from_millis(ms);
@@ -181,11 +183,11 @@ fn fr7_drive_cancel_and_restart_each_need_timing_and_wire_evidence() {
             ack_drive(&mut engine, at(ack_at))
         };
         assert_eq!(cancel_transmit(&cancel).1, drive_id);
-        // Completing the driver write can take time. Its receipt, not the
-        // scheduler's selection timestamp, starts the restart interval.
+        // The write return can arrive later than dispatch. Neither instant
+        // starts the restart interval.
         let cancel_written = cancel_at + 8;
         finish_cancel_write(&mut engine, &cancel, at(cancel_written));
-        let duplicate = engine.handle(engine.cancel_input(drive_id), at(cancel_written + 1));
+        let duplicate = engine.handle(engine.cancel_input(drive_id), at(cancel_written));
         assert!(cancel_transmit_optional(&duplicate).is_none());
 
         let unrelated = engine.handle(
@@ -197,22 +199,26 @@ fn fr7_drive_cancel_and_restart_each_need_timing_and_wire_evidence() {
                     code: 0x04.into(),
                 },
             ),
-            at(cancel_written + 2),
+            at(cancel_written),
         );
         assert!(terminal_id(&unrelated).is_none());
 
-        if canceled_after < restart_after {
-            let reply = cancel_error(&mut engine, 0x04, at(cancel_written + canceled_after));
-            assert!(request_transmit_optional(&reply).is_none());
-        }
-        let before = engine.advance(at(cancel_written + restart_after - 1));
+        let confirmed = cancel_written + canceled_after;
+        let waiting = engine.advance(at(confirmed));
+        assert!(request_transmit_optional(&waiting).is_none());
+        let reply = cancel_error(&mut engine, 0x04, at(confirmed));
+        assert!(matches!(
+            terminal_outcome(&reply, drive_id),
+            Some(RuntimeOutcome::Command(CommandOutcome::Cancelled))
+        ));
+        assert!(request_transmit_optional(&reply).is_none());
+        let duplicate = cancel_error(&mut engine, 0x04, at(confirmed + 1));
+        assert!(terminal_id(&duplicate).is_none());
+
+        let before = engine.advance(at(confirmed + 199));
         assert!(request_transmit_optional(&before).is_none());
         assert!(cancel_transmit_optional(&before).is_none());
-        let restart = if canceled_after == restart_after {
-            cancel_error(&mut engine, 0x04, at(cancel_written + canceled_after))
-        } else {
-            engine.advance(at(cancel_written + restart_after))
-        };
+        let restart = engine.advance(at(confirmed + 200));
         assert_eq!(request_transmit(&restart).1, next);
     }
 }
@@ -290,6 +296,8 @@ fn inconclusive_cancellation_refuses_only_the_same_targets_drive_family() {
 #[test]
 fn refused_drive_retry_preserves_uncertainty_from_its_prior_write() {
     let mut engine = engine_with_drive_rule();
+    // On UDP that prior write would also make the cancel's socket uncertain.
+    engine.policy.transport = TransportKind::Stream;
     let start = Instant::now();
     let at = |ms| start + Duration::from_millis(ms);
     let drive_id = start_drive(&mut engine, start, false);
@@ -355,12 +363,12 @@ fn socket_reassignment_without_confirmation_keeps_the_drive_family_restricted() 
     engine.handle(engine.cancel_input(drive_id), at(15));
     let (_, next) = admit(&mut engine, 2, drive(1, true), at(50));
 
-    let mut other = command(1);
-    other.context_mut().timeout.ack = NonZeroDuration::HALF_SECOND;
-    let (other, other_id) = admit(&mut engine, 3, other, at(165));
-    send_ok(&mut engine, &other, Some(0x1003), at(165));
     let cancel = engine.advance(at(207));
     finish_cancel_write(&mut engine, &cancel, at(207));
+    let mut other = command(1);
+    other.context_mut().timeout.ack = NonZeroDuration::HALF_SECOND;
+    let (other, other_id) = admit(&mut engine, 3, other, at(242));
+    send_ok(&mut engine, &other, Some(0x1003), at(242));
 
     let reassignment = engine.handle(
         frame(
@@ -370,7 +378,7 @@ fn socket_reassignment_without_confirmation_keeps_the_drive_family_restricted() 
                 socket: Some(ViscaSocket::S1),
             },
         ),
-        at(210),
+        at(245),
     );
     assert_eq!(
         engine.socket_owner(camera(1), ViscaSocket::S1),
@@ -386,4 +394,82 @@ fn socket_reassignment_without_confirmation_keeps_the_drive_family_restricted() 
         Certainty::NotAccepted,
     );
     assert!(request_transmit_optional(&engine.advance(at(407))).is_none());
+}
+
+#[test]
+fn overlapping_drive_cancels_keep_the_latest_or_unconfirmed_restriction() {
+    for first_reply in [0x04, 0x05] {
+        let mut engine = engine_with_drive_rule();
+        let start = Instant::now();
+        let at = |ms| start + Duration::from_millis(ms);
+        let first = start_drive(&mut engine, start, false);
+        ack_drive(&mut engine, at(10));
+
+        let second_sequence = 0x1003;
+        let second_cancel_sequence = 0x1004;
+        let (outbound, second) = admit(&mut engine, 2, drive(1, false), at(50));
+        send_ok(&mut engine, &outbound, Some(second_sequence), at(50));
+        engine.handle(
+            frame(
+                1,
+                Some(second_sequence),
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S2),
+                },
+            ),
+            at(55),
+        );
+        engine.handle(engine.cancel_input(first), at(60));
+        engine.handle(engine.cancel_input(second), at(60));
+
+        let first_cancel = engine.advance(at(207));
+        assert_eq!(cancel_transmit(&first_cancel).1, first);
+        finish_cancel_write(&mut engine, &first_cancel, at(207));
+
+        let second_cancel = engine.advance(at(250));
+        let (transmission, id, socket) = cancel_transmit(&second_cancel);
+        assert_eq!((id, socket), (second, ViscaSocket::S2));
+        finish_write_input_only(
+            &mut engine,
+            id,
+            transmission,
+            Ok(TransmissionMeta::Allocated {
+                sequence: second_cancel_sequence,
+            }),
+            at(250),
+        );
+
+        assert!(
+            request_transmit_optional(&cancel_error(&mut engine, first_reply, at(260))).is_none()
+        );
+        let confirmation = engine.handle(
+            frame(
+                1,
+                Some(second_cancel_sequence),
+                DecodedResponse::Error {
+                    socket: Some(ViscaSocket::S2),
+                    code: 0x04.into(),
+                },
+            ),
+            at(300),
+        );
+        assert!(matches!(
+            terminal_outcome(&confirmation, second),
+            Some(RuntimeOutcome::Command(CommandOutcome::Cancelled))
+        ));
+
+        if first_reply == 0x04 {
+            let (waiting, next) = admit(&mut engine, 3, drive(1, true), at(310));
+            assert!(request_transmit_optional(&waiting).is_none());
+            assert!(request_transmit_optional(&engine.advance(at(499))).is_none());
+            assert_eq!(request_transmit(&engine.advance(at(500))).1, next);
+        } else {
+            let turn = engine.begin_input_turn(at(500));
+            assert_restart_blocked(
+                &engine.admit_in_turn(&turn, drive(1, true)).unwrap_err(),
+                FailureStage::PreAdmission,
+                Certainty::NotAccepted,
+            );
+        }
+    }
 }

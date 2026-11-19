@@ -282,26 +282,23 @@ Camera → Controller: 90 5y FF   # Completion, command finished
 
 `y` is the socket number. Most cameras have two command sockets.
 
-For raw VISCA, do not send a second command for the same target while its
-first command is still unacknowledged. The one raw candidate spans `Sending`,
-`AwaitingAck`, and `AwaitingCompletion`. The `AwaitingCompletion` phase is the
-completion-only shape: it holds the target channel exclusively and never earns
-a socket. For an ACK-bearing command,
-once the ACK establishes the first command's socket, the scheduler may use the
-camera's remaining socket capacity while that command executes. Raw ACK and
-error routing never uses a
-command FIFO or temporal recency. A socketless error routes the unique
-unacknowledged command only when no inquiry owner is live; with no unacknowledged
-command it may route the legitimate per-target inquiry FIFO, while a
-command-plus-inquiry collision is ignored. An explicit socket routes only its
-exact target/socket owner, and a socketless error never targets `Executing`.
-A named ACK socket is exact evidence as well: if another request owns that
-socket on raw VISCA, the camera's new assignment supersedes the stale local
-owner (#721). The old request fails immediately and leaves an inert keyed
-`PreAck` hold; the new request owns the named socket. A socketless ACK may select the first free
-registered socket. Sony-encapsulated commands may pipeline before ACK because
-their envelope sequence number provides exact correlation; they retain the
-bounded #620/#682 other-free-socket compatibility fallback.
+The owner correlates replies per target according to the transport.
+
+| Transport | Attribution |
+|---|---|
+| Raw UDP | At most one ordinary command awaits an ACK. A named ACK allows use of the remaining socket capacity and supersedes a stale owner of that socket (#721). A socketless error can identify the sole eligible command or inquiry when no other candidate could have produced it. Two live inquiries can share the target when their payload shapes are disjoint, but a socketless error does not identify either one. |
+| Raw byte stream (TCP or serial) | The ordered ledger attributes first answers to the oldest compatible write, including debt from earlier writes whose answers are still owed. A matching debt consumes the answer. A named terminal uses exact socket evidence when it cannot be an earlier write's first answer. |
+| Sony envelope (UDP or TCP) | The sequence attributes replies, so commands can pipeline before ACK. A named ACK identifies the camera-reported socket. A command that loses the socket can still receive its terminal by sequence. |
+
+A socketless ACK records acceptance without identifying a physical socket.
+On raw transports an ordinary command waits if its replies would overlap
+such an execution. A terminal settles a raw request only when the owner's
+other live requests and retained reply evidence leave a unique attribution.
+Sony sequences identify the terminal even when the ACK omitted the socket.
+
+See [raw reply shapes and dispatch](architecture_2_0.md#raw-response-shapes-and-correlation-ownership)
+and [the raw byte-stream ledger](architecture_2_0.md#the-raw-byte-stream-correlation-ledger)
+for the complete rules, including urgent STOPs and retained reply evidence.
 
 The fixed response forms are length-exact: `z0 4y FF` ACK, `z0 5y FF`
 nonzero-socket completion, `z0 6y zz FF` error, and `z0 38 FF` network-change
@@ -968,13 +965,11 @@ the owner alone knows which live operation owns a camera-assigned socket.
 
 ### 11.4 Command scheduling, sockets, and cancel
 
-VISCA cameras generally expose two command sockets. Maintain an owner-only
-per-camera scheduler. Raw VISCA normally gates the target's one unacknowledged
-command, then tracks the ACK-assigned sockets and frees each socket on
-Completion or an error. One intrinsically `Urgent` command may cross one open
-candidate for safety (#714); while both are open, ACK/error evidence binds to
-neither rather than using FIFO order or recency. Sony sequence numbers permit
-pre-ACK pipeline and exact reply correlation.
+VISCA cameras generally expose two command sockets. The scheduler tracks
+them per target. An urgent STOP may cross an open raw command for safety
+(#714). Raw UDP drops replies that either command could have sent. Raw
+streams attribute first answers through the ordered ledger. Sony sequence
+numbers permit pre-ACK pipelining. See [transport-specific attribution](#61-command-lifecycle).
 
 | Action | Packet / behavior |
 |---|---|
@@ -985,14 +980,22 @@ pre-ACK pipeline and exact reply correlation.
 
 Use cancel for explicit user interrupts or emergency stops, not as a normal substitute for command pacing. Owner-issued cancellation is selected ahead of ordinary queued work, but it still obeys the shared profile-specific minimum spacing between sends and advances that spacing deadline. The uploaded unified guide gives `100 ms` as a hardware-tested PTZOptics G2/G3/30X starting point and `35 ms` for Sony FR7/BRC-H900; treat those as scheduler defaults that should be verified per target firmware and network path.
 
-For Sony FR7, the owner waits at least 200 ms after a typed PAN-TILT Drive
-write before sending a socket cancel, and needs an ACK naming the socket.
-After sending the cancel, another typed drive-family write on that target
-(including STOP and menu navigation) needs both 200 ms and the correlated
-`Command Canceled` response. Natural completion before the cancel goes on the
-wire releases the gate without the second interval. After the cancel is sent,
-natural completion can establish the original command's outcome. The restart
-still requires the cancellation response. If attribution ends without it,
+Sony UDP cancellation requires sufficient evidence that the addressed socket
+still belongs to the original operation. Uncertain ownership returns
+`CancellationUnconfirmed` while the original command remains observable by
+sequence. A matching `Command Canceled` response on the cancellation sequence
+confirms cancellation. A matching `No Socket` ends the attempt and releases
+its socket claim. The original sequence can still report its own terminal.
+
+For Sony FR7, the owner waits at least 200 ms after a PAN-TILT Drive write
+before sending a socket cancel and requires an ACK naming the socket. This
+includes wire-equivalent raw and downstream drive, STOP and menu navigation
+packets. Once the cancel is sent, the next drive-family write on that target
+must wait 200 ms from the owner's receipt of the matching `Command Canceled`
+response. Natural completion before the cancel goes on the wire releases the
+gate immediately. After the cancel is sent, natural completion can establish
+the original command's outcome. If cancellation attribution ends without
+confirmation,
 the owner refuses further drive-family requests for that target with
 `Error::PanTiltDriveRestartBlocked`. Its failure context records whether the
 request was refused before admission or before a subsequent write and whether

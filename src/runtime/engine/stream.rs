@@ -176,6 +176,26 @@ impl StreamContext<'_> {
         effects: &mut Decision,
     ) {
         let target = frame.target;
+        let can_end_unassigned = match frame.response {
+            DecodedResponse::Completion { .. } => true,
+            DecodedResponse::Error {
+                socket: Some(_),
+                code,
+            } => !code.answers_named_cancellation(),
+            _ => false,
+        };
+        if can_end_unassigned {
+            while let Some(id) = self.entries.iter().find_map(|(id, entry)| {
+                (entry.request.context().target == target
+                    && matches!(
+                        entry.lifecycle(),
+                        Lifecycle::ExecutingUnassigned { deadline, .. } if deadline < now
+                    ))
+                .then_some(*id)
+            }) {
+                self.retire_stale_correlated_request(id, now, effects);
+            }
+        }
         let (answer, socket) = match &frame.response {
             DecodedResponse::Ack { .. } => (Some(Answer::Ack), None),
             DecodedResponse::InquiryReply { payload } => (Some(Answer::Reply(payload)), None),
@@ -241,6 +261,10 @@ impl StreamContext<'_> {
         }
     }
 
+    fn stream_owes_ack(&self, target: TargetSlot) -> bool {
+        self.stream.ledger.candidates(target, Answer::Ack)[0].is_some()
+    }
+
     fn classify_named_error(
         &self,
         target: TargetSlot,
@@ -301,16 +325,17 @@ impl StreamContext<'_> {
             || [ViscaSocket::S1, ViscaSocket::S2]
                 .into_iter()
                 .any(|socket| self.socket_owner(target, socket).is_some())
+            || self.raw_live_unassigned(target)
         {
             return;
         }
         for socket in [ViscaSocket::S1, ViscaSocket::S2] {
             self.stream.holds.release_socket(target, socket);
         }
+        self.stream.holds.release_unassigned_execution(target);
         let learning = &mut self.stream.learning[target];
         learning.terminals.proved_idle = false;
         learning.pending_socketless_completions = None;
-        learning.dropped_completion_owners = [None; 2];
     }
 
     /// A conclusive first answer for the sole possible rejection candidate
@@ -397,7 +422,6 @@ impl StreamContext<'_> {
                                 completion,
                                 Some(debt.request),
                                 now,
-                                effects,
                             );
                         }
                         None
@@ -408,13 +432,7 @@ impl StreamContext<'_> {
                     // another command's (or released as a held one's).
                     Resolved::Disputed(candidates) => {
                         self.displace_stale_socket_owner(target, *socket, effects);
-                        self.hold_disputed_command_socket(
-                            target,
-                            *socket,
-                            &candidates,
-                            now,
-                            effects,
-                        );
+                        self.hold_disputed_command_socket(target, *socket, &candidates, now);
                         None
                     }
                     Resolved::Nothing => None,
@@ -434,11 +452,23 @@ impl StreamContext<'_> {
                 self.stream.update_learning(target, |learning| {
                     learning.terminals.terminal(TerminalFamily::Socketed);
                     learning.completion_sockets.learn_named();
-                    if learning.completion_sockets.is_named() {
-                        // The dropped completions were completion-only answers.
-                        learning.dropped_completion_owners = [None; 2];
-                    }
                 });
+                if self.raw_execution_unassigned(target) {
+                    let held = self
+                        .raw_hold(target, RawHoldScope::Socket(*socket))
+                        .is_some();
+                    let follow = self
+                        .stream
+                        .ledger
+                        .follow_candidate(target, *socket)
+                        .is_some();
+                    if !held && !follow && !self.stream_owes_ack(target) {
+                        let owner = self.sole_raw_execution_candidate(target, Some(*socket))?;
+                        self.settle_before_owner(target, owner, now, effects);
+                        return Some(owner);
+                    }
+                    return None;
+                }
                 if let Some(owner) = self.socket_owner(target, *socket) {
                     self.settle_before_owner(target, owner, now, effects);
                     return Some(owner);
@@ -451,6 +481,27 @@ impl StreamContext<'_> {
                     );
                 }
                 self.stream.holds.release_socket(target, *socket);
+                None
+            }
+            // A compatible ACK left execution unkeyed. Before using the
+            // normal socket or completion-only ledger, check every source that
+            // could have emitted this terminal.
+            DecodedResponse::Completion { socket: None }
+                if self.raw_execution_unassigned(target) =>
+            {
+                self.learn_socketless_completion(target);
+                self.stream.learning[target]
+                    .terminals
+                    .terminal(TerminalFamily::Either);
+                self.stream.learning[target].pending_socketless_completions = None;
+                if !self.stream.ledger.owes_completion(target)
+                    && !self.stream_owes_ack(target)
+                    && self.raw_socket_hold_count(target) == 0
+                {
+                    let owner = self.sole_raw_execution_candidate(target, None)?;
+                    self.settle_before_owner(target, owner, now, effects);
+                    return Some(owner);
+                }
                 None
             }
             // A camera whose completions name their sockets completes a
@@ -487,7 +538,6 @@ impl StreamContext<'_> {
                     if holders != 0 || !held.is_empty() {
                         self.stream.update_learning(target, |learning| {
                             learning.completion_sockets.drop_ambiguous();
-                            learning.dropped_completion_owners = owners;
                         });
                         return None;
                     }
@@ -549,6 +599,33 @@ impl StreamContext<'_> {
                             None
                         }
                     };
+                }
+                if self.raw_execution_unassigned(target) {
+                    let could_reject = code.refuses_before_start()
+                        && self
+                            .stream
+                            .ledger
+                            .candidates(target, Answer::NamedRejection)[0]
+                            .is_some();
+                    self.observe_named_error(target, *socket, could_reject);
+                    if could_reject {
+                        self.stream.ledger.dispute(target, Answer::NamedRejection);
+                        return None;
+                    }
+                    if self
+                        .raw_hold(target, RawHoldScope::Socket(*socket))
+                        .is_some()
+                        || self
+                            .stream
+                            .ledger
+                            .follow_candidate(target, *socket)
+                            .is_some()
+                    {
+                        return None;
+                    }
+                    let owner = self.sole_raw_execution_candidate(target, Some(*socket))?;
+                    self.settle_before_owner(target, owner, now, effects);
+                    return Some(owner);
                 }
                 match self.classify_named_error(target, *socket, *code) {
                     NamedErrorOrigin::Execution(owner) => {
@@ -820,7 +897,6 @@ impl StreamContext<'_> {
         socket: Option<ViscaSocket>,
         candidates: &[Outstanding; 2],
         now: Instant,
-        effects: &mut Decision,
     ) {
         let completion = candidates
             .iter()
@@ -833,7 +909,7 @@ impl StreamContext<'_> {
             })
             .max();
         if let Some(completion) = completion {
-            self.hold_executing_socket(target, socket, completion, None, now, effects);
+            self.hold_executing_socket(target, socket, completion, None, now);
         }
     }
 
@@ -853,9 +929,7 @@ impl StreamContext<'_> {
         }
     }
 
-    /// Holds the executing command's named socket, or the first free unheld
-    /// socket for a compatibility ACK with no socket nibble. Owed and disputed
-    /// ACK evidence must apply the same rule.
+    /// A compatibility ACK proves execution but supplies no physical key.
     fn hold_executing_socket(
         &mut self,
         target: TargetSlot,
@@ -863,74 +937,17 @@ impl StreamContext<'_> {
         completion: Duration,
         owner: Option<RequestId>,
         now: Instant,
-        effects: &mut Decision,
     ) {
-        if requested.is_none() && self.uncertain_socketless_stream_ack(target) {
-            self.hold_uncertain_socketless_execution(target, completion, now, effects);
-            return;
-        }
-        let socket = requested.or_else(|| {
-            self.command_sockets(target).sockets().find(|socket| {
-                self.socket_owner(target, *socket).is_none()
-                    && self
-                        .raw_hold(target, RawHoldScope::Socket(*socket))
-                        .is_none()
-            })
-        });
-        if let Some(socket) = socket.filter(|socket| self.socket_owner(target, *socket).is_none()) {
-            self.stream.holds.extend(
-                target,
-                StreamScope::Socket(socket),
-                add_duration(now, completion),
-                owner,
-            );
-        }
-    }
-
-    /// Retains the union of physical sockets an accepted compatibility ACK
-    /// could execute on. Existing owners may have completed unseen; keeping
-    /// their guessed keys live would let an error of the new command end one
-    /// of them. End those claims through the usual strict-aware terminator,
-    /// and retain anonymous holds until named evidence releases each socket.
-    pub(super) fn hold_uncertain_socketless_execution(
-        &mut self,
-        target: TargetSlot,
-        completion: Duration,
-        now: Instant,
-        effects: &mut Decision,
-    ) {
-        let mut until = add_duration(now, completion);
-        let capacity = if self.socket_capacity(target) == CommandSocketCount::TWO
-            || self.socket_owner(target, ViscaSocket::S2).is_some()
-            || self
-                .raw_hold(target, RawHoldScope::Socket(ViscaSocket::S2))
-                .is_some()
-        {
-            CommandSocketCount::TWO
-        } else {
-            CommandSocketCount::ONE
-        };
-        for socket in [ViscaSocket::S1, ViscaSocket::S2] {
-            if let Some(owner) = self.socket_owner(target, socket) {
-                if let Some(entry) = self.entries.get(&owner) {
-                    until = until.max(add_duration(
-                        now,
-                        entry.request.context().timeout.completion.get(),
-                    ));
-                }
-                self.release_attempt_ownership(owner);
-                effects.displace(owner);
+        let scope = match requested {
+            Some(socket) if self.socket_owner(target, socket).is_none() => {
+                StreamScope::Socket(socket)
             }
-        }
-        let learning = &mut self.stream.learning[target];
-        learning.pending_socketless_completions = None;
-        learning.dropped_completion_owners = [None; 2];
-        learning.socket_capacity_seen = Some(capacity);
-        for socket in capacity.sockets() {
-            self.stream
-                .holds
-                .extend(target, StreamScope::Socket(socket), until, None);
-        }
+            Some(_) => return,
+            None => StreamScope::UnassignedExecution,
+        };
+        self.stream
+            .holds
+            .extend(target, scope, add_duration(now, completion), owner);
     }
 
     /// Records what a socketless completion shows about `target`'s camera,
