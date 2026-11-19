@@ -14,6 +14,7 @@ pub(super) struct TargetOccupancy {
     pub(super) commands: usize,
     pub(super) inquiries: usize,
     pub(super) unacknowledged: usize,
+    pub(super) unassigned_command: bool,
     pub(super) uncorrelated_command: bool,
     pub(super) pan_tilt_drive_cancel_pending: bool,
     positional: Option<PositionalCommand>,
@@ -100,6 +101,7 @@ impl Occupancy {
                 }
             }
             target.commands += usize::from(lifecycle.is_command_on_wire());
+            target.unassigned_command |= matches!(lifecycle, Lifecycle::ExecutingUnassigned { .. });
             if lifecycle.is_live_inquiry() {
                 target.inquiries += 1;
                 if let Some(shape) = entry.request.payload_shape() {

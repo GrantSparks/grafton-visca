@@ -6498,77 +6498,8 @@ fn datagram_write_failure_fails_exactly_one_request() {
     engine.assert_invariants().unwrap();
 }
 
-/// `90 40 FF` carries no socket nibble, so the ACK binds to the first free
-/// socket, the one the camera assigns next.
-#[test]
-fn socketless_ack_assigns_the_first_free_socket() {
-    let start = Instant::now();
-    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let admission = engine.handle(
-        Input::Admit {
-            ticket: AdmissionTicket(1),
-            request: command(1),
-        },
-        start,
-    );
-    let id = admitted(&admission);
-    send_ok(&mut engine, &admission, None, start);
-    let acked = engine.handle(frame(1, None, DecodedResponse::Ack { socket: None }), start);
-    assert!(ignored_reasons(&acked).is_empty());
-    assert_eq!(socket_of(&engine, id), Some(ViscaSocket::S1));
-
-    // And the socketless completion that such a camera sends finishes it.
-    let done = engine.handle(
-        frame(1, None, DecodedResponse::Completion { socket: None }),
-        start,
-    );
-    assert_eq!(terminal_id(&done), Some(id));
-    engine.assert_invariants().unwrap();
-}
-
-/// With socket one already held, a socketless ACK takes socket two.
-#[test]
-fn socketless_ack_takes_the_second_socket_when_the_first_is_busy() {
-    let start = Instant::now();
-    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let first = engine.handle(
-        Input::Admit {
-            ticket: AdmissionTicket(1),
-            request: command(1),
-        },
-        start,
-    );
-    let first_id = admitted(&first);
-    send_ok(&mut engine, &first, None, start);
-    engine.handle(
-        frame(
-            1,
-            None,
-            DecodedResponse::Ack {
-                socket: Some(ViscaSocket::S1),
-            },
-        ),
-        start,
-    );
-    let second = engine.handle(
-        Input::Admit {
-            ticket: AdmissionTicket(2),
-            request: command(1),
-        },
-        start,
-    );
-    let second_id = admitted(&second);
-    send_ok(&mut engine, &second, None, start);
-    let acked = engine.handle(frame(1, None, DecodedResponse::Ack { socket: None }), start);
-    assert!(ignored_reasons(&acked).is_empty());
-    assert_eq!(socket_of(&engine, first_id), Some(ViscaSocket::S1));
-    assert_eq!(socket_of(&engine, second_id), Some(ViscaSocket::S2));
-    engine.assert_invariants().unwrap();
-}
-
 /// A raw named-socket collision needs mutable reconciliation by the ACK path;
-/// the pure assignment helper never invents the other socket. Socketless ACKs
-/// retain first-free compatibility, and a fully occupied target remains inert.
+/// the pure assignment helper never invents the other socket.
 #[test]
 fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
     let start = Instant::now();
@@ -6604,23 +6535,18 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
 
     // Socket one is taken by another request. A raw named ACK cannot silently
     // become socket two; the authoritative ACK path must displace the stale
-    // owner first (#721). A socketless ACK may still select the free socket.
+    // owner first (#721).
     assert_eq!(
         engine
-            .assign_socket(camera(1), Some(ViscaSocket::S1), second_id)
+            .assign_socket(camera(1), ViscaSocket::S1, second_id)
             .map(SocketClaim::socket),
         None
     );
-    assert_eq!(
-        engine
-            .assign_socket(camera(1), None, second_id)
-            .map(SocketClaim::socket),
-        Some(ViscaSocket::S2)
-    );
+
     // A request keeps the socket it already owns.
     assert_eq!(
         engine
-            .assign_socket(camera(1), Some(ViscaSocket::S1), first_id)
+            .assign_socket(camera(1), ViscaSocket::S1, first_id)
             .map(SocketClaim::socket),
         Some(ViscaSocket::S1)
     );
@@ -6637,15 +6563,10 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
     );
     // Every socket is now held by another request: nothing is invented.
     let stranger = RequestId::from_nonzero(NonZeroU64::new(u64::MAX).unwrap());
+
     assert_eq!(
         engine
-            .assign_socket(camera(1), None, stranger)
-            .map(SocketClaim::socket),
-        None
-    );
-    assert_eq!(
-        engine
-            .assign_socket(camera(1), Some(ViscaSocket::S1), stranger)
+            .assign_socket(camera(1), ViscaSocket::S1, stranger)
             .map(SocketClaim::socket),
         None
     );
@@ -6678,15 +6599,10 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
         start,
     );
     assert_eq!(socket_of(&single, only_id), Some(ViscaSocket::S1));
+
     assert_eq!(
         single
-            .assign_socket(camera(1), None, stranger)
-            .map(SocketClaim::socket),
-        None
-    );
-    assert_eq!(
-        single
-            .assign_socket(camera(1), Some(ViscaSocket::S1), stranger)
+            .assign_socket(camera(1), ViscaSocket::S1, stranger)
             .map(SocketClaim::socket),
         None
     );

@@ -394,9 +394,8 @@ facade_matrix! {
     }
 
     /// A camera that answers `90 40 FF` / `90 50 FF` sends no socket nibble.
-    /// The owner assigns the command a free socket and completes it; the
-    /// socketless frame is not an `InvalidResponse` and does not end the
-    /// session.
+    /// With one eligible execution, the owner attributes the completion
+    /// without assigning a physical socket.
     fn socketless_ack_and_completion_still_complete_a_command() {
         // Socket 0 is the socketless form: `90 40 FF` and `90 50 FF`.
         let camera = FakeCamera::visca(|_, answer| {

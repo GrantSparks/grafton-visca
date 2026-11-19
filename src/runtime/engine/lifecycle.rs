@@ -1279,6 +1279,27 @@ impl PendingCancellation {
         self.request.ambiguity_deadline
     }
 
+    pub(crate) const fn observer_open(self) -> bool {
+        self.request.observer_open
+    }
+
+    pub(crate) const fn refused(self, now: Instant) -> SocketedLifecycle {
+        let (started_at, deadline, attempt) = match self.phase {
+            SocketedPhase::Executing {
+                started_at,
+                deadline,
+                attempt,
+            } => (started_at, deadline, attempt),
+            SocketedPhase::Resolving { deadline, attempt } => (now, deadline, attempt),
+        };
+        SocketedLifecycle::Executing {
+            started_at,
+            deadline,
+            attempt,
+            cancellation: ExecutingCancellation::None,
+        }
+    }
+
     pub(crate) const fn emitted(
         self,
         transmission: TransmissionId,

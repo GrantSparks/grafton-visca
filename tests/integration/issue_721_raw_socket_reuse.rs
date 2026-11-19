@@ -18,7 +18,7 @@ use grafton_visca_test_support::{facade_matrix, fake_camera, profile_fixtures};
 use std::time::Duration;
 
 use grafton_visca::{
-    config::SessionConfig,
+    config::{SessionConfig, TransportKind},
     operation::{AppliedOnly, CancellationOutcome},
     profiles::ProfileSpec,
     Error,
@@ -184,5 +184,94 @@ facade_matrix! {
             "two commands and B's normal S1 completion"
         );
         session.shutdown().expect("shutdown");
+    }
+}
+
+/// Raw compatibility ACKs omit a physical slot even when every terminal
+/// names the slot the camera actually used.
+struct UnnamedAck {
+    camera: FakeCamera,
+    transport: TransportKind,
+}
+
+impl UnnamedAck {
+    #[cfg(feature = "blocking")]
+    fn blocking_wire(&self) -> BlockingWire {
+        self.camera
+            .blocking_wire()
+            .with_transport_kind(self.transport)
+    }
+
+    #[cfg(all(
+        feature = "async",
+        any(feature = "runtime-tokio", feature = "runtime-smol")
+    ))]
+    fn async_wire(&self) -> AsyncWire {
+        self.camera
+            .async_wire()
+            .with_addressing(AddressingMode::Ip)
+            .with_transport_kind(self.transport)
+    }
+}
+
+facade_matrix! {
+    fn socketless_ack_leaves_anonymous_execution_until_its_named_completion() {
+        for transport in [TransportKind::Tcp, TransportKind::Udp] {
+            for (first_socket, second_socket) in [(1, 2), (2, 1)] {
+                let fake = UnnamedAck {
+                    camera: FakeCamera::visca(|_, answer| {
+                        answer.reply(frames::ack(0));
+                    }),
+                    transport,
+                };
+                let session = open!(
+                    fake,
+                    SessionConfig::new(
+                        ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
+                            .expect("two-socket raw profile"),
+                    )
+                )
+                .expect("session");
+                let camera = session
+                    .camera::<NonDefaultCompileTimeProfile>(
+                        grafton_visca::types::IndividualCameraId::CAMERA_1,
+                    )
+                    .expect("camera");
+
+                let mut first = wait!(camera.submit::<AppliedOnly, _>(
+                    &grafton_visca::command::zoom::Tele
+                ))
+                .expect("first operation");
+                wait_for_reads!(fake.camera, 1);
+                assert!(matches!(
+                    wait!(first.cancel_with_timeout(Duration::from_millis(100))),
+                    Err(Error::CancellationUnconfirmed)
+                ));
+
+                let (second, ()) = together!({
+                    wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Wide))
+                }, {
+                    assert!(matches!(
+                        wait!(first.applied_with_timeout(Duration::from_millis(40))),
+                        Err(Error::ObservationTimeout)
+                    ));
+                    assert_eq!(fake.camera.write_count(), 1, "{transport:?}");
+                    fake.camera.push(frames::complete(first_socket));
+                    wait!(first.applied()).expect("the first command's physical socket");
+                });
+
+                let mut second = second.expect("second operation after first completion");
+                wait_for_writes!(fake.camera, 2);
+                wait_for_reads!(fake.camera, 3);
+                fake.camera.push(frames::complete(second_socket));
+                wait!(second.applied()).expect("the second command's physical socket");
+
+                assert_eq!(
+                    fake.camera.writes(),
+                    [vec![0x81, 1, 4, 7, 2, 0xff], vec![0x81, 1, 4, 7, 3, 0xff]]
+                );
+                session.shutdown().expect("shutdown");
+            }
+        }
     }
 }

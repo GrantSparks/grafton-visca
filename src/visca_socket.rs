@@ -23,7 +23,7 @@ impl CommandSocketCount {
     /// Two physical command sockets.
     pub const TWO: Self = Self(2);
 
-    #[cfg(any(feature = "blocking", feature = "async", test))]
+    #[cfg(test)]
     pub(crate) fn sockets(self) -> impl Iterator<Item = ViscaSocket> {
         [ViscaSocket::S1, ViscaSocket::S2]
             .into_iter()
