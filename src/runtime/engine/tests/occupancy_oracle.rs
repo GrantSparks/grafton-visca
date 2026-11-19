@@ -17,6 +17,7 @@ fn command_on_wire(lifecycle: Lifecycle) -> bool {
         } | Lifecycle::AwaitingAck { .. }
             | Lifecycle::AwaitingCompletion { .. }
             | Lifecycle::Executing { .. }
+            | Lifecycle::ExecutingUnassigned { .. }
             | Lifecycle::AwaitingCancellationResolution { .. }
     )
 }
