@@ -660,3 +660,65 @@ fn sony_datagram_conclusive_rejection_ends_socket_evidence_until_retry_writes() 
     assert!(ignored_reasons(&accepted).is_empty());
     assert_eq!(socket_of(&engine, first), Some(ViscaSocket::S1));
 }
+
+#[test]
+fn sony_datagram_socketless_ack_competes_until_its_exact_terminal() {
+    let now = Instant::now();
+    let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+    let (writing, first) = admit(&mut engine, 1, command(1), now);
+    send_ok(&mut engine, &writing, Some(FIRST), now);
+    engine.handle(ack(FIRST, ViscaSocket::S1), now);
+    let (writing, second) = admit(&mut engine, 2, command(1), now);
+    send_ok(&mut engine, &writing, Some(SECOND), now);
+    engine.handle(response(SECOND, DecodedResponse::Ack { socket: None }), now);
+
+    let refused = engine.handle(engine.cancel_input(first), now);
+    assert_cancel_refused(&refused, first);
+    let terminal = engine.handle(
+        response(
+            SECOND,
+            DecodedResponse::Completion {
+                socket: Some(ViscaSocket::S2),
+            },
+        ),
+        now,
+    );
+    assert_applied(&terminal, second);
+    assert_eq!(
+        cancel_transmit(&engine.handle(engine.cancel_input(first), now)).1,
+        first
+    );
+}
+
+#[test]
+fn sony_datagram_transport_failure_preserves_only_possible_competing_writes() {
+    for may_have_reached_camera in [false, true] {
+        let now = Instant::now();
+        let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+        let (writing, first) = admit(&mut engine, 1, command(1), now);
+        send_ok(&mut engine, &writing, Some(FIRST), now);
+        engine.handle(ack(FIRST, ViscaSocket::S1), now);
+        let (writing, second) = admit(&mut engine, 2, command(1), now);
+        let (transmission, _, _) = request_transmit(&writing);
+        let result = if may_have_reached_camera {
+            WriteOutcome::Failed(Error::io_timeout())
+        } else {
+            WriteOutcome::NotSent(Error::io_timeout())
+        };
+        let failed = engine.handle(
+            Input::TransmissionFinished {
+                request: second,
+                transmission,
+                result,
+            },
+            now,
+        );
+        assert!(terminal_failure(&failed, second).is_some());
+        let cancellation = engine.handle(engine.cancel_input(first), now);
+        if may_have_reached_camera {
+            assert_cancel_refused(&cancellation, first);
+        } else {
+            assert_eq!(cancel_transmit(&cancellation).1, first);
+        }
+    }
+}
