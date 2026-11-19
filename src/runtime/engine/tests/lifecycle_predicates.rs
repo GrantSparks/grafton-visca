@@ -479,7 +479,7 @@ fn reachable_request_classes_keep_stop_gates_and_physical_pacing() {
                 "{name} {envelope:?}/{transport:?}"
             );
             assert!(
-                !engine.command_gate_in(entry, camera(1), &occupancy),
+                !engine.command_gate_in(entry, camera(1), start, &occupancy),
                 "{name}"
             );
             assert!(

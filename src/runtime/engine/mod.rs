@@ -1046,7 +1046,13 @@ trait EngineMethods: EngineAccess {
                 && occupancy.targets[target].commands < self.command_sockets(target).get()
                 && self.used_capacity_in(target, occupancy) >= self.command_sockets(target).get())
     }
-    fn command_gate_in(&self, entry: &Entry, target: TargetSlot, occupancy: &Occupancy) -> bool {
+    fn command_gate_in(
+        &self,
+        entry: &Entry,
+        target: TargetSlot,
+        now: Instant,
+        occupancy: &Occupancy,
+    ) -> bool {
         let raw = self.mode().is_raw();
         let state = &occupancy.targets[target];
         let urgent_bypass = raw
@@ -1063,7 +1069,7 @@ trait EngineMethods: EngineAccess {
             || ((self.raw_hold(target, RawHoldScope::PreAck).is_some()
                 || self.mode().ledger().lane_state(target, Lane::Command) != LaneState::Clear)
                 && !self.pre_ack_bypass_in(entry, target, occupancy))
-            || self.latched_raw_lane_error(&entry.request).is_some()
+            || self.latched_raw_lane_error(&entry.request, now).is_some()
     }
     fn uncorrelated_shape_blocked_in(
         &self,
@@ -1123,7 +1129,7 @@ trait EngineMethods: EngineAccess {
                     .is_some_and(|bound| now >= bound)
                     && (state.state_write_blocks(id, &entry.request)
                         || self.hold_blocks_in(entry, target, occupancy)
-                        || self.command_gate_in(entry, target, occupancy)
+                        || self.command_gate_in(entry, target, now, occupancy)
                         || (if entry.request.is_stop() {
                             state.commands
                         } else {
@@ -1592,7 +1598,7 @@ trait EngineMethods: EngineAccess {
                 ));
             }
         }
-        if let Some(error) = self.latched_raw_lane_error(&request) {
+        if let Some(error) = self.latched_raw_lane_error(&request, now) {
             return Err(error);
         }
         let Some(id) = self.allocate_request_id() else {
@@ -1803,7 +1809,7 @@ trait EngineMethods: EngineAccess {
                 !self.stop_wait_ended(entry, now)
                     && (state_conflict
                         || self.raw_hold_blocks_dispatch(entry, target)
-                        || self.raw_command_gate_blocks(entry, target)
+                        || self.raw_command_gate_blocks(entry, target, now)
                         || self.command_capacity_used_by(entry, target)
                             >= policy.command_sockets.get()
                         || self.uncorrelated_raw_shape_blocked(entry, target, now))
@@ -2192,14 +2198,14 @@ trait EngineMethods: EngineAccess {
     /// is no exception on a byte stream: its possible rejection is owed too,
     /// and could not be told from the owed answer.
     #[cfg(test)]
-    fn raw_command_gate_blocks(&self, entry: &Entry, target: TargetSlot) -> bool {
+    fn raw_command_gate_blocks(&self, entry: &Entry, target: TargetSlot, now: Instant) -> bool {
         let owed = self.mode().ledger().lane_state(target, Lane::Command) != LaneState::Clear;
         (self.mode().is_raw() && !entry.request.is_stop() && self.raw_execution_unassigned(target))
             || (self.raw_command_unacknowledged(target)
                 && !self.raw_urgent_gate_bypass_available(entry, target))
             || ((self.raw_hold(target, RawHoldScope::PreAck).is_some() || owed)
                 && !self.raw_preack_hold_bypass_available(entry, target))
-            || self.latched_raw_lane_error(&entry.request).is_some()
+            || self.latched_raw_lane_error(&entry.request, now).is_some()
     }
 
     /// Whether an uncorrelatable raw command is still occupying `target`.
@@ -3749,7 +3755,7 @@ trait EngineMethods: EngineAccess {
     /// ordinary ACK-bearing and `CompletionOnly` commands
     /// and `NoReply` commands ([`Error::CommandCorrelationLost`]). Urgent
     /// STOPs and other targets are never blocked.
-    fn latched_raw_lane_error(&self, request: &RuntimeRequest) -> Option<Error> {
+    fn latched_raw_lane_error(&self, request: &RuntimeRequest, now: Instant) -> Option<Error> {
         let context = request.context();
         let target = context.target;
         let family = SendingReply::new(request);
@@ -3768,8 +3774,16 @@ trait EngineMethods: EngineAccess {
         // A `CompletionOnly` command's socketless rejection could not be told
         // from a `NoReply` command's still owed past its window.
         let rejection_latched = completion_only && self.mode().ledger().rejection_latched(target);
+        // A stream can still owe an accepted command's terminal after the
+        // ambiguity window. Fail ordinary commands while that debt is
+        // unresolved so their submissions do not wait indefinitely.
+        let unassigned_latched = self.mode().is_stream()
+            && self
+                .raw_hold(target, RawHoldScope::UnassignedExecution)
+                .is_some_and(|hold| hold.until <= now);
         ((command_lane
-            && self.mode().ledger().lane_state(target, Lane::Command) == LaneState::Latched)
+            && (unassigned_latched
+                || self.mode().ledger().lane_state(target, Lane::Command) == LaneState::Latched))
             || rejection_latched)
             .then(|| Error::command_correlation_lost(target.individual_camera()))
     }
@@ -3783,7 +3797,7 @@ trait EngineMethods: EngineAccess {
             .iter()
             .filter(|(_, entry)| entry.lifecycle().is_off_wire())
             .filter_map(|(id, entry)| {
-                self.latched_raw_lane_error(&entry.request)
+                self.latched_raw_lane_error(&entry.request, now)
                     .map(|error| (*id, error))
             })
             .collect();
@@ -4875,13 +4889,17 @@ trait EngineMethods: EngineAccess {
         // reply's window wakes the owner through the ledger, and once latched
         // only input settles it.
         // A stream's socket hold still wakes the owner at its deadline, when
-        // a waiting `CompletionOnly` command may start.
+        // a waiting `CompletionOnly` command may start. An unassigned
+        // execution wakes at its deadline to fail the command lane.
         self.mode()
             .holds()
             .iter()
             .filter(|(key, hold)| {
                 !self.raw_hold_released_by_evidence(**key)
-                    || (matches!(key.scope, RawHoldScope::Socket(_)) && hold.until > now)
+                    || (matches!(
+                        key.scope,
+                        RawHoldScope::Socket(_) | RawHoldScope::UnassignedExecution
+                    ) && hold.until > now)
             })
             .map(|(_, hold)| hold.until)
             .min()

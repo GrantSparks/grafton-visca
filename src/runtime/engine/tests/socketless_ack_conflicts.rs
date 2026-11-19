@@ -156,3 +156,109 @@ fn a_timed_out_anonymous_execution_cannot_complete_an_urgent_successor() {
         engine.assert_invariants().unwrap();
     }
 }
+
+#[test]
+fn an_overdue_stream_terminal_fails_the_waiting_command_lane_until_evidence_arrives() {
+    let now = Instant::now();
+    let target = camera(1);
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
+    let first = executing(&mut engine, 1, None, now);
+    let (queued, waiting) = admit(&mut engine, 2, command(1), now);
+    assert!(request_transmit_optional(&queued).is_none());
+    let Phase::ExecutingUnassigned { deadline, .. } = phase_of(&engine, first).unwrap() else {
+        unreachable!();
+    };
+    let expired = engine.advance(deadline);
+    assert!(matches!(
+        terminal_failure(&expired, first),
+        Some(Error::UnsequencedCommandUnconfirmed)
+    ));
+    let until = engine
+        .raw_hold(target, RawHoldScope::UnassignedExecution)
+        .unwrap()
+        .until;
+    assert_eq!(engine.next_wake(deadline), Some(until));
+    let latched = engine.advance(until);
+    assert!(matches!(
+        terminal_failure(&latched, waiting),
+        Some(Error::CommandCorrelationLost { .. })
+    ));
+    assert!(request_transmit_optional(&latched).is_none());
+
+    // A terminal received after the window proves the lane safe again.
+    let late = complete(&mut engine, 1, Some(ViscaSocket::S2), until);
+    assert!(terminal_id(&late).is_none());
+    assert!(engine
+        .raw_hold(target, RawHoldScope::UnassignedExecution)
+        .is_none());
+    let (write, fresh) = admit(&mut engine, 3, command(1), until);
+    assert_eq!(request_transmit(&write).1, fresh);
+}
+
+#[test]
+fn a_stops_ack_proves_a_prior_ambiguous_error_paid_the_unassigned_terminal() {
+    let now = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
+    let first = executing(&mut engine, 1, None, now);
+    let Phase::ExecutingUnassigned { deadline, .. } = phase_of(&engine, first).unwrap() else {
+        unreachable!();
+    };
+    engine.advance(deadline);
+    let (write, stop) = admit(&mut engine, 2, urgent_command(1), deadline);
+    send_ok(&mut engine, &write, None, deadline);
+
+    // This error could be the original execution's terminal or the STOP's
+    // pre-ACK rejection. The later ACK proves that the STOP was accepted.
+    let error = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Error {
+                socket: Some(ViscaSocket::S1),
+                code: CameraErrorCode::NotExecutable,
+            },
+        ),
+        deadline,
+    );
+    assert!(terminal_id(&error).is_none());
+    assert!(engine
+        .raw_hold(camera(1), RawHoldScope::UnassignedExecution)
+        .is_some());
+    ack(&mut engine, 1, None, deadline);
+    assert!(engine
+        .raw_hold(camera(1), RawHoldScope::UnassignedExecution)
+        .is_none());
+    assert_eq!(
+        terminal_id(&complete(&mut engine, 1, Some(ViscaSocket::S1), deadline)),
+        Some(stop)
+    );
+}
+
+#[test]
+fn an_unassigned_ack_revokes_a_pending_named_cancellation_at_dispatch() {
+    for transport in [TransportKind::Datagram, TransportKind::Stream] {
+        let now = Instant::now();
+        let step = Duration::from_millis(5);
+        let mut engine = engine(EnvelopeKind::Raw, transport);
+        engine
+            .retune(step, Duration::ZERO, PerTarget::default(), now)
+            .unwrap();
+        let named = executing(&mut engine, 1, Some(ViscaSocket::S1), now);
+
+        let at = now + step;
+        let (write, _) = admit(&mut engine, 2, command(1), at);
+        send_ok(&mut engine, &write, None, at);
+        let cancel = engine.handle(engine.cancel_input(named), at);
+        assert!(request_transmit_optional(&cancel).is_none());
+        ack(&mut engine, 1, None, at);
+
+        let refused = engine.advance(at + step);
+        assert!(refused.iter().any(|effect| matches!(
+            effect,
+            Effect::CancellationObservation { id, observation: CancellationObservation::AttemptFailed(Error::CancellationUnconfirmed) } if *id == named
+        )));
+        assert!(request_transmit_optional(&refused).is_none());
+        assert_eq!(socket_of(&engine, named), Some(ViscaSocket::S1));
+        engine.assert_invariants().unwrap();
+    }
+}
