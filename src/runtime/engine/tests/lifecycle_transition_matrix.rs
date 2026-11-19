@@ -38,7 +38,6 @@ impl State {
             Phase::AwaitingCompletion { .. } => Self::AwaitingCompletion,
             Phase::Executing { .. }
             | Phase::ExecutingUnassigned { .. }
-            | Phase::ExecutingUnassigned { .. }
             | Phase::ExecutingDisplaced { .. } => Self::Executing,
             Phase::AwaitingReply { .. } => Self::AwaitingReply,
             Phase::Backoff { .. } => Self::Backoff,

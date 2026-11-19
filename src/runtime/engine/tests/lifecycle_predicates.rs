@@ -136,6 +136,16 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
             Some(deadline),
         ),
         (
+            "executing unassigned",
+            Lifecycle::ExecutingUnassigned {
+                started_at: now,
+                deadline,
+                attempt,
+            },
+            COMMAND,
+            Some(deadline),
+        ),
+        (
             "executing displaced",
             Lifecycle::ExecutingDisplaced {
                 started_at: now,

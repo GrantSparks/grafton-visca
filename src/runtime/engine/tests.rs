@@ -37,6 +37,7 @@ mod retry_history;
 mod session_end;
 mod socketless_ack_conflicts;
 mod sony_socket_reuse;
+mod sony_unnamed_ack;
 mod speed_mode_order;
 mod stop_quarantine;
 mod write_outcomes;
@@ -6690,76 +6691,6 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
         None
     );
     single.assert_invariants().unwrap();
-}
-
-/// A socketless Sony ACK cannot invent capacity when both sockets remain
-/// held. Its sequence proves acceptance but names no owner to displace.
-#[test]
-fn sequenced_socketless_ack_with_two_live_socket_owners_fails_after_ack_without_retry() {
-    let start = Instant::now();
-    let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
-    for (ticket, sequence, socket) in [(1, 0x1001, ViscaSocket::S1), (2, 0x1002, ViscaSocket::S2)] {
-        let admitted_effects = engine.handle(
-            Input::Admit {
-                ticket: AdmissionTicket(ticket),
-                request: command(1),
-            },
-            start,
-        );
-        send_ok(&mut engine, &admitted_effects, Some(sequence), start);
-        engine.handle(
-            frame(
-                1,
-                Some(sequence),
-                DecodedResponse::Ack {
-                    socket: Some(socket),
-                },
-            ),
-            start,
-        );
-    }
-
-    // Capacity correctly leaves C queued. Make its phase the narrow ACK-path
-    // seam so the test can prove assignment itself still reports a conflict
-    // when both physical owners are genuinely live.
-    let queued = engine.handle(
-        Input::Admit {
-            ticket: AdmissionTicket(3),
-            request: command(1),
-        },
-        start,
-    );
-    let third_id = admitted(&queued);
-    engine
-        .entries
-        .transition(
-            third_id,
-            EntryChange::Lifecycle(UnsocketedLifecycle::AwaitingAck {
-                sent_at: start,
-                deadline: start + Duration::from_millis(20),
-                attempt: AttemptFacts {
-                    socket_capacity: Some(CommandSocketCount::TWO),
-                    stream_order: None,
-                },
-                cancellation: None,
-            }),
-        )
-        .unwrap();
-    let mut sink = Vec::new();
-    let mut decision = Decision::new(&mut sink);
-    engine.ack(third_id, None, start, &mut decision);
-    engine.finish_decision(start, decision);
-    let effects = sink;
-    assert_eq!(
-        ignored_reasons(&effects),
-        vec![IgnoreReason::SocketConflict]
-    );
-    assert!(matches!(
-        terminal_failure(&effects, third_id),
-        Some(Error::CommandFailedAfterAck { .. })
-    ));
-    assert!(engine.entry(third_id).is_none());
-    engine.assert_invariants().unwrap();
 }
 
 /// A socketless ACK that matches no in-flight command is inert, exactly like
