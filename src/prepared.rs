@@ -561,7 +561,7 @@ where
         .motion_axes()
         .map(|axes| crate::runtime::engine::MotionEffect { axes });
     Ok(PreparedCommand {
-        wire: PreparedWire::Owned(wire),
+        wire: PreparedWire::Owned(prepare_zoom_drive(wire, registration, reply_shape)?),
         context,
         reply_shape,
         not_executable,
@@ -663,7 +663,7 @@ where
     context.requires_extended_pan_tilt_speed = lowered.requires_extended_pan_tilt_speed;
     context.pan_tilt_drive = lowered.pan_tilt_drive;
     Ok(PreparedOperation {
-        wire: PreparedWire::Owned(wire),
+        wire: PreparedWire::Owned(prepare_zoom_drive(wire, registration, reply_shape)?),
         context,
         reply_shape,
         not_executable,
@@ -686,6 +686,33 @@ where
     O: OperationCommand<K> + ?Sized,
 {
     prepare_operation::<K, _>(operation, registration, tuning, ClassSelection::Request)
+}
+
+fn prepare_zoom_drive(
+    wire: EncodedMessage,
+    registration: &crate::TargetRegistration,
+    reply_shape: CommandReply,
+) -> Result<EncodedMessage> {
+    use crate::{command::semantics::StopCommand, runtime::engine::ZoomDriveFamily};
+
+    let address = registration.slot().camera().to_address_byte();
+    let Some(family) = ZoomDriveFamily::classify(wire.as_bytes(), address) else {
+        return Ok(wire);
+    };
+    // Apply the reviewed dual-family protocol only where the high-resolution
+    // STOP is available. Other profiles can give the same bytes a custom meaning.
+    if StopCommand::Fr7ZoomHighResolutionStop
+        .validate(registration.profile())
+        .is_err()
+    {
+        return Ok(wire);
+    }
+    if reply_shape != CommandReply::AckThenCompletion {
+        return Err(Error::InvalidRequest {
+            reason: "FR7 continuous zoom drives require AckThenCompletion replies".into(),
+        });
+    }
+    Ok(wire.with_zoom_drive_family(family))
 }
 
 fn encode<R: Request + ?Sized, T>(

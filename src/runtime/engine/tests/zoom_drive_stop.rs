@@ -6,8 +6,17 @@ const HIGH_RESOLUTION_STOP: &[u8] = &[0x81, 1, 0x7e, 4, 0x17, 0, 0, 0, 0, 0, 0xf
 const STANDARD_STOP: &[u8] = &[0x81, 1, 4, 7, 0, 0xff];
 
 fn zoom_request(bytes: &[u8], reply_shape: CommandReply) -> RuntimeRequest {
+    let mut wire = EncodedMessage::new(bytes).expect("valid test packet");
+    let family = match bytes {
+        HIGH_RESOLUTION_DRIVE => Some(ZoomDriveFamily::HighResolution),
+        STANDARD_DRIVE => Some(ZoomDriveFamily::Standard),
+        _ => None,
+    };
+    if let Some(family) = family {
+        wire = wire.with_zoom_drive_family(family);
+    }
     RuntimeRequest::Command {
-        wire: wire_for_test(bytes),
+        wire: Arc::new(wire),
         context: context(1),
         reply_shape,
         not_executable: false,

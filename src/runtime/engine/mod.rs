@@ -27,6 +27,7 @@ use stream_ledger::{
     Standing, StreamLedger,
 };
 pub(crate) use types::*;
+pub(crate) use zoom_drive::ZoomDriveFamily;
 use zoom_drive::{ZoomDriveHistory, ZoomDriveWrite};
 
 use std::{
@@ -2322,7 +2323,8 @@ trait EngineMethods: EngineAccess {
             self.pacing.record(lane, now);
             if matches!(owner.write, ActiveWrite::Request { .. }) {
                 let zoom_drive = self.entries.get(&request).and_then(|entry| {
-                    let write = ZoomDriveWrite::from_request(&entry.request, transmission)?;
+                    let family = entry.request.wire().zoom_drive_family()?;
+                    let write = ZoomDriveWrite::new(transmission, family);
                     Some((entry.request.context().target, write))
                 });
                 if let Some((target, write)) = zoom_drive {

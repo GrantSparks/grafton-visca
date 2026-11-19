@@ -416,6 +416,102 @@ mod paused {
             wait!(session.close()).expect("close motion session");
         }
 
+        fn fr7_raw_zoom_policy_matches_wire_family_on_static_and_dynamic_views() {
+            use grafton_visca::{
+                profiles::{AnyProfile, CommandTimeoutClass},
+                raw::{AppliedOnlyRequest, OperationReplyShape, PlainRequest, RawReplyShape},
+                request::{CommandPolicy, CommandRetryClass, OperationPolicy, SubmissionClass},
+                types::IndividualCameraId,
+            };
+
+            const STANDARD_DRIVE: &[u8] = &[0x81, 1, 4, 7, 0x27, 0xff];
+            const HIGH_RESOLUTION_DRIVE: &[u8] = &[0x81, 1, 0x7e, 4, 0x17, 2, 0, 1, 0, 0, 0xff];
+            const STANDARD_STOP: &[u8] = &[0x81, 1, 4, 7, 0, 0xff];
+            const HIGH_RESOLUTION_STOP: &[u8] = &[0x81, 1, 0x7e, 4, 0x17, 0, 0, 0, 0, 0, 0xff];
+            const PAN_TILT_STOP: &[u8] = &[0x81, 1, 6, 1, 12, 10, 3, 3, 0xff];
+            const FOCUS_STOP: &[u8] = &[0x81, 1, 4, 8, 0, 0xff];
+            const VENDOR_ACK: &[u8] = &[0x81, 1, 0x7e, 4, 0x18, 2, 0, 1, 0, 0, 0xff];
+            const VENDOR_COMPLETE: &[u8] = &[0x81, 1, 0x7e, 4, 0x18, 2, 0, 2, 0, 0, 0xff];
+            const VENDOR_SILENT: &[u8] = &[0x81, 1, 0x7e, 4, 0x18, 2, 0, 3, 0, 0, 0xff];
+            const INVALID_OPERAND: &[u8] = &[0x81, 1, 0x7e, 4, 0x17, 2, 8, 1, 0, 0, 0xff];
+
+            let plain_policy = CommandPolicy::new(
+                CommandTimeoutClass::Movement,
+                CommandRetryClass::Never,
+                SubmissionClass::Normal,
+            );
+            let operation_policy = OperationPolicy::new(
+                CommandTimeoutClass::Movement,
+                CommandRetryClass::Never,
+                SubmissionClass::Normal,
+            );
+            for dynamic in [false, true] {
+                let fake = FakeCamera::visca(|request, answer| match request {
+                    STANDARD_DRIVE | HIGH_RESOLUTION_DRIVE | STANDARD_STOP | HIGH_RESOLUTION_STOP
+                    | PAN_TILT_STOP | FOCUS_STOP | VENDOR_ACK => {
+                        answer.reply(frames::ack(1)).reply(frames::complete(1));
+                    }
+                    VENDOR_COMPLETE => { answer.reply(frames::complete(1)); }
+                    VENDOR_SILENT | INVALID_OPERAND => {}
+                    other => panic!("unexpected packet {other:02x?}"),
+                });
+                let config = SessionConfig::from_compile_time::<SonyFr7>().expect("FR7 config");
+                let session = open!(fake, config).expect("FR7 session");
+                let typed = session.camera::<SonyFr7>(IndividualCameraId::CAMERA_1).expect("static FR7");
+                let generic = session.camera::<AnyProfile>(IndividualCameraId::CAMERA_1).expect("dynamic FR7");
+
+                for (drive, stop) in [(STANDARD_DRIVE, STANDARD_STOP), (HIGH_RESOLUTION_DRIVE, HIGH_RESOLUTION_STOP)] {
+                    for shape in [RawReplyShape::CompletionOnly, RawReplyShape::NoReply] {
+                        let request = PlainRequest::with_policy(drive, plain_policy.with_reply_shape(shape))
+                            .expect("syntactically valid raw command")
+                            .with_motion_axes(AffectedAxes::ZOOM);
+                        let result = if dynamic { wait!(generic.execute(&request)) } else { wait!(typed.execute(&request)) };
+                        assert!(matches!(result, Err(Error::InvalidRequest { .. })), "{result:?}");
+                    }
+                    let operation = AppliedOnlyRequest::with_policy(
+                        drive,
+                        AffectedAxes::ZOOM,
+                        operation_policy.with_reply_shape(OperationReplyShape::CompletionOnly),
+                    ).expect("syntactically valid raw operation");
+                    if dynamic {
+                        assert!(matches!(wait!(generic.submit::<AppliedOnly, _>(&operation)), Err(Error::InvalidRequest { .. })));
+                    } else {
+                        assert!(matches!(wait!(typed.submit::<AppliedOnly, _>(&operation)), Err(Error::InvalidRequest { .. })));
+                    }
+                    assert_eq!(fake.write_count(), 0, "contradictory shapes fail before I/O");
+
+                    let request = PlainRequest::with_policy(drive, plain_policy)
+                        .expect("ACK-bearing raw command")
+                        .with_motion_axes(AffectedAxes::ZOOM);
+                    let report = if dynamic {
+                        wait!(generic.execute(&request)).expect("dynamic drive applies");
+                        wait!(generic.motion().stop_all())
+                    } else {
+                        wait!(typed.execute(&request)).expect("static drive applies");
+                        wait!(typed.motion().stop_all())
+                    };
+                    report.expect("halt accepted").into_result().expect("all STOPs apply");
+                    assert_eq!(fake.take_payloads(), [drive, PAN_TILT_STOP, stop, FOCUS_STOP]);
+                }
+
+                for (packet, shape) in [
+                    (VENDOR_ACK, RawReplyShape::AckThenCompletion),
+                    (VENDOR_COMPLETE, RawReplyShape::CompletionOnly),
+                    (VENDOR_SILENT, RawReplyShape::NoReply),
+                    (INVALID_OPERAND, RawReplyShape::NoReply),
+                ] {
+                    let request = PlainRequest::with_policy(packet, plain_policy.with_reply_shape(shape)).expect("custom frame");
+                    if dynamic {
+                        wait!(generic.execute(&request)).expect("custom reply shape on a dynamic camera");
+                    } else {
+                        wait!(typed.execute(&request)).expect("custom reply shape on a static camera");
+                    }
+                }
+                assert_eq!(fake.take_payloads(), [VENDOR_ACK, VENDOR_COMPLETE, VENDOR_SILENT, INVALID_OPERAND]);
+                wait!(session.close()).expect("close FR7 session");
+            }
+        }
+
         fn static_extension_requests_refuse_fr7_permissions_before_io() {
             let fake = FakeCamera::silent();
             let session = open!(fake, SessionConfig::from_compile_time::<PtzOpticsG2>().expect("G2 config")).expect("G2 session");

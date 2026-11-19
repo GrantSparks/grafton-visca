@@ -1,4 +1,5 @@
 //! Inert values crossing the deterministic protocol-engine boundary.
+use super::ZoomDriveFamily;
 use crate::protocol::{response::CameraErrorCode, sony::PayloadType};
 use crate::target::{PerTarget, TargetSlot};
 
@@ -32,11 +33,12 @@ impl EngineTurn {
     }
 }
 
-/// Prepared VISCA bytes and any reviewed Sony read-only inquiry envelope.
+/// Prepared VISCA bytes with target-validated wire metadata.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct EncodedMessage {
     bytes: SmallVec<[u8; INLINE_BYTES]>,
     sony_read_only_payload: Option<PayloadType>,
+    zoom_drive_family: Option<ZoomDriveFamily>,
 }
 
 impl EncodedMessage {
@@ -56,6 +58,7 @@ impl EncodedMessage {
         Ok(Self {
             bytes: SmallVec::from_slice(bytes),
             sony_read_only_payload: None,
+            zoom_drive_family: None,
         })
     }
 
@@ -82,6 +85,7 @@ impl EncodedMessage {
             Self {
                 bytes,
                 sony_read_only_payload: None,
+                zoom_drive_family: None,
             },
             result,
         ))
@@ -90,6 +94,15 @@ impl EncodedMessage {
     pub(crate) fn with_sony_read_only_payload(mut self, payload_type: Option<PayloadType>) -> Self {
         self.sony_read_only_payload = payload_type;
         self
+    }
+
+    pub(crate) fn with_zoom_drive_family(mut self, family: ZoomDriveFamily) -> Self {
+        self.zoom_drive_family = Some(family);
+        self
+    }
+
+    pub(crate) const fn zoom_drive_family(&self) -> Option<ZoomDriveFamily> {
+        self.zoom_drive_family
     }
 
     /// Returns the inert wire bytes.
@@ -230,7 +243,8 @@ pub(crate) enum CancellationPolicy {
 /// This is the private lowering of the public [`crate::raw::RawReplyShape`]. The
 /// engine never infers it from wire bytes: preparation lowers the caller's
 /// explicit declaration into this fact, exactly as it does the envelope and
-/// control class. Reviewed built-in STOPs lower to [`Self::Stop`]; ordinary
+/// control class. Preparation checks reviewed FR7 zoom drives against that
+/// declaration. Reviewed built-in STOPs lower to [`Self::Stop`]; ordinary
 /// built-in commands use [`Self::AckThenCompletion`]. Custom commands may
 /// declare either of the remaining reply shapes, but cannot claim STOP authority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
