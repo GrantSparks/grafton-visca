@@ -345,8 +345,18 @@ declaring `TransportIdentity::Custom { semantics, addressing }` uses the custom
 path, with validation of target registration, envelope, addressing, pacing,
 framing, buffer limits, and owner capacity. A runtime-neutral async
 executor must provide detached spawning, sleep, reusable timers, and clock behavior
-from one runtime. Async construction uses the crate's operation-first deadline
-race. Dropping a built-in connect future cancels its pending connector work. `raw::InquiryRequest::new` uses the inquiry lifecycle's fixed
+from one runtime. Async construction gives each completed step precedence at
+its deadline. TCP and UDP share one connect budget across resolution and
+socket setup, and IP literals bypass name resolution. On Tokio, dropping or
+timing out a connect cancels a queued hostname lookup. An executing system
+lookup can finish in the background, and its result is discarded. On smol,
+blocking-pool resolution can outlive the connect future and its result is
+discarded. With either runtime, the abandoned lookup cannot proceed to socket
+setup. A blocking connect waits for an available resolver helper within its
+budget. If that budget expires during a lookup, the caller gets a timeout
+and the helper can finish in the background.
+
+`raw::InquiryRequest::new` uses the inquiry lifecycle's fixed
 timeout and accepts no timeout argument; `from_fn`, `with_context`, and explicit
 `request::InquiryPolicy` values follow the same rule. Inquiry constructors take
 `request::InquiryRetryClass::Never` or `InquiryRetryClass::Inquiry`; the latter

@@ -1,6 +1,15 @@
 //! Tokio's I/O primitives for the shared async transports.
 
-use std::{future::Future, io, net::SocketAddr, time::Instant};
+use std::{
+    future::Future,
+    io,
+    net::{SocketAddr, ToSocketAddrs},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Instant,
+};
 
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -25,12 +34,61 @@ use crate::{
 #[derive(Debug, Clone, Copy)]
 pub struct TokioNet;
 
+tokio::task_local! {
+    static CONNECT_ABANDONED: Arc<AtomicBool>;
+}
+
+struct AbortOnDrop<T> {
+    task: tokio::task::JoinHandle<T>,
+    abandoned: Arc<AtomicBool>,
+}
+
+impl<T> Drop for AbortOnDrop<T> {
+    fn drop(&mut self) {
+        self.abandoned.store(true, Ordering::Release);
+        self.task.abort();
+    }
+}
+
+async fn lookup_hostname(
+    endpoint: String,
+    resolve: impl FnOnce(String) -> io::Result<Vec<SocketAddr>> + Send + 'static,
+) -> io::Result<Vec<SocketAddr>> {
+    let abandoned = CONNECT_ABANDONED
+        .try_with(Arc::clone)
+        .unwrap_or_else(|_| Arc::new(AtomicBool::new(false)));
+    let worker_abandoned = Arc::clone(&abandoned);
+    let mut lookup = AbortOnDrop {
+        task: tokio::task::spawn_blocking(move || {
+            // The connect future can be dropped before Tokio polls the
+            // selected-runtime task's cancellation.
+            if worker_abandoned.load(Ordering::Acquire) {
+                return Err(io::ErrorKind::Interrupted.into());
+            }
+            resolve(endpoint)
+        }),
+        abandoned,
+    };
+    let result = (&mut lookup.task).await.map_err(io::Error::other)?;
+    if lookup.abandoned.load(Ordering::Acquire) {
+        return Err(io::ErrorKind::Interrupted.into());
+    }
+    result
+}
+
 impl AsyncNet for TokioNet {
     type TcpStream = TcpStream;
     type UdpSocket = UdpSocket;
 
     async fn lookup(endpoint: String) -> io::Result<Vec<SocketAddr>> {
-        Ok(tokio::net::lookup_host(endpoint).await?.collect())
+        #[cfg(test)]
+        if let Ok(probe) = tests::LOOKUP_PROBE.try_with(Arc::clone) {
+            return probe.lookup(endpoint).await;
+        }
+        lookup_hostname(endpoint, |endpoint| {
+            Ok(endpoint.to_socket_addrs()?.collect())
+        })
+        .await
     }
 
     async fn connect_tcp(address: SocketAddr, options: TcpConnect) -> io::Result<TcpStream> {
@@ -132,18 +190,17 @@ async fn connect_on<T: Send + 'static>(
     kind: &'static str,
     future: impl Future<Output = Result<T, Error>> + Send + 'static,
 ) -> Result<T, Error> {
-    struct AbortOnDrop<T>(tokio::task::JoinHandle<T>);
-
-    impl<T> Drop for AbortOnDrop<T> {
-        fn drop(&mut self) {
-            self.0.abort();
-        }
-    }
-
-    let mut task = AbortOnDrop(handle.spawn(future));
-    (&mut task.0).await.map_err(|error| Error::InvalidState {
-        reason: format!("selected Tokio runtime stopped while connecting {kind}: {error}").into(),
-    })?
+    let abandoned = Arc::new(AtomicBool::new(false));
+    let mut connector = AbortOnDrop {
+        task: handle.spawn(CONNECT_ABANDONED.scope(Arc::clone(&abandoned), future)),
+        abandoned,
+    };
+    (&mut connector.task)
+        .await
+        .map_err(|error| Error::InvalidState {
+            reason: format!("selected Tokio runtime stopped while connecting {kind}: {error}")
+                .into(),
+        })?
 }
 
 /// Implement AsyncDatagram for tokio's UdpSocket
@@ -167,12 +224,157 @@ impl AsyncDatagram for UdpSocket {
 mod tests {
     use super::*;
     use std::{
-        sync::{
-            atomic::{AtomicBool, Ordering},
-            Arc,
-        },
+        net::TcpListener,
+        sync::{atomic::AtomicUsize, mpsc, Mutex},
         time::Duration,
     };
+    use tokio::sync::{oneshot, Notify};
+
+    type Resolver = Box<dyn FnOnce(String) -> io::Result<Vec<SocketAddr>> + Send>;
+
+    pub(super) struct LookupProbe {
+        resolver: Mutex<Option<Resolver>>,
+        queued: Notify,
+    }
+
+    tokio::task_local! {
+        pub(super) static LOOKUP_PROBE: Arc<LookupProbe>;
+    }
+
+    impl LookupProbe {
+        fn new(
+            resolver: impl FnOnce(String) -> io::Result<Vec<SocketAddr>> + Send + 'static,
+        ) -> Arc<Self> {
+            Arc::new(Self {
+                resolver: Mutex::new(Some(Box::new(resolver))),
+                queued: Notify::new(),
+            })
+        }
+
+        pub(super) async fn lookup(&self, endpoint: String) -> io::Result<Vec<SocketAddr>> {
+            let resolve = self.resolver.lock().unwrap().take().unwrap();
+            let mut lookup = std::pin::pin!(lookup_hostname(endpoint, resolve));
+            let ready = futures_lite::future::poll_once(lookup.as_mut()).await;
+            self.queued.notify_one();
+            match ready {
+                Some(result) => result,
+                None => lookup.await,
+            }
+        }
+
+        async fn connect(
+            self: Arc<Self>,
+            endpoint: String,
+            timeout: Duration,
+        ) -> Result<TcpStream, Error> {
+            let endpoint = crate::transport::NetworkEndpoint::parse(&endpoint, None).unwrap();
+            let config = TcpConnect::default().with_connect_timeout(timeout).unwrap();
+            connect_on(
+                &tokio::runtime::Handle::current(),
+                "TCP",
+                LOOKUP_PROBE.scope(self, async move {
+                    async_connect::connect_tcp::<TokioNet>(&endpoint, config).await
+                }),
+            )
+            .await
+        }
+    }
+
+    #[test]
+    fn dropped_and_expired_connects_skip_queued_hostname_resolution() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .max_blocking_threads(1)
+            .enable_all()
+            .start_paused(true)
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let (busy, worker_started) = oneshot::channel();
+            let (release_worker, release) = mpsc::channel::<()>();
+            let worker = tokio::task::spawn_blocking(move || {
+                busy.send(()).unwrap();
+                let _ = release.recv();
+            });
+            worker_started.await.unwrap();
+
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let hostname = format!("camera.invalid:{}", address.port());
+            let calls = Arc::new(AtomicUsize::new(0));
+            let new_probe = || {
+                let calls = Arc::clone(&calls);
+                LookupProbe::new(move |_| {
+                    calls.fetch_add(1, Ordering::Relaxed);
+                    Ok(vec![address])
+                })
+            };
+            let short = Duration::from_millis(100);
+            let long = Duration::from_secs(10);
+            let dropped = new_probe();
+            let mut connector = Box::pin(Arc::clone(&dropped).connect(hostname.clone(), long));
+            assert!(futures_lite::future::poll_once(connector.as_mut())
+                .await
+                .is_none());
+            dropped.queued.notified().await;
+            drop(connector);
+
+            let expired = new_probe();
+            let connector = tokio::spawn(Arc::clone(&expired).connect(hostname.clone(), short));
+            expired.queued.notified().await;
+            tokio::time::advance(short).await;
+            assert!(matches!(
+                connector.await.unwrap(),
+                Err(Error::Timeout { .. })
+            ));
+
+            let live = new_probe();
+            let connector = tokio::spawn(Arc::clone(&live).connect(hostname, long));
+            live.queued.notified().await;
+            release_worker.send(()).unwrap();
+            worker.await.unwrap();
+            assert!(connector.await.unwrap().is_ok());
+            assert_eq!(calls.load(Ordering::Relaxed), 1);
+
+            assert!(new_probe().connect(address.to_string(), long).await.is_ok());
+            assert_eq!(calls.load(Ordering::Relaxed), 1);
+        });
+    }
+
+    #[test]
+    fn dropping_connect_discards_an_executing_lookup_result() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .max_blocking_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let address = listener.local_addr().unwrap();
+            let (started, resolver_started) = oneshot::channel();
+            let (release_resolver, resume) = mpsc::channel::<()>();
+            let probe = LookupProbe::new(move |_| {
+                started.send(()).unwrap();
+                resume.recv().unwrap();
+                Ok(vec![address])
+            });
+            let handle = tokio::runtime::Handle::current();
+            let baseline = handle.metrics().num_alive_tasks();
+            let mut connector = Box::pin(probe.connect(
+                format!("camera.invalid:{}", address.port()),
+                Duration::from_secs(10),
+            ));
+            assert!(futures_lite::future::poll_once(connector.as_mut())
+                .await
+                .is_none());
+            resolver_started.await.unwrap();
+            drop(connector);
+            release_resolver.send(()).unwrap();
+            tokio::task::spawn_blocking(|| {}).await.unwrap();
+            wait_for_task_cleanup(&handle, baseline).await;
+            assert!(matches!(listener.accept(), Err(e) if e.kind() == io::ErrorKind::WouldBlock));
+        });
+    }
 
     struct Dropped(Arc<AtomicBool>);
     impl Drop for Dropped {
@@ -218,7 +420,7 @@ mod tests {
         assert!(dropped.load(Ordering::SeqCst));
     }
     #[cfg(target_os = "linux")]
-    fn full_accept_queue() -> (std::net::TcpListener, std::net::TcpStream) {
+    fn full_accept_queue() -> (TcpListener, std::net::TcpStream) {
         let listener = socket2::Socket::new(
             socket2::Domain::IPV4,
             socket2::Type::STREAM,
@@ -229,7 +431,7 @@ mod tests {
             .bind(&"127.0.0.1:0".parse::<SocketAddr>().unwrap().into())
             .unwrap();
         listener.listen(0).unwrap();
-        let listener: std::net::TcpListener = listener.into();
+        let listener: TcpListener = listener.into();
         let filler = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         listener.set_nonblocking(true).unwrap();
         (listener, filler)
