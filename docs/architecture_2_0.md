@@ -690,9 +690,11 @@ command proves that command's completion was lost: it ends unconfirmed and
 the socket is released (#721).
 A live socketless ACK records anonymous execution. Other live and retired
 executions can still account for a terminal. The resolver considers their
-socket keys and retained evidence before attributing it. The per-target
-upper bound on owed terminals releases stale evidence when it proves that
-no terminal remains. STOP delivery continues.
+socket keys and retained evidence before attributing it. A datagram retains
+an expired anonymous execution through its ambiguity deadline. A stream
+keeps its terminal as debt. If that window passes without evidence, ordinary
+commands on that target fail with `CommandCorrelationLost` until terminal
+evidence proves there is no debt. STOP delivery continues.
 
 A tracked dispute is also decided where the engine learns who sent nothing
 or who completed, and its frames are then assigned at once:
